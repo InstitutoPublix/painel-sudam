@@ -30,21 +30,26 @@ def plot(fig: go.Figure, key: str | None = None):
 # --------------------------------------------------------------------------- #
 with st.sidebar:
     st.markdown("### Filtros")
-    labels = {REG[k].label: k for k in D["indicators"]}
-    ind_label = st.selectbox("Indicador", list(labels), help="Cada coluna das bases é um indicador.")
-    IND = labels[ind_label]
+    eixos = sorted({REG[k].axis for k in D["indicators"]})
+    eixo = st.selectbox("Eixo temático", ["Todos os eixos", *eixos])
+    pool = [k for k in D["indicators"] if eixo == "Todos os eixos" or REG[k].axis == eixo]
+    IND = st.selectbox("Indicador", pool, format_func=lambda k: REG[k].label,
+                       help="Indicadores ativos em config/indicadores.toml.")
     I = REG[IND]
     years = data.years_with_data(D, IND)
-    YEAR = st.select_slider("Ano de referência", years, value=years[-1])
+    if len(years) > 1:
+        YEAR = st.select_slider("Ano de referência", years, value=years[-1])
+    else:
+        YEAR = years[0]
+        st.caption(f"Ano de referência: **{YEAR}** (único ano com dado)")
     recorte = st.radio("Recorte territorial", ["Amazônia Legal", "Brasil"], horizontal=True)
     AL_ONLY = recorte == "Amazônia Legal"
     ufs_pool = D["al_ufs"] if AL_ONLY else D["ufs"]
     UFS = st.multiselect("Estados (UF)", ufs_pool, default=[], placeholder="Todos")
     PORTE = st.multiselect("Porte populacional (municípios)", [p[0] for p in PORTES], default=[],
                            placeholder="Todos")
-    st.caption(f"**{I.label}** · {I.unit}")
-    if I.derived:
-        st.caption("Indicador calculado: PIB ÷ população do mesmo ano. Só existe onde as duas bases têm dado.")
+    st.caption(f"**{I.label}** · {I.unit}" + (f" · {I.polarity_text}" if I.polarity_text else ""))
+    st.caption(f"Amazônia Legal: {I.agg_note.lower()}.")
     st.markdown("---")
     st.caption("SUDAM · PNUD · Instituto Publix\n\nProjeto BRA/21/005")
 
@@ -77,6 +82,12 @@ def arrow(v: float) -> str:
     if fmt.isna(v):
         return "—"
     return f'<span class="{"up" if v >= 0 else "down"}">{"▲" if v >= 0 else "▼"} {fmt.pct(abs(v))}</span>'
+
+
+def grid(keys: list[str], n: int = 4):
+    """Distribui itens em linhas de n colunas."""
+    for i in range(0, len(keys), n):
+        yield from zip(st.columns(n), keys[i:i + n])
 
 
 def map_view(level: str):
@@ -155,8 +166,7 @@ with tabs[0]:
 
     st.markdown("---")
     theme.title("Indicadores em destaque", "Série histórica da Amazônia Legal para cada indicador da base")
-    cols = st.columns(len(D["indicators"]))
-    for col, k in zip(cols, D["indicators"]):
+    for col, k in grid(D["indicators"]):
         ik = REG[k]
         s = data.series(D, [AMZ], k).dropna(subset=["valor"])
         with col:
@@ -173,7 +183,7 @@ with tabs[0]:
 with tabs[1]:
     m1, m2, m3 = st.columns([1, 1, 2])
     lvl = m1.radio("Escala", ["Estado", "Município"], horizontal=True, key="map_lvl")
-    mode_lbl = m2.radio("Escala de cores", ["Faixas (quintis)", "Contínua (log)"], horizontal=True, key="map_mode")
+    mode_lbl = m2.radio("Escala de cores", ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"], horizontal=True, key="map_mode")
     mdf = snap(lvl)
     if len(mdf) < 5:
         st.warning("Poucos territórios com dado nesta combinação de filtros.")
@@ -195,7 +205,7 @@ with tabs[1]:
             plot(charts.hbar(mdf, I, 10, height=300), "map_top")
             theme.title("10 menores")
             plot(charts.hbar(mdf, I, 10, ascending=True, height=300, color="#17803B"), "map_bot")
-    if len(years) and I.kind != "pop":
+    if I.kind == "moeda":
         st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
                     'inflação.</div>', unsafe_allow_html=True)
 
@@ -227,8 +237,7 @@ with tabs[2]:
     st.markdown(f"<h2 style='margin:.2rem 0 .3rem'>{sel}</h2>" + "".join(f'<span class="chip">{c}</span>' for c in chips),
                 unsafe_allow_html=True)
 
-    cols = st.columns(len(D["indicators"]))
-    for col, k in zip(cols, D["indicators"]):
+    for col, k in grid(D["indicators"]):
         ik = REG[k]
         v = value_of(tid, k)
         yr0, v0 = first_valid(tid, k)
@@ -261,17 +270,19 @@ with tabs[2]:
         v = value_of(tid)
         if peers is not None and len(peers) > 3 and not fmt.isna(v):
             pct = float((peers.valor < v).mean() * 100)
-            fig = go.Figure(go.Histogram(x=np.log10(peers.valor.clip(lower=1)), nbinsx=40,
+            lo = charts.positive_min(peers.valor)
+            tf = (lambda x: np.log10(np.clip(x, lo, None))) if I.log else (lambda x: x)
+            fig = go.Figure(go.Histogram(x=tf(peers.valor), nbinsx=40,
                                          marker=dict(color="#17803B", line=dict(color="#04140B", width=.5)),
                                          hoverinfo="skip"))
-            fig.add_vline(x=np.log10(max(v, 1)), line=dict(color=theme.LIME, width=3),
+            fig.add_vline(x=float(tf(v)), line=dict(color=theme.LIME, width=3),
                           annotation_text=f"{sel.split(' (')[0]}", annotation_font_color=theme.LIME)
-            vals, txt = charts._ticks(I, peers.valor.min(), peers.valor.max(), log=True)
+            vals, txt = charts._ticks(I, lo if I.log else peers.valor.min(), peers.valor.max(), log=I.log)
             fig.update_layout(height=300, bargap=.05, yaxis_title="nº de territórios")
-            fig.update_xaxes(tickvals=[np.log10(x) for x in vals], ticktext=txt)
+            fig.update_xaxes(tickvals=[float(tf(x)) for x in vals], ticktext=txt)
             plot(fig, "perfil_hist")
             st.markdown(f"**{sel}** está acima de **{fmt.num(pct, 0)}%** dos {len(peers)} "
-                        f"{plvl.lower()}s com dado em {YEAR} (escala logarítmica).")
+                        f"{plvl.lower()}s com dado em {YEAR}" + (" (escala logarítmica)." if I.log else "."))
         else:
             st.info("Sem grupo de pares para esta granularidade.")
 
@@ -343,7 +354,8 @@ with tabs[3]:
         theme.title("Todos os indicadores lado a lado", f"Território principal: {sr.label.iloc[0]} · base 100")
         first = sr.tid.iloc[0]
         fig = go.Figure()
-        for k, colr in zip(D["indicators"], theme.COLORWAY):
+        for i, k in enumerate(D["indicators"]):
+            colr = theme.COLORWAY[i % len(theme.COLORWAY)]
             t = charts.transform(data.series(D, [first], k), "indice")
             if len(t):
                 fig.add_trace(go.Scatter(x=t.ano, y=t.y, name=REG[k].label, mode="lines+markers", connectgaps=True,
@@ -415,7 +427,7 @@ with tabs[5]:
             s = snap("Estado")
         parts.append(s.assign(nivel=lv))
     bm = pd.concat(parts)
-    logb = st.checkbox("Escala logarítmica", value=I.additive, key="bm_log")
+    logb = st.checkbox("Escala logarítmica", value=I.log, key="bm_log")
     if bm.empty:
         st.warning("Sem dados no ano selecionado.")
     else:
@@ -423,7 +435,7 @@ with tabs[5]:
     st.markdown("---")
 
     # ---- B. dispersão entre indicadores -------------------------------------------
-    theme.title("Relação entre indicadores", "Cada ponto é um território; linha tracejada = tendência (ajuste em log-log)")
+    theme.title("Relação entre indicadores", "Cada ponto é um território; linha tracejada = tendência")
     b1, b2, b3 = st.columns(3)
     sc_lvl = b1.radio("Granularidade", ["Município", "Estado"], horizontal=True, key="sc_lvl")
     xk = b2.selectbox("Eixo X", D["indicators"], index=0, format_func=lambda k: REG[k].label, key="sc_x")
@@ -437,7 +449,8 @@ with tabs[5]:
     if len(sd) < 6:
         st.info("Poucos pontos com os dois indicadores neste ano. Tente outro ano ou outro par de indicadores.")
     else:
-        plot(charts.scatter(sd, REG[xk], REG[yk], log=True, size_col="pop" if "pop" in sd else None), "sc")
+        plot(charts.scatter(sd, REG[xk], REG[yk], log=REG[xk].log and REG[yk].log,
+                            size_col="pop" if "pop" in sd else None), "sc")
         st.caption(f"{len(sd):,} territórios · tamanho do ponto proporcional à população.".replace(",", "."))
     st.markdown("---")
 
@@ -445,7 +458,7 @@ with tabs[5]:
     theme.title("Distribuição dos municípios por UF", f"{I.label} em {YEAR} (caixas: quartis; pontos: municípios atípicos)")
     mm = snap("Município")
     if len(mm) > 10:
-        plot(charts.box_by_uf(mm, I, log=True), "box")
+        plot(charts.box_by_uf(mm, I, log=I.log), "box")
     st.markdown("---")
 
     # ---- D. face a face -----------------------------------------------------------
@@ -479,14 +492,16 @@ with tabs[6]:
             "no âmbito do projeto BRA/21/005 — SUDAM, PNUD e Instituto Publix. Ele permite ler cada indicador "
             "nas escalas **Brasil, Amazônia Legal, Grandes Regiões, Estados e Municípios**, com mapas, séries "
             "históricas, rankings e comparações.")
+        mf = D["manifest"]
         st.markdown(
-            "**Como as bases são lidas.** Cada recorte (Brasil, Regional, Estadual, Municipal) é um arquivo em "
-            "`data/`. As colunas até *Ano* identificam o território e o período; **cada coluna depois de *Ano* é um "
-            "indicador**, com o nome da coluna como nome do indicador. Novos indicadores adicionados ao final dos "
-            "CSVs aparecem automaticamente no painel.")
+            "**Origem dos dados.** As bases vêm da planilha do Banco de Indicadores do PRDA "
+            f"(*{mf['planilha']}*). Brasil, Grandes Regiões e Estados usam os valores publicados nas abas de "
+            "recorte; os textos de cada indicador vêm da aba *Lista de Indicadores*.")
         st.markdown(
-            "**Amazônia Legal.** Não há arquivo próprio: o valor é a soma dos municípios marcados como "
-            f"*Amazônia Legal = SIM* ({D['n_mun_al']} municípios em {len(D['al_ufs'])} UFs).")
+            "**Amazônia Legal.** Calculada a partir dos municípios marcados como *Amazônia Legal = SIM* "
+            f"({D['n_mun_al']} municípios em {len(D['al_ufs'])} UFs), conforme a regra de agregação de cada "
+            "indicador: soma, para totais, ou média ponderada (razão entre totais), para taxas e valores per capita.")
+        st.caption(f"Versão da base: {mf['versao']} · gerada em {mf['gerado_em'][:16].replace('T', ' ')}")
         st.markdown("**Faixas.** Os mapas e gráficos de distribuição dividem os territórios em cinco faixas de "
                     "mesmo tamanho (quintis) no ano selecionado.")
     with s2:
@@ -499,7 +514,7 @@ with tabs[6]:
             colorscale=[[0, "#2a0f0a"], [1, theme.LIME]], text=np.round(cov.values, 0), texttemplate="%{text:.0f}%",
             textfont=dict(size=9), hovertemplate="%{y} · %{x}: %{z:.0f}% dos municípios<extra></extra>",
             showscale=False))
-        fig.update_layout(height=200, margin=dict(l=0, r=0, t=0, b=0))
+        fig.update_layout(height=26 * len(cov) + 40, margin=dict(l=0, r=0, t=0, b=0))
         fig.update_xaxes(dtick=1, tickformat="d")
         plot(fig, "cov")
         st.caption("% de municípios com valor informado em cada ano. Lacunas vêm das bases de origem "
@@ -508,8 +523,8 @@ with tabs[6]:
     st.markdown("### Fichas dos indicadores")
     for k in D["indicators"]:
         ik = REG[k]
-        m = D["meta"].get(ik.meta_id or "")
-        with st.expander(f"{ik.label} — {ik.unit}"):
+        m = D["meta"].get(ik.key)
+        with st.expander(f"{ik.key} · {ik.label} — {ik.unit}"):
             if not m:
                 st.write("Sem ficha técnica cadastrada.")
                 continue
@@ -519,7 +534,8 @@ with tabs[6]:
                 f"- **Fonte:** {m['source']} ([{m['table']}]({m['link']}))\n"
                 f"- **Periodicidade / série:** {m['periodicity']} · {m['series']}\n"
                 f"- **Unidade:** {m['unit']} · **Polaridade:** {m['polarity']}\n"
-                f"- **Regra de agregação:** {m['aggregation']} · **Menor unidade:** {m['minTerritory']}")
+                f"- **Regra de agregação (ficha):** {m['aggregation']} · **Menor unidade:** {m['minTerritory']}\n"
+                f"- **Amazônia Legal no painel:** {m.get('aggregationApplied', '—')}")
             st.markdown(f'<div class="note"><b>Limitações.</b> {m["limits"]}</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="footer">Projeto BRA/21/005 · SUDAM · PNUD · Instituto Publix — PRDA · Produto 1</div>',

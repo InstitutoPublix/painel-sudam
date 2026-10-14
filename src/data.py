@@ -1,33 +1,32 @@
-"""Carga e padronização das bases (Brasil, Regiões, Estados, Municípios).
+"""Carga das bases do painel (Brasil, Amazônia Legal, Regiões, Estados, Municípios).
 
-Convenção das bases: as colunas até "Ano" identificam o território/período e
-todas as colunas depois de "Ano" são indicadores (nome da coluna = indicador).
-O resultado é uma tabela longa única, com uma linha por território × ano × indicador.
+As bases são geradas por scripts/build_data.py a partir da planilha do PRDA e ficam na pasta
+painel/ do bucket (ou em build/, quando não há bucket configurado):
+
+    dados.parquet  tabela longa: nivel, cod, nome, uf, regiao, al, ano, ind (ID da ficha), valor
+    fichas.json    ficha e formato de exibição de cada indicador
+    manifest.json  versão da base; o painel recarrega sozinho quando ela muda
 """
 from __future__ import annotations
 
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
 from . import fmt
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
+BUILD_DIR = ROOT / "build"
 ASSETS = ROOT / "assets"
+GCS_PREFIX = "painel/"
+MANIFEST_TTL = 600  # segundos entre checagens de nova versão no bucket
 
 LEVELS = ["Brasil", "Amazônia Legal", "Grande Região", "Estado", "Município"]
-FILE_SUFFIX = {
-    "Brasil": "Recorte Brasil",
-    "Grande Região": "Recorte Regional",
-    "Estado": "Recorte Estadual",
-    "Município": "Recorte Municipal",
-}
-REGIONS = {1: "Norte", 2: "Nordeste", 3: "Sudeste", 4: "Sul", 5: "Centro-Oeste"}
+POP_ID = "IND-001"  # define o porte dos municípios e o tamanho dos pontos nas dispersões
 
 PORTES = [
     ("Até 5 mil", 0, 5_000),
@@ -45,163 +44,131 @@ PORTES = [
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Indicator:
-    col: str          # nome da coluna na base (ou chave do indicador derivado)
+    key: str          # ID da ficha (ex.: IND-001)
     label: str        # nome de exibição
     unit: str
-    kind: str         # 'pop' | 'brl' | 'brl_pc'
+    kind: str         # 'numero' | 'percentual' | 'moeda'
+    decimals: int = 0
     scale: float = 1  # multiplicador para exibir na unidade real (R$ mil -> R$)
-    additive: bool = True
-    meta_id: str | None = None  # id na ficha do protótipo HTML
-    derived: bool = False
+    additive: bool = True  # soma entre territórios (participação no total faz sentido)
+    log: bool = True       # escala logarítmica em mapas, histogramas e dispersões
+    polarity: int = 0      # 1 maior é melhor · -1 menor é melhor · 0 neutra
+    axis: str = ""
     icon: str = "●"
+    agg_note: str = ""
 
     def fmt(self, v, compact: bool = True) -> str:
         if fmt.isna(v):
             return "—"
         v = v * self.scale
-        pre = "R$ " if self.kind.startswith("brl") else ""
-        return pre + (fmt.compact(v) if compact else fmt.num(v, 0))
+        if self.kind == "percentual":
+            return fmt.num(v, self.decimals) + "%"
+        pre = "R$ " if self.kind == "moeda" else ""
+        if compact and abs(v) >= 1e6:
+            return pre + fmt.compact(v)
+        return pre + fmt.num(v, self.decimals)
+
+    @property
+    def polarity_text(self) -> str:
+        return {1: "maior é melhor", -1: "menor é melhor"}.get(self.polarity, "")
 
 
-def _kind_of(col: str) -> str:
-    c = col.lower()
-    if "pib" in c or "r$" in c:
-        return "brl"
-    return "pop"
-
-
-def make_indicator(col: str) -> Indicator:
-    kind = _kind_of(col)
-    if kind == "brl":
-        return Indicator(col, "PIB municipal", "R$ (preços correntes)", "brl", 1000, True, "IND-068", icon="R$")
-    return Indicator(col, "População total", "habitantes", "pop", 1, True, "IND-001", icon="👥")
-
-
-PCAP_KEY = "PIB per capita"
-PCAP = Indicator(PCAP_KEY, "PIB per capita", "R$ por habitante (preços correntes)", "brl_pc", 1,
-                 False, "IND-069", derived=True, icon="R$/hab")
+def make_indicator(f: dict) -> Indicator:
+    d = f["display"]
+    return Indicator(f["id"], d["label"], d["unit"], d["format"], d["decimals"], d["scale"], d["additive"],
+                     d["log"], d["polarity"], f["axis"], d["icon"], f.get("aggregationApplied", ""))
 
 
 # --------------------------------------------------------------------------- #
 # Leitura
 # --------------------------------------------------------------------------- #
-def _csv_path(level: str) -> Path:
-    suf = FILE_SUFFIX[level]
-    for p in DATA_DIR.iterdir():
-        if p.suffix.lower() == ".csv" and p.stem.endswith(f"({suf})"):
-            return p
-    raise FileNotFoundError(f"Base não encontrada para '{level}' em {DATA_DIR}")
-
-
-def _read_csv(path: Path) -> pd.DataFrame:
+def _gcs_config() -> dict | None:
+    """Config do bucket em st.secrets['gcs'] ({bucket, prefix}); None = usar build/ local."""
     try:
-        return pd.read_csv(path, encoding="utf-8")
-    except UnicodeDecodeError:
-        return pd.read_csv(path, encoding="latin-1")
+        return dict(st.secrets["gcs"])
+    except (KeyError, FileNotFoundError):
+        return None
 
 
-def _std(df: pd.DataFrame, level: str) -> tuple[pd.DataFrame, list[str]]:
-    """Padroniza colunas de identificação e devolve (df, colunas de indicadores)."""
-    cols = list(df.columns)
-    ano_i = cols.index("Ano")
-    ind_cols = cols[ano_i + 1:]
-    ids = cols[:ano_i]
-    out = pd.DataFrame({"cod": df[ids[0]].astype("int64"), "ano": df["Ano"].astype("int64")})
-    if level == "Município":
-        out["nome"] = df["Município"].str.title().str.replace(r"\b(D[aeo]s?|E)\b", lambda m: m.group(0).lower(),
-                                                               regex=True)
-        out["uf"] = df["Estado"]
-        out["al"] = df["Amazônia Legal"].str.upper().eq("SIM")
-    else:
-        out["nome"] = df[ids[1]]
-        out["uf"] = None
-        out["al"] = pd.NA
-    for c in ind_cols:
-        out[c] = pd.to_numeric(df[c], errors="coerce")
-    return out, ind_cols
+@st.cache_resource
+def _gcs_bucket(bucket_name: str):
+    from google.cloud import storage
+    from google.oauth2 import service_account
+
+    creds = service_account.Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]))
+    return storage.Client(credentials=creds, project=creds.project_id).bucket(bucket_name)
 
 
-def _add_pcap(df: pd.DataFrame, pop_col: str | None, pib_col: str | None) -> pd.DataFrame:
-    if pop_col and pib_col:
-        df[PCAP_KEY] = df[pib_col] * 1000 / df[pop_col]
-    return df
+def _read_bytes(name: str) -> bytes:
+    cfg = _gcs_config()
+    if cfg:
+        prefix = cfg.get("prefix", GCS_PREFIX)
+        path = f"{prefix.rstrip('/')}/{name}" if prefix else name
+        blob = _gcs_bucket(cfg["bucket"]).blob(path)
+        if not blob.exists():
+            raise FileNotFoundError(f"gs://{cfg['bucket']}/{path} não encontrado. Suba os arquivos gerados por "
+                                    "`python scripts/build_data.py` para essa pasta do bucket.")
+        return blob.download_as_bytes()
+    p = BUILD_DIR / name
+    if not p.exists():
+        raise FileNotFoundError(f"{p} não encontrado. Rode `python scripts/build_data.py` para gerar as bases.")
+    return p.read_bytes()
 
 
-@st.cache_resource(show_spinner="Carregando bases…")
+@st.cache_data(ttl=MANIFEST_TTL, show_spinner=False)
+def _manifest() -> dict:
+    return json.loads(_read_bytes("manifest.json"))
+
+
 def load() -> dict:
-    """Devolve dict com a tabela longa, indicadores e dimensões territoriais."""
-    frames, ind_cols = {}, None
-    for lvl in FILE_SUFFIX:
-        frames[lvl], cols = _std(_read_csv(_csv_path(lvl)), lvl)
-        ind_cols = cols if ind_cols is None else [c for c in ind_cols if c in cols]
+    """Bases do painel, recarregadas quando a versão no manifest muda."""
+    return _load(_manifest()["versao"])
 
-    mun, est, reg, bra = (frames[k] for k in ("Município", "Estado", "Grande Região", "Brasil"))
 
-    # dimensões territoriais derivadas do código IBGE
-    uf_code = mun.drop_duplicates("cod").assign(ufc=lambda d: d.cod // 100000)[["ufc", "uf"]].drop_duplicates("ufc")
-    code2uf = dict(zip(uf_code.ufc, uf_code.uf))
-    al_ufs = set(mun.loc[mun.al, "uf"])
-    est["uf"] = est.cod.map(code2uf)
-    est["al"] = est.uf.isin(al_ufs)
-    est["regiao"] = est.cod.floordiv(10).map(REGIONS)
-    mun["regiao"] = mun.cod.floordiv(1_000_000).map(REGIONS)
-    reg["uf"], bra["uf"] = None, None
+@st.cache_resource(show_spinner="Carregando bases…", max_entries=1)
+def _load(versao: str) -> dict:
+    manifest = _manifest()
+    fichas = json.loads(_read_bytes("fichas.json"))["indicadores"]
+    long = pd.read_parquet(io.BytesIO(_read_bytes("dados.parquet")))
 
-    # Amazônia Legal = soma dos municípios marcados como "SIM"
-    amz = (mun[mun.al].groupby("ano")[ind_cols].sum(min_count=1).reset_index())
-    amz["cod"], amz["nome"], amz["uf"] = 0, "Amazônia Legal", None
+    registry = {f["id"]: make_indicator(f) for f in fichas}
+    inds = [f["id"] for f in fichas if f["id"] in set(long.ind.astype(str))]
 
-    registry: dict[str, Indicator] = {c: make_indicator(c) for c in ind_cols}
-    pop_col = next((c for c, i in registry.items() if i.kind == "pop"), None)
-    pib_col = next((c for c, i in registry.items() if i.kind == "brl"), None)
-    derived = bool(pop_col and pib_col)
-    if derived:
-        registry[PCAP_KEY] = PCAP
-        for df in (mun, est, reg, bra, amz):
-            _add_pcap(df, pop_col, pib_col)
-    inds = list(registry)
-
-    parts = []
-    for lvl, df in (("Brasil", bra), ("Amazônia Legal", amz), ("Grande Região", reg),
-                    ("Estado", est), ("Município", mun)):
-        d = df.copy()
-        d["nivel"] = lvl
-        for c in ("uf", "regiao", "al"):
-            if c not in d:
-                d[c] = None
-        parts.append(d.melt(id_vars=["nivel", "cod", "nome", "uf", "regiao", "al", "ano"],
-                            value_vars=inds, var_name="ind", value_name="valor"))
-    long = pd.concat(parts, ignore_index=True)
     long["al"] = long["al"].astype("boolean")
-    long["label"] = np.where(long.nivel.eq("Município"), long.nome + " (" + long.uf.fillna("") + ")", long.nome)
-    for c in ("nivel", "ind", "uf", "regiao", "nome", "label"):
-        long[c] = long[c].astype("category")
+    long["ano"] = long["ano"].astype("int64")
+    long["nome"] = long["nome"].astype(str)
+    long["label"] = long.nome.where(long.nivel.ne("Município"), long.nome + " (" + long.uf.astype(str) + ")")
     long["tid"] = long["nivel"].astype(str) + ":" + long["cod"].astype(str)
-    long["tid"] = long["tid"].astype("category")
+    for c in ("nivel", "ind", "uf", "regiao", "nome", "label", "tid"):
+        long[c] = long[c].astype("category")
 
-    # população de referência (mais próxima disponível) → porte do município
+    mun = long[long.nivel == "Município"]
+    al_ufs = sorted(mun.loc[mun.al.fillna(False).astype(bool), "uf"].astype(str).unique())
+    est_ufs = set(long.loc[long.nivel == "Estado", "uf"].dropna().astype(str))
+
+    # população de referência (mediana dos anos disponíveis) → porte do município
     porte = None
-    if pop_col:
-        p = mun.pivot(index="cod", columns="ano", values=pop_col)
+    if POP_ID in registry:
+        p = mun[mun.ind == POP_ID].pivot_table(index="cod", columns="ano", values="valor", observed=True)
         ref = p.median(axis=1)
         porte = pd.cut(ref, [b[1] for b in PORTES] + [float("inf")], right=False,
                        labels=[b[0] for b in PORTES]).astype(str).rename("porte")
 
-    meta = json.loads((ASSETS / "indicators.json").read_text(encoding="utf-8"))
+    axis_meta = json.loads((ASSETS / "indicators.json").read_text(encoding="utf-8"))
     return {
         "long": long,
         "registry": registry,
         "indicators": inds,
         "porte": porte,
-        "ufs": sorted(al_ufs | set(est.uf.dropna())),
-        "al_ufs": sorted(al_ufs),
-        "meta": {i["id"]: i for i in meta["indicators"]},
-        "axis_colors": meta["axisColors"],
-        "axis_desc": meta["axisDescriptions"],
-        "pop_col": pop_col,
-        "pib_col": pib_col,
+        "ufs": sorted(set(al_ufs) | est_ufs),
+        "al_ufs": al_ufs,
+        "meta": {f["id"]: f for f in fichas},
+        "axis_colors": axis_meta.get("axisColors", {}),
+        "axis_desc": axis_meta.get("axisDescriptions", {}),
+        "manifest": manifest,
+        "pop_col": POP_ID if POP_ID in inds else None,
         "n_mun": int(mun.cod.nunique()),
-        "n_mun_al": int(mun[mun.al].cod.nunique()),
+        "n_mun_al": int(mun.loc[mun.al.fillna(False).astype(bool), "cod"].nunique()),
     }
 
 
@@ -210,7 +177,7 @@ def load() -> dict:
 # --------------------------------------------------------------------------- #
 def years_with_data(D: dict, ind: str) -> list[int]:
     d = D["long"]
-    s = d.loc[(d.ind == ind) & d.valor.notna() & d.nivel.eq("Estado"), "ano"]
+    s = d.loc[(d.ind == ind) & d.valor.notna(), "ano"]
     return sorted(s.unique().tolist())
 
 
@@ -241,7 +208,7 @@ def series(D: dict, tids, ind: str) -> pd.DataFrame:
 
 def territories(D: dict, level: str) -> pd.DataFrame:
     d = D["long"]
-    d = d[(d.nivel == level) & (d.ind == D["indicators"][0]) & (d.ano == d.ano.min())]
+    d = d[(d.nivel == level) & (d.ind == D["indicators"][0])].drop_duplicates("tid")
     d = d[["tid", "label", "uf", "cod"]].copy()
     for c in ("tid", "label", "uf"):
         d[c] = d[c].astype(str)

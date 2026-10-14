@@ -45,6 +45,20 @@ def _colors(labels_levels: list[tuple[str, str]]) -> dict[str, str]:
     return out
 
 
+def seq(ind: Indicator) -> list[str]:
+    """Faixas do menor ao maior valor; invertida quando menor é melhor (lima = melhor situação)."""
+    return SEQ[::-1] if ind.polarity < 0 else SEQ
+
+
+def seq_cont(ind: Indicator) -> list:
+    return [[1 - p, c] for p, c in reversed(SEQ_CONT)] if ind.polarity < 0 else SEQ_CONT
+
+
+def positive_min(s: pd.Series, default: float = 1) -> float:
+    s = s[s > 0]
+    return float(s.min()) if len(s) else default
+
+
 _GEO: dict[str, dict] = {}
 
 
@@ -69,7 +83,7 @@ def geojson(level: str) -> dict:
 # --------------------------------------------------------------------------- #
 def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas",
                zoom: float = 3.2, center=(-9.0, -54.0), height: int = 560) -> go.Figure:
-    """df: cod, label, valor. mode: 'faixas' (quantis) ou 'continua' (log)."""
+    """df: cod, label, valor. mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir)."""
     gj_all = geojson(level)
     ids = set(df.cod.astype(str).str.zfill(2 if level == "Estado" else 7))
     sub = {"type": "FeatureCollection", "features": [f for f in gj_all["features"] if f["id"] in ids]}
@@ -87,20 +101,26 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
     if mode == "faixas":
         b = bands(df.valor).astype(int)
         scale = []
-        for i, c in enumerate(SEQ):
+        for i, c in enumerate(seq(ind)):
             scale += [[i / 5, c], [(i + 1) / 5, c]]
         fig.add_trace(go.Choroplethmap(
             geojson=sub, locations=codes, z=b + 0.5, zmin=0, zmax=5, colorscale=scale, showscale=False,
             text=hover, hovertemplate="%{text}<extra></extra>",
             marker_line_color="rgba(4,20,11,0.9)", marker_line_width=0.25 if level == "Município" else 0.8))
     else:
-        z = np.log10(df.valor.clip(lower=1))
-        vals, txt = _ticks(ind, df.valor.min(), df.valor.max(), log=True)
+        if ind.log:
+            lo = positive_min(df.valor)
+            z = np.log10(df.valor.clip(lower=lo))
+            vals, txt = _ticks(ind, lo, df.valor.max(), log=True)
+            tickvals = [math.log10(v) for v in vals]
+        else:
+            z = df.valor
+            tickvals, txt = _ticks(ind, df.valor.min(), df.valor.max())
         fig.add_trace(go.Choroplethmap(
-            geojson=sub, locations=codes, z=z, colorscale=SEQ_CONT, text=hover,
+            geojson=sub, locations=codes, z=z, colorscale=seq_cont(ind), text=hover,
             hovertemplate="%{text}<extra></extra>",
             marker_line_color="rgba(4,20,11,0.9)", marker_line_width=0.25 if level == "Município" else 0.8,
-            colorbar=dict(tickvals=[math.log10(v) for v in vals], ticktext=txt, len=0.6, thickness=10,
+            colorbar=dict(tickvals=tickvals, ticktext=txt, len=0.6, thickness=10,
                           tickfont=dict(size=10, color="#cfe3d4"), outlinewidth=0)))
     fig.update_layout(map=dict(style="carto-darkmatter", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
@@ -110,7 +130,7 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
 def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
     rng = band_ranges(df.valor)
     items = "".join(f'<span><i style="background:{c}"></i>{ind.fmt(lo)} – {ind.fmt(hi)}</span>'
-                    for c, (lo, hi) in zip(SEQ, rng))
+                    for c, (lo, hi) in zip(seq(ind), rng))
     return f'<div class="legend">{items}</div>'
 
 
@@ -124,7 +144,7 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
     names = ["Faixa 1 (menores)", "Faixa 2", "Faixa 3", "Faixa 4", "Faixa 5 (maiores)"]
     fig = go.Figure(go.Pie(
         labels=names, values=counts.values, hole=0.62, sort=False, direction="clockwise",
-        marker=dict(colors=SEQ, line=dict(color="#04140B", width=2)),
+        marker=dict(colors=seq(ind), line=dict(color="#04140B", width=2)),
         customdata=[f"{ind.fmt(lo)} – {ind.fmt(hi)}" for lo, hi in rng],
         hovertemplate="%{label}<br>%{value} " + unit_label + " (%{percent})<br>%{customdata}<extra></extra>",
         textinfo="value", textfont=dict(color="#ffffff", size=12)))
@@ -178,7 +198,7 @@ def box_by_uf(df: pd.DataFrame, ind: Indicator, log: bool = True) -> go.Figure:
             line=dict(width=1.3), text=g.label, hovertemplate="%{text}<br><b>%{customdata}</b><extra></extra>",
             customdata=g.valor.map(ind.fmt), showlegend=False))
     fig.update_layout(height=420)
-    value_axis(fig, ind, max(df.valor.min(), 1), df.valor.max(), "y", log)
+    value_axis(fig, ind, positive_min(df.valor) if log else df.valor.min(), df.valor.max(), "y", log)
     return fig
 
 
@@ -207,8 +227,8 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
             x=10 ** xs if log else xs, y=10 ** (a * xs + b) if log else a * xs + b, mode="lines",
             name=f"Tendência (r = {fmt.num(r, 2)})", line=dict(color="#fff", dash="dash", width=1.5), hoverinfo="skip"))
     fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2))
-    value_axis(fig, xi, max(df.x.min(), 1), df.x.max(), "x", log, title=xi.label)
-    value_axis(fig, yi, max(df.y.min(), 1), df.y.max(), "y", log, title=yi.label)
+    value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=xi.label)
+    value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=yi.label)
     return fig
 
 

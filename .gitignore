@@ -1,5 +1,9 @@
 .venv/
-data/
-.streamlit/
 __pycache__/
 *.pyc
+.streamlit/secrets.toml
+*.json
+# planilha de origem (grande) e bases geradas: vão para o bucket, não para o repositório
+data/*.xlsx
+~$*.xlsx
+build/

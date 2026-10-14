@@ -1,0 +1,85 @@
+# Indicadores exibidos no painel, na ordem em que aparecem.
+#
+# Para incluir um indicador: acrescente um bloco [[indicador]] com o ID da aba "Lista de Indicadores",
+# rode `python scripts/build_data.py` e suba os arquivos de build/ para a pasta painel/ do bucket.
+#
+# Só o `id` é obrigatório. Os demais campos sobrescrevem o que vem da ficha:
+#   rotulo     nome curto exibido no painel (padrão: nome do indicador na ficha)
+#   unidade    unidade exibida (padrão: "Unidade de Medida" da ficha)
+#   coluna     nome da coluna nas abas de recorte, quando difere do nome na ficha
+#   agregacao  como calcular a Amazônia Legal a partir dos municípios: "soma" ou "media_ponderada"
+#              (padrão: "Regra de Agregação Territorial" da ficha)
+#   peso       ID do indicador usado como peso na média ponderada (obrigatório nesse caso)
+#   formato    "numero" | "percentual" | "moeda" (padrão: deduzido da unidade)
+#   casas      casas decimais
+#   escala     multiplicador até a unidade exibida (ex.: valores em R$ mil -> 1000)
+#   log        true para usar escala logarítmica em mapas, histogramas e dispersões
+#   icone      texto curto exibido nos cartões
+
+# --- Indicadores que já estavam no painel ------------------------------------------------------
+
+[[indicador]]
+id = "IND-001"
+rotulo = "População total"
+icone = "👥"
+
+[[indicador]]
+id = "IND-068"
+rotulo = "PIB municipal"
+coluna = "PIB Municipal (R$ mil, a preços correntes)"
+unidade = "R$ (preços correntes)"
+escala = 1000
+
+[[indicador]]
+id = "IND-069"
+rotulo = "PIB per capita"
+unidade = "R$ por habitante (preços correntes)"
+# a ficha indica "Soma", mas valor per capita só agrega como razão entre totais (PIB ÷ população)
+agregacao = "media_ponderada"
+peso = "IND-001"
+icone = "R$/hab"
+
+# --- Lote 1 ------------------------------------------------------------------------------------
+
+[[indicador]]
+id = "IND-002"
+rotulo = "Densidade demográfica"
+peso = "IND-013"
+casas = 1
+log = true
+
+[[indicador]]
+id = "IND-032"
+rotulo = "Matrículas em EPT"
+icone = "🎓"
+
+[[indicador]]
+id = "IND-039"
+rotulo = "Leitos hospitalares"
+icone = "🏥"
+
+[[indicador]]
+id = "IND-147"
+rotulo = "Médicos por mil habitantes"
+peso = "IND-001"
+icone = "🩺"
+
+[[indicador]]
+id = "IND-103"
+rotulo = "CadÚnico com Bolsa Família"
+peso = "IND-114"
+
+[[indicador]]
+id = "IND-055"
+rotulo = "Desmatamento acumulado"
+icone = "🌳"
+
+[[indicador]]
+id = "IND-057"
+rotulo = "Focos de calor"
+icone = "🔥"
+
+[[indicador]]
+id = "IND-074"
+rotulo = "Valor da produção agrícola"
+icone = "🌾"
