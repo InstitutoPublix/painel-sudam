@@ -45,6 +45,16 @@ def _colors(labels_levels: list[tuple[str, str]]) -> dict[str, str]:
     return out
 
 
+def low(text: str) -> str:
+    """Primeira letra minúscula para usar no meio da frase, preservando siglas ('PIB municipal')."""
+    return text[0].lower() + text[1:] if len(text) > 1 and text[1].islower() else text
+
+
+def axis_label(ind: Indicator) -> str:
+    """Nome do indicador com a unidade, para títulos de eixo e de legenda."""
+    return f"{ind.label} · {ind.unit}" if "(" in ind.unit else f"{ind.label} ({ind.unit})"
+
+
 def seq(ind: Indicator) -> list[str]:
     """Faixas do menor ao maior valor; invertida quando menor é melhor (verde-escuro = melhor situação)."""
     return SEQ[::-1] if ind.polarity < 0 else SEQ
@@ -120,7 +130,7 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
             geojson=sub, locations=codes, z=z, colorscale=seq_cont(ind), text=hover,
             hovertemplate="%{text}<extra></extra>",
             marker_line_color="rgba(255,253,247,0.9)", marker_line_width=0.25 if level == "Município" else 0.8,
-            colorbar=dict(tickvals=tickvals, ticktext=txt, len=0.6, thickness=10,
+            colorbar=dict(tickvals=tickvals, ticktext=txt, len=0.6, thickness=10, title=dict(text=ind.unit, side="right"),
                           tickfont=dict(size=10, color=MUTED), outlinewidth=0)))
     fig.update_layout(map=dict(style="carto-positron", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
@@ -131,7 +141,7 @@ def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
     rng = band_ranges(df.valor)
     items = "".join(f'<span><i style="background:{c}"></i>{ind.fmt(lo)} – {ind.fmt(hi)}</span>'
                     for c, (lo, hi) in zip(seq(ind), rng))
-    return f'<div class="legend">{items}</div>'
+    return f'<div class="legend"><b>Faixas de {low(axis_label(ind))}:</b>{items}</div>'
 
 
 # --------------------------------------------------------------------------- #
@@ -141,7 +151,7 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
     b = bands(df.valor).astype(int)
     rng = band_ranges(df.valor)
     counts = b.value_counts().reindex(range(5), fill_value=0)
-    names = ["Faixa 1 (menores)", "Faixa 2", "Faixa 3", "Faixa 4", "Faixa 5 (maiores)"]
+    names = [f"Faixa {i + 1}: {ind.fmt(lo)} – {ind.fmt(hi)}" for i, (lo, hi) in enumerate(rng)]
     fig = go.Figure(go.Pie(
         labels=names, values=counts.values, hole=0.62, sort=False, direction="clockwise",
         marker=dict(colors=seq(ind), line=dict(color=BG, width=2)),
@@ -150,7 +160,9 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
         textinfo="value", textfont=dict(color=[text_on(c) for c in seq(ind)], size=12)))
     fig.add_annotation(text=f"<b>{len(df):,}</b><br><span style='font-size:11px;color:{MUTED}'>{unit_label}</span>"
                        .replace(",", "."), showarrow=False, font=dict(size=24))
-    fig.update_layout(height=300, showlegend=True, legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=10)),
+    fig.update_layout(height=300, showlegend=True,
+                      legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=10),
+                                  title=dict(text=f"{ind.unit}<br>(menor → maior)", font=dict(size=10))),
                       margin=dict(l=0, r=0, t=6, b=6))
     return fig
 
@@ -182,7 +194,8 @@ def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int |
             text=g.valor.map(ind.fmt), textposition="outside", cliponaxis=False,
             hovertemplate="%{y} · " + nivel + "<br><b>%{text}</b><extra></extra>"))
     fig.update_layout(height=height or max(360, 22 * len(d) + 80), barmode="overlay",
-                      margin=dict(l=0, r=70, t=6, b=6), legend=dict(orientation="h", y=1.04))
+                      margin=dict(l=0, r=70, t=34, b=6),
+                      legend=dict(orientation="h", x=0, y=1, yanchor="bottom", title_text="Nível:", traceorder="reversed"))
     fig.update_xaxes(type="log" if log else "linear", visible=False)
     fig.update_yaxes(categoryorder="array", categoryarray=list(d.label), tickfont=dict(size=11))
     return fig
@@ -197,8 +210,9 @@ def box_by_uf(df: pd.DataFrame, ind: Indicator, log: bool = True) -> go.Figure:
             y=g.valor, name=uf, boxpoints="outliers", marker=dict(color=COLORWAY[i % len(COLORWAY)], size=3),
             line=dict(width=1.3), text=g.label, hovertemplate="%{text}<br><b>%{customdata}</b><extra></extra>",
             customdata=g.valor.map(ind.fmt), showlegend=False))
-    fig.update_layout(height=420)
-    value_axis(fig, ind, positive_min(df.valor) if log else df.valor.min(), df.valor.max(), "y", log)
+    fig.update_layout(height=420, xaxis_title="UF (da maior para a menor mediana)")
+    value_axis(fig, ind, positive_min(df.valor) if log else df.valor.min(), df.valor.max(), "y", log,
+               title=axis_label(ind))
     return fig
 
 
@@ -226,9 +240,9 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
         fig.add_trace(go.Scatter(
             x=10 ** xs if log else xs, y=10 ** (a * xs + b) if log else a * xs + b, mode="lines",
             name=f"Tendência (r = {fmt.num(r, 2)})", line=dict(color=TEXT, dash="dash", width=1.5), hoverinfo="skip"))
-    fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2))
-    value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=xi.label)
-    value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=yi.label)
+    fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2, title_text="UF:"))
+    value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=axis_label(xi))
+    value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=axis_label(yi))
     return fig
 
 
@@ -275,7 +289,9 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
             line=dict(color=cmap[lab], width=2.6), marker=dict(size=7, line=dict(width=1, color=SURFACE)),
             text=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{text}}</b><extra></extra>"))
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
-                      barmode="group", legend=dict(orientation="h", y=-0.15))
+                      barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),
+                      yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",
+                                   "var": "Variação (% ao ano)"}[mode])
     fig.update_xaxes(dtick=1, tickformat="d")
     if mode == "valor":
         value_axis(fig, ind, t.y.min(), t.y.max(), "y", log and t.y.min() > 0)
@@ -299,7 +315,7 @@ def growth_heatmap(sr: pd.DataFrame, height: int | None = None) -> go.Figure:
         colorscale=[[0, RED], [.5, "#FBF8EE"], [1, "#1F7A4D"]],
         text=np.vectorize(lambda v: "" if np.isnan(v) else fmt.num(v, 1))(p.values), texttemplate="%{text}",
         textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:.1f}% a.a.</b><extra></extra>",
-        colorbar=dict(ticksuffix="%", thickness=10, len=0.8, outlinewidth=0)))
+        colorbar=dict(ticksuffix="%", thickness=10, len=0.8, outlinewidth=0, title=dict(text="% a.a.", side="right"))))
     fig.update_layout(height=height or max(220, 38 * len(p) + 70), margin=dict(l=0, r=0, t=6, b=6))
     fig.update_xaxes(dtick=1, tickformat="d", side="top")
     fig.update_yaxes(autorange="reversed")

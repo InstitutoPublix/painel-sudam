@@ -140,6 +140,16 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .legend {{ display:flex; gap:12px; flex-wrap:wrap; font-size:.72rem; color:{TEXT}; }}
 .legend i {{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px;
   border:1px solid {LINE}; }}
+/* filtros: faixa "aplicados nesta página", grupos da barra lateral e etiqueta de gráfico fixo */
+.fbar {{ display:flex; flex-wrap:wrap; gap:4px 16px; align-items:center; font-size:.76rem; color:{MUTED};
+  padding:8px 14px; background:{SURFACE}; border:1px solid {LINE}; border-radius:10px; margin:6px 0 14px; }}
+.fbar .t {{ font-weight:700; color:{INK}; text-transform:uppercase; letter-spacing:.06em; font-size:.68rem; }}
+.fbar b {{ color:{TEXT}; font-weight:600; }}
+.fgroup {{ font-weight:700; color:{INK}; font-size:.74rem; letter-spacing:.08em; text-transform:uppercase;
+  margin:16px 0 0; padding-top:10px; border-top:1px solid {LINE}; }}
+.fhint {{ font-size:.72rem; color:{MUTED}; margin:2px 0 8px; line-height:1.35; }}
+.tag {{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:.66rem; font-weight:600;
+  background:rgba(238,125,34,.12); color:#9A4D0C; margin-left:6px; vertical-align:1px; }}
 .footer {{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
   color:{MUTED}; font-size:.72rem; padding:22px 0 6px; border-top:1px solid {LINE}; margin-top:30px; }}
 .footer .logos img {{ height:30px; }} .footer .logos img.pnud {{ height:36px; }} .footer .logos img.publix {{ height:17px; }}
@@ -296,5 +306,7 @@ def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "")
             f'<div class="vl">{value}</div><div class="sb">{sub}</div></div></div>')
 
 
-def title(text: str, sub: str = ""):
-    st.markdown(f'<div class="panel-title">{text}</div><div class="panel-sub">{sub}</div>', unsafe_allow_html=True)
+def title(text: str, sub: str = "", fixo: bool = False):
+    """Título e subtítulo de um gráfico; fixo=True marca os que não mudam com os filtros de território."""
+    tag = '<span class="tag">não muda com os filtros de território</span>' if fixo else ""
+    st.markdown(f'<div class="panel-title">{text}{tag}</div><div class="panel-sub">{sub}</div>', unsafe_allow_html=True)
