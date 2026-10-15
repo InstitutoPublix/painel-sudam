@@ -41,3 +41,6 @@ Visão Geral · Mapa Territorial · Perfil do Território · Séries Temporais �
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual
 - `scripts/build_data.py`: planilha → bases do painel · `config/indicadores.toml`: indicadores ativos
 - `assets/geo/`: malhas do IBGE · `assets/indicators.json`: cores e descrições dos eixos
+- `assets/logos/`: logos do topo e do rodapé (`pnud`, `sudam`, `publix`) e o emblema do projeto (`emblema`), em
+  `.svg`, `.png`, `.webp` ou `.jpg`, já recortados e leves; os arquivos de origem ficam em `assets/logos/originais/`.
+  Sem arquivo, o nome aparece em texto · `assets/brand/ilustracao.*`: arte da capa (opcional; sem ela, usa um mosaico)

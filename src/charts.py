@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 
 from . import fmt
 from .data import ASSETS, Indicator, band_ranges, bands
-from .theme import COLORWAY, LEVEL_COLOR, LIME, MUTED, SEQ, SEQ_CONT
+from .theme import ACCENT, BG, COLORWAY, LEVEL_COLOR, MUTED, ORANGE, RED, SEQ, SEQ_CONT, SURFACE, TEXT, text_on
 
 
 # --------------------------------------------------------------------------- #
@@ -32,13 +32,13 @@ def value_axis(fig: go.Figure, ind: Indicator, lo: float, hi: float, axis: str =
 
 
 def _colors(labels_levels: list[tuple[str, str]]) -> dict[str, str]:
-    pool = [c for c in COLORWAY if c not in (LIME,)]
+    pool = [c for c in COLORWAY if c not in (ACCENT,)]
     out, i = {}, 0
     for lab, nivel in labels_levels:
         if nivel == "Brasil":
-            out[lab] = "#FFFFFF"
+            out[lab] = LEVEL_COLOR["Brasil"]
         elif nivel == "Amazônia Legal":
-            out[lab] = LIME
+            out[lab] = ACCENT
         else:
             out[lab] = pool[i % len(pool)]
             i += 1
@@ -46,7 +46,7 @@ def _colors(labels_levels: list[tuple[str, str]]) -> dict[str, str]:
 
 
 def seq(ind: Indicator) -> list[str]:
-    """Faixas do menor ao maior valor; invertida quando menor é melhor (lima = melhor situação)."""
+    """Faixas do menor ao maior valor; invertida quando menor é melhor (verde-escuro = melhor situação)."""
     return SEQ[::-1] if ind.polarity < 0 else SEQ
 
 
@@ -93,8 +93,8 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
     uf = geojson("Estado")
     fig.add_trace(go.Choroplethmap(
         geojson=uf, locations=[f["id"] for f in uf["features"]], z=[0] * len(uf["features"]),
-        colorscale=[[0, "rgba(255,255,255,0.035)"], [1, "rgba(255,255,255,0.035)"]], showscale=False,
-        marker_line_color="rgba(198,244,50,0.45)", marker_line_width=0.7, hoverinfo="skip"))
+        colorscale=[[0, "rgba(4,65,60,0.03)"], [1, "rgba(4,65,60,0.03)"]], showscale=False,
+        marker_line_color="rgba(4,65,60,0.45)", marker_line_width=0.7, hoverinfo="skip"))
 
     codes = df.cod.astype(str).str.zfill(2 if level == "Estado" else 7)
     hover = df.label + "<br><b>" + df.valor.map(ind.fmt) + "</b>"
@@ -106,7 +106,7 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
         fig.add_trace(go.Choroplethmap(
             geojson=sub, locations=codes, z=b + 0.5, zmin=0, zmax=5, colorscale=scale, showscale=False,
             text=hover, hovertemplate="%{text}<extra></extra>",
-            marker_line_color="rgba(4,20,11,0.9)", marker_line_width=0.25 if level == "Município" else 0.8))
+            marker_line_color="rgba(255,253,247,0.9)", marker_line_width=0.25 if level == "Município" else 0.8))
     else:
         if ind.log:
             lo = positive_min(df.valor)
@@ -119,10 +119,10 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
         fig.add_trace(go.Choroplethmap(
             geojson=sub, locations=codes, z=z, colorscale=seq_cont(ind), text=hover,
             hovertemplate="%{text}<extra></extra>",
-            marker_line_color="rgba(4,20,11,0.9)", marker_line_width=0.25 if level == "Município" else 0.8,
+            marker_line_color="rgba(255,253,247,0.9)", marker_line_width=0.25 if level == "Município" else 0.8,
             colorbar=dict(tickvals=tickvals, ticktext=txt, len=0.6, thickness=10,
-                          tickfont=dict(size=10, color="#cfe3d4"), outlinewidth=0)))
-    fig.update_layout(map=dict(style="carto-darkmatter", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
+                          tickfont=dict(size=10, color=MUTED), outlinewidth=0)))
+    fig.update_layout(map=dict(style="carto-positron", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig
 
@@ -144,10 +144,10 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
     names = ["Faixa 1 (menores)", "Faixa 2", "Faixa 3", "Faixa 4", "Faixa 5 (maiores)"]
     fig = go.Figure(go.Pie(
         labels=names, values=counts.values, hole=0.62, sort=False, direction="clockwise",
-        marker=dict(colors=seq(ind), line=dict(color="#04140B", width=2)),
+        marker=dict(colors=seq(ind), line=dict(color=BG, width=2)),
         customdata=[f"{ind.fmt(lo)} – {ind.fmt(hi)}" for lo, hi in rng],
         hovertemplate="%{label}<br>%{value} " + unit_label + " (%{percent})<br>%{customdata}<extra></extra>",
-        textinfo="value", textfont=dict(color="#ffffff", size=12)))
+        textinfo="value", textfont=dict(color=[text_on(c) for c in seq(ind)], size=12)))
     fig.add_annotation(text=f"<b>{len(df):,}</b><br><span style='font-size:11px;color:{MUTED}'>{unit_label}</span>"
                        .replace(",", "."), showarrow=False, font=dict(size=24))
     fig.update_layout(height=300, showlegend=True, legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=10)),
@@ -156,10 +156,10 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
 
 
 def hbar(df: pd.DataFrame, ind: Indicator, n: int = 10, highlight: str | None = None,
-         ascending: bool = False, height: int | None = None, color: str = LIME) -> go.Figure:
+         ascending: bool = False, height: int | None = None, color: str = ACCENT) -> go.Figure:
     d = df.nsmallest(n, "valor") if ascending else df.nlargest(n, "valor")
     d = d.iloc[::-1]
-    cols = [LIME if highlight and l == highlight else color for l in d.label]
+    cols = [ORANGE if highlight and l == highlight else color for l in d.label]
     if highlight is None:
         cols = [color] * len(d)
     fig = go.Figure(go.Bar(
@@ -214,7 +214,7 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
             x=g.x, y=g.y, mode="markers", name=str(uf or "Territórios"), text=g.label,
             customdata=np.c_[g.x.map(xi.fmt), g.y.map(yi.fmt)],
             marker=dict(size=sz, color=COLORWAY[i % len(COLORWAY)], opacity=.72,
-                        line=dict(width=.5, color="#04140B")),
+                        line=dict(width=.5, color=SURFACE)),
             hovertemplate="<b>%{text}</b><br>" + xi.label + ": %{customdata[0]}<br>" + yi.label +
                           ": %{customdata[1]}<extra></extra>"))
     ok = df[(df.x > 0) & (df.y > 0)] if log else df
@@ -225,7 +225,7 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
         r = np.corrcoef(fx, fy)[0, 1]
         fig.add_trace(go.Scatter(
             x=10 ** xs if log else xs, y=10 ** (a * xs + b) if log else a * xs + b, mode="lines",
-            name=f"Tendência (r = {fmt.num(r, 2)})", line=dict(color="#fff", dash="dash", width=1.5), hoverinfo="skip"))
+            name=f"Tendência (r = {fmt.num(r, 2)})", line=dict(color=TEXT, dash="dash", width=1.5), hoverinfo="skip"))
     fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2))
     value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=xi.label)
     value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=yi.label)
@@ -236,18 +236,22 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
 # séries temporais
 # --------------------------------------------------------------------------- #
 def transform(sr: pd.DataFrame, mode: str) -> pd.DataFrame:
-    """mode: 'valor' | 'indice' (base 100 no 1º ano disponível) | 'var' (% a.a. entre pontos disponíveis)."""
+    """mode: 'valor' | 'indice' (base 100 no 1º ano com valor diferente de zero) | 'var' (% a.a. entre pontos
+    disponíveis; trechos que partem de zero ficam sem valor)."""
     out = []
     for tid, g in sr.groupby("tid", sort=False):
         g = g.dropna(subset=["valor"]).sort_values("ano").copy()
         if g.empty:
             continue
         if mode == "indice":
+            g = g[(g.valor != 0).cummax()]  # índice a partir do 1º valor não nulo
+            if g.empty:
+                continue
             g["y"] = g.valor / g.valor.iloc[0] * 100
         elif mode == "var":
             dy = g.ano.diff()
             g["y"] = ((g.valor / g.valor.shift()) ** (1 / dy) - 1) * 100
-            g = g.dropna(subset=["y"])
+            g = g[np.isfinite(g.y)]
         else:
             g["y"] = g.valor
         out.append(g)
@@ -268,7 +272,7 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
         hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
         fig.add_trace(go.Scatter(
             x=g.ano, y=g.y, name=lab, mode="lines+markers", connectgaps=True,
-            line=dict(color=cmap[lab], width=2.6), marker=dict(size=7, line=dict(width=1, color="#04140B")),
+            line=dict(color=cmap[lab], width=2.6), marker=dict(size=7, line=dict(width=1, color=SURFACE)),
             text=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{text}}</b><extra></extra>"))
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15))
@@ -276,11 +280,11 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
     if mode == "valor":
         value_axis(fig, ind, t.y.min(), t.y.max(), "y", log and t.y.min() > 0)
     elif mode == "indice":
-        fig.add_hline(y=100, line=dict(color="rgba(255,255,255,.3)", dash="dot"))
+        fig.add_hline(y=100, line=dict(color="rgba(31,46,40,.35)", dash="dot"))
         fig.update_yaxes(ticksuffix="")
     else:
         fig.update_yaxes(ticksuffix="%")
-        fig.add_hline(y=0, line=dict(color="rgba(255,255,255,.3)"))
+        fig.add_hline(y=0, line=dict(color="rgba(31,46,40,.35)"))
     return fig
 
 
@@ -292,7 +296,7 @@ def growth_heatmap(sr: pd.DataFrame, height: int | None = None) -> go.Figure:
     lim = float(np.nanpercentile(np.abs(p.values), 95)) or 1
     fig = go.Figure(go.Heatmap(
         z=p.values, x=p.columns, y=p.index, zmin=-lim, zmax=lim,
-        colorscale=[[0, "#D9482B"], [.5, "#0B2A17"], [1, LIME]],
+        colorscale=[[0, RED], [.5, "#FBF8EE"], [1, "#1F7A4D"]],
         text=np.vectorize(lambda v: "" if np.isnan(v) else fmt.num(v, 1))(p.values), texttemplate="%{text}",
         textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:.1f}% a.a.</b><extra></extra>",
         colorbar=dict(ticksuffix="%", thickness=10, len=0.8, outlinewidth=0)))
@@ -302,10 +306,10 @@ def growth_heatmap(sr: pd.DataFrame, height: int | None = None) -> go.Figure:
     return fig
 
 
-def sparkline(years, values, ind: Indicator, color: str = LIME) -> go.Figure:
+def sparkline(years, values, ind: Indicator, color: str = ACCENT) -> go.Figure:
     fig = go.Figure(go.Scatter(
         x=years, y=values, mode="lines+markers", connectgaps=True, line=dict(color=color, width=2.2),
-        marker=dict(size=4), fill="tozeroy", fillcolor="rgba(198,244,50,0.08)",
+        marker=dict(size=4), fill="tozeroy", fillcolor="rgba(4,65,60,0.08)",
         text=[ind.fmt(v) for v in values], hovertemplate="%{x}: <b>%{text}</b><extra></extra>"))
     fig.update_layout(height=90, margin=dict(l=0, r=0, t=2, b=0), showlegend=False)
     fig.update_xaxes(visible=False)
@@ -314,10 +318,10 @@ def sparkline(years, values, ind: Indicator, color: str = LIME) -> go.Figure:
 
 
 def percentile_bar(pct: float, label: str = "") -> go.Figure:
-    fig = go.Figure(go.Bar(x=[pct], y=[label], orientation="h", marker=dict(color=LIME, cornerradius=6),
+    fig = go.Figure(go.Bar(x=[pct], y=[label], orientation="h", marker=dict(color=ACCENT, cornerradius=6),
                            text=[f"{fmt.num(pct, 0)}º percentil"], textposition="inside", insidetextanchor="start",
                            hoverinfo="skip"))
-    fig.add_vline(x=50, line=dict(color="rgba(255,255,255,.4)", dash="dot"))
+    fig.add_vline(x=50, line=dict(color="rgba(31,46,40,.4)", dash="dot"))
     fig.update_layout(height=60, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
     fig.update_xaxes(range=[0, 100], visible=False)
     fig.update_yaxes(visible=False)

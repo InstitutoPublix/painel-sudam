@@ -218,6 +218,8 @@ def territories(D: dict, level: str) -> pd.DataFrame:
 def bands(values: pd.Series, k: int = 5) -> pd.Series:
     """Faixas por quantis (0 = menores valores … k-1 = maiores)."""
     r = values.rank(method="first")
+    if len(r) < k:  # poucos territórios (ex.: uma UF filtrada): distribui pelas faixas sem repetir bordas
+        return ((r - 1) * k // max(len(r), 1)).astype(int)
     return pd.qcut(r, k, labels=False)
 
 
