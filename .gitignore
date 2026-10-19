@@ -7,3 +7,6 @@ __pycache__/
 data/*.xlsx
 ~$*.xlsx
 build/
+
+# catálogo de indicadores (controle interno, fora do repositório)
+catalogo/
