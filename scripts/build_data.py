@@ -3,6 +3,7 @@
 Uso:
     python scripts/build_data.py                  # usa o .xlsx mais recente de data/
     python scripts/build_data.py caminho.xlsx
+    python scripts/build_data.py --cobertura-minima 80     # limite padrão da Amazônia Legal (%)
 
 Lê as abas de recorte (Municipal, Estadual, Regional, Brasil) e a "Lista de Indicadores", filtra os
 indicadores de config/indicadores.toml, valida e grava em build/:
@@ -41,6 +42,7 @@ SHEETS = {"Município": "Recorte Municipal", "Estado": "Recorte Estadual",
           "Grande Região": "Recorte Regional", "Brasil": "Recorte Brasil"}
 NAME_COL = {"Município": "Município", "Estado": "Estado", "Grande Região": "Grande Região", "Brasil": "Território"}
 REGIONS = {1: "Norte", 2: "Nordeste", 3: "Sudeste", 4: "Sul", 5: "Centro-Oeste"}
+MIN_COVER = 90.0  # % mínima dos municípios da Amazônia Legal com dado para calcular o agregado de um ano
 MISSING_MARKS = {"", "-", "—", "–", "...", "..", "x", "X", "nan", "None"}
 
 # coluna da "Lista de Indicadores" -> chave em fichas.json
@@ -88,13 +90,13 @@ def title_name(s: pd.Series) -> pd.Series:
 # --------------------------------------------------------------------------- #
 # Configuração e fichas
 # --------------------------------------------------------------------------- #
-def load_config() -> list[dict]:
-    cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
+def load_config(path: Path = CONFIG) -> list[dict]:
+    cfg = tomllib.loads(path.read_text(encoding="utf-8"))
     items = cfg.get("indicador", [])
     ids = [i["id"] for i in items]
     dup = {i for i in ids if ids.count(i) > 1}
     if dup:
-        sys.exit(f"config/indicadores.toml: IDs repetidos: {', '.join(sorted(dup))}")
+        sys.exit(f"{path.name}: IDs repetidos: {', '.join(sorted(dup))}")
     return items
 
 
@@ -109,6 +111,10 @@ def agg_rule(text: str) -> str | None:
     t = norm(text)
     if t.startswith("soma"):
         return "soma"
+    if t.startswith("media simples"):
+        return "media_simples"
+    if t.startswith("dado ja publicado"):
+        return "publicado"  # valor oficial já pronto na fonte: não se agrega a partir dos municípios
     if "razao entre totais" in t or "media ponderada" in t:
         return "media_ponderada"
     return None
@@ -156,7 +162,8 @@ def to_numeric(s: pd.Series, label: str, rep: Report) -> pd.Series:
     return v
 
 
-def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Report) -> pd.DataFrame:
+def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Report,
+               factors: dict[str, float] | None = None) -> pd.DataFrame:
     sheet = SHEETS[level]
     header = [str(c) for c in book.parse(sheet, nrows=0).columns]
     if "Ano" not in header:
@@ -166,11 +173,9 @@ def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Repo
     cols = resolve_columns(header[header.index("Ano") + 1:], wanted)
     for i, c in cols.items():
         if c is None:
-            msg = f"{i}: coluna '{wanted[i]}' não encontrada na aba '{sheet}'"
-            if level == "Município":
-                rep.error(msg + " — use `coluna` em config/indicadores.toml se o nome for diferente.")
-            else:
-                rep.warn(msg + " (indicador fica sem dado neste nível).")
+            # ausência em um nível é aviso; só vira erro se o indicador não aparecer em nenhuma aba (ver main)
+            rep.warn(f"{i}: coluna '{wanted[i]}' não encontrada na aba '{sheet}' (indicador fica sem dado neste nível; "
+                     "use `coluna` em config/indicadores.toml se o nome for diferente).")
     found = {i: c for i, c in cols.items() if c}
     df = book.parse(sheet, usecols=ids + ["Ano"] + list(found.values()))
     out = pd.DataFrame({"cod": pd.to_numeric(df[ids[0]], errors="coerce"),
@@ -195,6 +200,8 @@ def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Repo
         out["nome"] = df[NAME_COL[level]].astype(str).str.strip()
     for i, c in found.items():
         out[i] = to_numeric(df[c], f"{i} ({sheet})", rep)
+        if level == "Município" and factors and i in factors:
+            out[i] = out[i] * factors[i]  # ex.: 0/1 por município -> 0/100, como nas abas Estadual/Regional/Brasil
     return out
 
 
@@ -207,22 +214,57 @@ def interpolated(mun: pd.DataFrame, col: str) -> pd.DataFrame:
     return p.interpolate(axis=1, method="index", limit_direction="both")
 
 
-def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], rep: Report) -> pd.DataFrame:
+def years_text(years) -> str:
+    ys = sorted(int(y) for y in years)
+    runs, start = [], 0
+    for k in range(1, len(ys) + 1):
+        if k == len(ys) or ys[k] != ys[k - 1] + 1:
+            runs.append(str(ys[start]) if k - start == 1 else f"{ys[start]}–{ys[k - 1]}")
+            start = k
+    return ", ".join(runs)
+
+
+def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], minimos: dict[str, float],
+                   rep: Report) -> pd.DataFrame:
+    """Agrega os municípios da Amazônia Legal. Em cada ano, só publica o valor se a cobertura (municípios
+    com dado ÷ municípios da Amazônia Legal) alcançar o mínimo do indicador; abaixo disso fica vazio."""
     al = mun[mun.al]
+    n_al = al.cod.nunique()
     years = sorted(mun.ano.unique())
     out = pd.DataFrame({"ano": years})
     for i, (rule, peso) in rules.items():
+        if rule == "publicado":
+            out[i] = np.nan
+            continue
+        if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
+            out[i] = np.nan  # sem dado municipal (ou sem o peso): o resumo final avisa que falta a Amazônia Legal
+            continue
         if rule == "soma":
             s = al.groupby("ano")[i].sum(min_count=1)
+            n = al.groupby("ano")[i].count()
+        elif rule == "media_simples":
+            s = al.groupby("ano")[i].mean()
+            n = al.groupby("ano")[i].count()
         else:
             v = al.pivot(index="cod", columns="ano", values=i)
             w_raw = mun.pivot(index="cod", columns="ano", values=peso).reindex(index=v.index, columns=v.columns)
             w = interpolated(al, peso).reindex(index=v.index, columns=v.columns)
             ok = v.notna() & w.notna()
             s = (v * w).where(ok).sum(min_count=1) / w.where(ok).sum(min_count=1)
+            n = ok.sum()
             filled = sorted(int(y) for y in v.columns if (v[y].notna() & w_raw[y].isna() & w[y].notna()).any())
             if filled:
                 rep.warn(f"{i}: peso {peso} interpolado para calcular a Amazônia Legal em {filled}.")
+        cover = (n / n_al * 100).reindex(s.index).fillna(0)
+        minimo = minimos[i]
+        low = s.notna() & (cover < minimo)
+        if low.any():
+            detail = ", ".join(f"{int(y)} ({cover[y]:.0f}%)" for y in s.index[low][:6])
+            more = f" e mais {int(low.sum()) - 6}" if low.sum() > 6 else ""
+            rep.warn(f"{i}: Amazônia Legal não calculada em {years_text(s.index[low])}: cobertura municipal abaixo de "
+                     f"{minimo:g}% ({detail}{more}). Ajuste `cobertura_minima` em config/indicadores.toml se o "
+                     "valor ainda fizer sentido.")
+            s = s.mask(low)
         out[i] = out.ano.map(s)
     out["cod"], out["nome"], out["uf"] = 0, "Amazônia Legal", None
     return out
@@ -244,8 +286,12 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("planilha", nargs="?", help="caminho do .xlsx (padrão: o mais recente em data/)")
-    xlsx = find_xlsx(ap.parse_args().planilha)
-    items = load_config()
+    ap.add_argument("--cobertura-minima", type=float, default=MIN_COVER, metavar="%",
+                    help=f"cobertura municipal mínima (%%) para calcular a Amazônia Legal em um ano (padrão {MIN_COVER:g})")
+    ap.add_argument("--config", type=Path, default=CONFIG, help="lista de indicadores (padrão: config/indicadores.toml)")
+    args = ap.parse_args()
+    xlsx = find_xlsx(args.planilha)
+    items = load_config(args.config)
     rep = Report()
 
     print(f"Planilha: {xlsx.name}\nLendo abas (pode levar alguns minutos)…")
@@ -254,6 +300,7 @@ def main():
 
     # fichas, regras de agregação e colunas a ler
     rules: dict[str, tuple[str, str | None]] = {}
+    minimos: dict[str, float] = {}
     fichas: list[dict] = []
     for it in items:
         i = it["id"]
@@ -264,7 +311,7 @@ def main():
         ficha = {"id": i, **{k: cell(row.get(c)) for c, k in FICHA.items()}}
         rule = it.get("agregacao") or agg_rule(ficha["aggregation"])
         peso = it.get("peso")
-        if rule not in ("soma", "media_ponderada"):
+        if rule not in ("soma", "media_ponderada", "media_simples", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
             continue
@@ -276,6 +323,7 @@ def main():
             rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}'.")
             continue
         rules[i] = (rule, peso if rule == "media_ponderada" else None)
+        minimos[i] = float(it.get("cobertura_minima", args.cobertura_minima))
         ficha["display"] = display_spec(it, ficha, rule)
         fichas.append(ficha)
 
@@ -283,7 +331,8 @@ def main():
     weights = {p for _, p in rules.values() if p}
     wanted = {i: cfg_by_id.get(i, {}).get("coluna", lista.loc[i, "Indicador"]) for i in [*rules, *sorted(weights - set(rules))]}
 
-    frames = {lvl: read_level(book, lvl, wanted, rep) for lvl in SHEETS}
+    factors = {i["id"]: float(i["fator_municipal"]) for i in items if "fator_municipal" in i}
+    frames = {lvl: read_level(book, lvl, wanted, rep, factors) for lvl in SHEETS}
     if rep.errors:
         return finish(rep, None)
 
@@ -306,7 +355,7 @@ def main():
     est["uf"] = est.cod.map(code2uf)
     est["al"] = est.uf.isin(al_ufs)
     est["regiao"] = (est.cod // 10).map(REGIONS)
-    amz = amazonia_legal(mun, rules, rep)
+    amz = amazonia_legal(mun, rules, minimos, rep)
 
     parts = []
     for lvl, df in (("Brasil", bra), ("Amazônia Legal", amz), ("Grande Região", reg),
@@ -338,14 +387,21 @@ def main():
         n_al = d[(d.nivel == "Município") & d.al.fillna(False)].cod.nunique()
         f["years"], f["levels"] = yrs, levels
         rule, peso = rules[i]
-        f["aggregationApplied"] = ("Soma dos municípios" if rule == "soma"
-                                   else f"Média ponderada dos municípios por {lista.loc[peso, 'Indicador']} ({peso})")
+        f["aggregationApplied"] = (
+            "Soma dos municípios" if rule == "soma"
+            else "Valor publicado pela fonte (sem agregação a partir dos municípios)" if rule == "publicado"
+            else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
+            else f"Média ponderada dos municípios por {lista.loc[peso, 'Indicador']} ({peso})")
+        if rule != "publicado":
+            f["aggregationApplied"] += f" · exige cobertura mínima de {minimos[i]:g}% dos municípios"
         print(f"  {i}  {f['display']['label'][:45]:45}  anos {yrs[0] if yrs else '—'}–{yrs[-1] if yrs else '—'} "
               f"({len(yrs)})  municípios AL {n_al}  níveis: {len(levels)}/5")
         if not yrs:
             rep.error(f"{i}: nenhum valor encontrado na planilha.")
-        elif len(levels) < 5:
-            rep.warn(f"{i}: sem dado em {', '.join(sorted((set(SHEETS) | {'Amazônia Legal'}) - set(levels)))}.")
+        else:
+            expected = set(SHEETS) | ({"Amazônia Legal"} if rule != "publicado" else set())
+            if expected - set(levels):
+                rep.warn(f"{i}: sem dado em {', '.join(sorted(expected - set(levels)))}.")
 
     return finish(rep, (long, fichas, xlsx))
 
