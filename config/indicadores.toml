@@ -7,9 +7,13 @@
 #   rotulo     nome curto exibido no painel (padrão: nome do indicador na ficha)
 #   unidade    unidade exibida (padrão: "Unidade de Medida" da ficha)
 #   coluna     nome da coluna nas abas de recorte, quando difere do nome na ficha
-#   agregacao  como calcular a Amazônia Legal a partir dos municípios: "soma" ou "media_ponderada"
+#   agregacao  como calcular a Amazônia Legal a partir dos municípios: "soma", "media_ponderada", "media_simples" ou "publicado"
 #              (padrão: "Regra de Agregação Territorial" da ficha)
 #   peso       ID do indicador usado como peso na média ponderada (obrigatório nesse caso)
+#   cobertura_minima  % mínima dos municípios da Amazônia Legal com dado para calcular o agregado de um ano
+#              (padrão 90, ou o valor de --cobertura-minima); abaixo disso o ano fica sem Amazônia Legal
+#   fator_municipal  multiplica só os valores da aba municipal (ex.: 100 para sinalizadores 0/1 que nas outras
+#              abas vêm em %); use quando os níveis da planilha estiverem em escalas diferentes
 #   formato    "numero" | "percentual" | "moeda" (padrão: deduzido da unidade)
 #   casas      casas decimais
 #   escala     multiplicador até a unidade exibida (ex.: valores em R$ mil -> 1000)
@@ -83,3 +87,144 @@ icone = "🔥"
 id = "IND-074"
 rotulo = "Valor da produção agrícola"
 icone = "🌾"
+
+# --- Lote 2 (cobertura municipal ≥ 90% e mais de um ano; aditivos e médias ponderadas pela população) --------
+
+[[indicador]]
+id = "IND-013"
+rotulo = "Área territorial"
+
+[[indicador]]
+id = "IND-076"
+rotulo = "Valor da extração vegetal"
+icone = "🪵"
+
+[[indicador]]
+id = "IND-084"
+rotulo = "Exportações para a Pan-Amazônia"
+
+[[indicador]]
+id = "IND-085"
+rotulo = "Importações da Pan-Amazônia"
+
+[[indicador]]
+id = "IND-086"
+rotulo = "Empresas na produção florestal nativa"
+
+[[indicador]]
+id = "IND-102"
+rotulo = "Famílias no CadÚnico"
+
+[[indicador]]
+id = "IND-114"
+rotulo = "Pessoas no CadÚnico"
+
+[[indicador]]
+id = "IND-115"
+rotulo = "Pessoas no Bolsa Família"
+
+[[indicador]]
+id = "IND-136"
+rotulo = "Novas empresas abertas"
+
+[[indicador]]
+id = "IND-162"
+rotulo = "Empresas de biotecnologia e saúde"
+
+[[indicador]]
+id = "IND-003"
+rotulo = "Taxa de urbanização"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-004"
+rotulo = "População indígena"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-037"
+rotulo = "Cobertura da Saúde da Família"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-040"
+rotulo = "Mortalidade por doenças crônicas"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-041"
+rotulo = "Mortalidade por suicídio"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-048"
+rotulo = "Internações por saneamento inadequado"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-051"
+rotulo = "Conectividade municipal"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-056"
+rotulo = "Emissões de CO2e per capita"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-089"
+rotulo = "Transparência pública"
+# a ficha diz "0 a 1", mas os valores da planilha vão de 0 a 100
+unidade = "Índice (0 a 100)"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-146"
+rotulo = "Progresso social (IPS)"
+peso = "IND-001"
+
+[[indicador]]
+id = "IND-157"
+rotulo = "Despesa com habitação e gestão ambiental"
+peso = "IND-001"
+
+# --- Lote 3 (agregação conferida contra os valores oficiais da aba Estadual) --------------------------------
+
+[[indicador]]
+id = "IND-101"
+rotulo = "Famílias de baixa renda no CadÚnico"
+# peso conferido: ponderar pelas famílias cadastradas (IND-102) reproduz exatamente o valor estadual da planilha
+peso = "IND-102"
+
+# Existência de plano, lei, fundo ou consórcio: 0/1 por município; Estados e regiões trazem o % de municípios.
+# Média simples x 100 reproduz o valor estadual da planilha (IND-064/066/067 exato; IND-061 com até 1,8 pp,
+# por um município sem dado).
+[[indicador]]
+id = "IND-061"
+rotulo = "Municípios com Plano Diretor"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+
+[[indicador]]
+id = "IND-064"
+rotulo = "Municípios com instrumento de gestão ambiental sobre o clima"
+# 2020 tem 89,6% dos municípios com dado; abaixo dos 90% padrão por 0,4 ponto
+cobertura_minima = 89
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+
+[[indicador]]
+id = "IND-066"
+rotulo = "Municípios com Fundo de Meio Ambiente"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+
+[[indicador]]
+id = "IND-067"
+rotulo = "Municípios em consórcio de meio ambiente"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
