@@ -228,3 +228,45 @@ rotulo = "Municípios em consórcio de meio ambiente"
 unidade = "% dos municípios"
 agregacao = "media_simples"
 fator_municipal = 100
+
+# --- Lote 4 (indicadores de ano único; agregação conferida contra a aba Estadual) ---------------------------
+
+# IDHM: dado já publicado (só 2010); não se agrega a Amazônia Legal a partir dos municípios.
+[[indicador]]
+id = "IND-007"
+rotulo = "IDHM"
+agregacao = "publicado"
+casas = 3
+
+# Soma dos municípios reproduz o total estadual (diferença máx. 0,01%).
+[[indicador]]
+id = "IND-012"
+rotulo = "Migração interna entrante"
+
+# Soma dos municípios reproduz o total estadual (diferença mediana 0,06%, máx. 2,2% por municípios sem dado).
+[[indicador]]
+id = "IND-129"
+rotulo = "Tratores nos estabelecimentos agropecuários"
+
+# IND-139/140 reproduzem exatamente o valor estadual; IND-116 com diferença máx. 0,3 pp, porque a fonte
+# conta os municípios sem dado no denominador e a média simples os ignora.
+[[indicador]]
+id = "IND-116"
+rotulo = "Municípios com equipamento cultural"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+
+[[indicador]]
+id = "IND-139"
+rotulo = "Municípios com Conselho de Educação"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+
+[[indicador]]
+id = "IND-140"
+rotulo = "Municípios com Conselho de Assistência Social"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
