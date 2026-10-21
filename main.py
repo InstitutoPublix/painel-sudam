@@ -45,6 +45,7 @@ def state(key: str, default, options=None) -> str:
 # --------------------------------------------------------------------------- #
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
+MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
 ABAS = ["Visão Geral", "Visão Estadual", "Mapa Territorial", "Perfil do Território", "Séries Temporais",
         "Ranking", "Comparações", "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte"}
@@ -96,12 +97,22 @@ with st.sidebar:
         st.caption(f"Unidade: {I.unit}" + (f" · {I.polarity_text}" if I.polarity_text else "")
                    + f"  \nAmazônia Legal: {I.agg_note.lower()}.")
     years = data.years_with_data(D, IND)
+    k = state("w_ano_modo", MODOS_ANO[0], MODOS_ANO)
+    modo_ano = (st.radio("Ano de referência", MODOS_ANO, key=k,
+                         help="Mais recente: cada indicador aparece no seu último ano com dado, e a evolução é "
+                              "calculada desde o primeiro ano com dado. Ano específico: todos os indicadores no "
+                              "ano escolhido. Gráficos de evolução mostram todos os anos nos dois modos.")
+                if "ano" in show else st.session_state[k])
+    RECENTE = modo_ano == MODOS_ANO[0]
     k = state("w_ano", years[-1], years)
-    if "ano" in show and len(years) > 1:
-        YEAR = st.select_slider("Ano de referência", years, key=k,
+    if "ano" in show and RECENTE:
+        YEAR = years[-1]
+        st.caption(f"**{REG[IND].label}**: {YEAR}, o último ano com dado. Cada indicador usa o seu próprio último ano.")
+    elif "ano" in show and len(years) > 1:
+        YEAR = st.select_slider("Ano", years, key=k,
                                 help="Ano dos mapas, cartões e rankings. Gráficos de evolução mostram todos os anos.")
     else:
-        YEAR = st.session_state[k]
+        YEAR = years[-1] if RECENTE else st.session_state[k]
         if "ano" in show:
             st.caption(f"Ano de referência: **{YEAR}** (único ano com dado)")
 
@@ -131,6 +142,14 @@ with st.sidebar:
     st.caption("SUDAM · PNUD · Instituto Publix\n\nProjeto BRA/21/005")
 
 
+def year_for(ind: str) -> int:
+    """Ano usado para um indicador: o último com dado (modo recente) ou o ano escolhido na barra lateral."""
+    return D["latest"].get(ind, YEAR) if RECENTE else YEAR
+
+
+ANO_TXT = "no ano mais recente de cada indicador" if RECENTE else f"em {YEAR}"
+
+
 def escopo(level: str, n: int | None = None) -> str:
     """Descreve os territórios que sobram depois dos filtros (ex.: '773 municípios da Amazônia Legal · UF: PA')."""
     plural = {"Município": "municípios", "Estado": "estados", "Grande Região": "Grandes Regiões"}[level]
@@ -153,7 +172,7 @@ def barra_filtros():
         return
     itens = [f"Indicador: <b>{I.label}</b> · {I.unit}"]
     if "ano" in show:
-        itens.append(f"Ano: <b>{YEAR}</b>")
+        itens.append(f"Ano: <b>{YEAR}</b>" + (" (mais recente do indicador)" if RECENTE else ""))
     if "recorte" in show:
         itens.append(f"Abrangência: <b>{RECORTES[recorte]}</b>")
     if "uf" in show:
@@ -164,25 +183,29 @@ def barra_filtros():
                 + "</div>", unsafe_allow_html=True)
 
 
-def snap(level: str, ind: str = IND, year: int = YEAR, filt: bool = True) -> pd.DataFrame:
+def snap(level: str, ind: str = IND, year: int | None = None, filt: bool = True) -> pd.DataFrame:
+    year = year_for(ind) if year is None else year
     if not filt:
         return data.snapshot(D, level, ind, year)
     return data.snapshot(D, level, ind, year, al_only=AL_ONLY, ufs=UFS or None, portes=PORTE or None)
 
 
-def value_of(tid: str, ind: str = IND, year: int = YEAR) -> float:
+def value_of(tid: str, ind: str = IND, year: int | None = None) -> float:
+    year = year_for(ind) if year is None else year
     s = data.series(D, [tid], ind)
     v = s.loc[s.ano == year, "valor"]
     return float(v.iloc[0]) if len(v) and pd.notna(v.iloc[0]) else float("nan")
 
 
-def first_valid(tid: str, ind: str = IND, upto: int = YEAR):
+def first_valid(tid: str, ind: str = IND, upto: int | None = None):
+    upto = year_for(ind) if upto is None else upto
     s = data.series(D, [tid], ind).dropna(subset=["valor"])
     s = s[s.ano <= upto]
     return (int(s.ano.iloc[0]), float(s.valor.iloc[0])) if len(s) else (None, float("nan"))
 
 
-def change_since_start(level: str, ind: str = IND, year: int = YEAR) -> pd.Series:
+def change_since_start(level: str, ind: str = IND, year: int | None = None) -> pd.Series:
+    year = year_for(ind) if year is None else year
     d = L[(L.nivel == level) & (L.ind == ind) & L.valor.notna() & (L.ano <= year)].sort_values("ano")
     g = d.groupby("cod", observed=True).valor.agg(["first", "last"])
     return ((g["last"] / g["first"].replace(0, np.nan) - 1) * 100).rename("var")  # base zero: sem variação
@@ -569,24 +592,41 @@ with T["Perfil do Território"]:
                     unsafe_allow_html=True)
 
         rank_grp = {"Município": "municípios do Brasil", "Estado": "estados", "Grande Região": "Grandes Regiões"}
-        theme.title(f"{sel}: todos os indicadores em {YEAR}",
-                    (f"Posição entre os {rank_grp[plvl]} e " if plvl in rank_grp else "")
-                    + "variação desde o primeiro ano com dado")
+        theme.title(f"{sel}: todos os indicadores {ANO_TXT}",
+                    (f"Posição entre os {rank_grp[plvl]} no mesmo ano e " if plvl in rank_grp else "")
+                    + "variação do primeiro ano com dado até o ano mostrado no cartão"
+                    + (". Se o território não tem dado no último ano do indicador, o cartão mostra o último dado "
+                       "dele, sem posição, pois não seria comparável com os demais." if RECENTE else ""))
         for col, k in grid(D["indicators"]):
             ik = REG[k]
-            v = value_of(tid, k)
-            yr0, v0 = first_valid(tid, k)
-            peers = snap(plvl, k, YEAR, filt=False) if plvl in ("Município", "Estado", "Grande Região") else None
+            ano = year_for(k)
+            v = value_of(tid, k, ano)
+            antigo = False
+            if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
+                sk = data.series(D, [tid], k).dropna(subset=["valor"])
+                if len(sk):
+                    ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
+            yr0, v0 = first_valid(tid, k, ano)
+            peers = (snap(plvl, k, ano, filt=False)
+                     if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
             rk = ""
-            if peers is not None and len(peers) and tid in set(peers.tid):
+            if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
                 pos = int((peers.valor > v).sum() + 1)
-                rk = f"{pos}º de {len(peers)} · "
-            if yr0 and yr0 < YEAR and v0 == 0:
-                sub = f"{rk}{YEAR} · era zero em {yr0}"
-            elif yr0:
-                sub = f"{rk}{YEAR} · {arrow(change(v, v0)) if yr0 < YEAR else '—'} desde {yr0}"
+                empate = int(np.isclose(peers.valor, v).sum())
+                if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
+                    rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
+                else:
+                    rk = f"{pos}º de {len(peers)} · "
+            ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
+            if yr0 and yr0 < ano and v0 == 0:
+                sub = f"{rk}{ref} · era zero em {yr0}"
+            elif yr0 and yr0 < ano:
+                sub = f"{rk}{ref} · {arrow(change(v, v0))} desde {yr0}"
+            elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
+                sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
+                                         else "sem ano anterior para comparar")
             else:
-                sub = f"{YEAR}"
+                sub = ref
             with col:
                 st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon), unsafe_allow_html=True)
 
@@ -834,18 +874,38 @@ with T["Comparações"]:
                           key=state("w_sc_x", D["indicators"][0], D["indicators"]))
         yk = b3.selectbox("Indicador no eixo vertical", D["indicators"], format_func=lambda k: REG[k].label,
                           key=state("w_sc_y", D["indicators"][min(2, len(D["indicators"]) - 1)], D["indicators"]))
-        sx, sy = snap(sc_lvl, xk), snap(sc_lvl, yk)
+        if RECENTE:  # ano mais recente em que os dois indicadores têm dado, para comparar o mesmo ano
+            comuns = set(data.years_with_data(D, xk)) & set(data.years_with_data(D, yk))
+            ysc = max(comuns) if comuns else None
+        else:
+            ysc = YEAR
+        sx, sy = (snap(sc_lvl, xk, ysc), snap(sc_lvl, yk, ysc)) if ysc else (snap(sc_lvl, xk, 0), snap(sc_lvl, yk, 0))
         sd = sx[["cod", "label", "uf", "valor"]].rename(columns={"valor": "x"}).merge(
             sy[["cod", "valor"]].rename(columns={"valor": "y"}), on="cod")
         if D["pop_col"]:
-            sd = sd.merge(snap(sc_lvl, D["pop_col"])[["cod", "valor"]].rename(columns={"valor": "pop"}), on="cod", how="left")
+            ypop = max([y for y in data.years_with_data(D, D["pop_col"]) if y <= (ysc or YEAR)], default=ysc or YEAR)
+            sd = sd.merge(snap(sc_lvl, D["pop_col"], ypop)[["cod", "valor"]].rename(columns={"valor": "pop"}), on="cod", how="left")
         if len(sd) < 6:
-            st.info("Poucos pontos com os dois indicadores neste ano. Tente outro ano ou outro par de indicadores.")
+            st.info("Poucos pontos com os dois indicadores"
+                    + (" no mesmo ano" if RECENTE else f" em {YEAR}") + ". Tente outro par de indicadores"
+                    + ("" if RECENTE else " ou outro ano") + ".")
         else:
-            plot(charts.scatter(sd, REG[xk], REG[yk], log=REG[xk].log and REG[yk].log,
+            pode_log = bool(REG[xk].log and REG[yk].log and (sd.x > 0).all() and (sd.y > 0).all())
+            lsc = st.checkbox("Escala logarítmica nos dois eixos", disabled=not pode_log,
+                              key=state("w_sc_log", pode_log),
+                              help="Indicada quando os valores são muito assimétricos (poucos territórios muito "
+                                   "maiores que a maioria). Só está disponível se os dois indicadores forem positivos.")
+            lsc = lsc and pode_log
+            plot(charts.scatter(sd, REG[xk], REG[yk], log=lsc,
                                 size_col="pop" if "pop" in sd else None), "sc")
-            st.caption(f"{escopo(sc_lvl, len(sd))} em {YEAR} · cor = UF · tamanho do ponto = população · "
-                       "linha tracejada = tendência (r perto de 1 ou −1: relação forte; perto de 0: fraca).")
+            rho = sd.x.rank().corr(sd.y.rank())  # Spearman = Pearson dos postos
+            st.caption(f"{escopo(sc_lvl, len(sd))} em {ysc}"
+                       + (" (ano mais recente com dado nos dois indicadores)" if RECENTE else "")
+                       + f" · cor = UF · tamanho do ponto = população · linha tracejada = tendência linear"
+                       + (" ajustada nos logaritmos" if lsc else "") + " (r de Pearson, no gráfico). "
+                       f"Correlação de postos de Spearman = {fmt.num(rho, 2)}: mede se quem tem mais de um indicador "
+                       "tende a ter mais (ou menos) do outro, sem ser distorcida por valores extremos. "
+                       "Perto de 1 ou −1: relação forte; perto de 0: fraca. Correlação não prova causa.")
         st.markdown("---")
 
         # ---- C. distribuição por UF ---------------------------------------------------
@@ -859,7 +919,9 @@ with T["Comparações"]:
 
         # ---- D. face a face -----------------------------------------------------------
         theme.title("Face a face: dois territórios em todos os indicadores",
-                    f"Escolhidos aqui, de qualquer nível; não seguem os filtros de território. Valores de {YEAR}.",
+                    f"Escolhidos aqui, de qualquer nível; não seguem os filtros de território. "
+                    + ("Cada indicador no seu ano mais recente (coluna Ano)." if RECENTE else f"Valores de {YEAR}.")
+                    + " A ÷ B é a razão entre os valores de A e de B.",
                     fixo=True)
         fa, fb = st.columns(2)
         picks = []
@@ -874,7 +936,7 @@ with T["Comparações"]:
         rows = []
         for k in D["indicators"]:
             va, vb = value_of(picks[0][1], k), value_of(picks[1][1], k)
-            rows.append({"Indicador": charts.axis_label(REG[k]), picks[0][0]: REG[k].fmt(va),
+            rows.append({"Indicador": charts.axis_label(REG[k]), "Ano": str(year_for(k)), picks[0][0]: REG[k].fmt(va),
                          picks[1][0]: REG[k].fmt(vb),
                          "A ÷ B": fmt.num(va / vb, 2) + "×" if vb and not fmt.isna(va) and not fmt.isna(vb) else "—"})
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)

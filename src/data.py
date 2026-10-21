@@ -154,12 +154,16 @@ def _load(versao: str) -> dict:
         porte = pd.cut(ref, [b[1] for b in PORTES] + [float("inf")], right=False,
                        labels=[b[0] for b in PORTES]).astype(str).rename("porte")
 
+    # último ano com dado de cada indicador (em qualquer nível): base do modo "mais recente" do painel
+    latest = long[long.valor.notna()].groupby("ind", observed=True).ano.max()
+
     axis_meta = json.loads((ASSETS / "indicators.json").read_text(encoding="utf-8"))
     return {
         "long": long,
         "registry": registry,
         "indicators": inds,
         "porte": porte,
+        "latest": {str(k): int(v) for k, v in latest.items()},
         "ufs": sorted(set(al_ufs) | est_ufs),
         "al_ufs": al_ufs,
         "meta": {f["id"]: f for f in fichas},
