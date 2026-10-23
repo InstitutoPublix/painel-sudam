@@ -146,10 +146,12 @@ def _centro(feature: dict) -> tuple[float, float]:
 
 def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas",
                zoom: float = 3.2, center=(-9.0, -54.0), height: int = 560, rotulos: bool = True,
-               destaque_al: bool = False) -> go.Figure:
+               destaque_al: bool = False, al_parcial: tuple = ()) -> go.Figure:
     """df: cod, label, valor (e uf, al). mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir).
     rotulos: siglas das UFs sobre o mapa de estados (quando há poucos estados ou o mapa é grande).
-    destaque_al: contorno mais forte nos territórios da Amazônia Legal, quando o mapa traz também os de fora."""
+    destaque_al: contorno mais forte nos territórios da Amazônia Legal, quando o mapa traz também os de fora.
+    al_parcial: UFs só em parte na Amazônia Legal; ficam sem o contorno forte, pois o estado inteiro não pertence a ela.
+    O contorno forte desses estados é desenhado só em volta da parte que fica na região (assets/geo/al_parcial.json)."""
     gj_all = geojson(level)
     ids = set(df.cod.astype(str).str.zfill(2 if level == "Estado" else 7))
     sub = {"type": "FeatureCollection", "features": [f for f in gj_all["features"] if f["id"] in ids]}
@@ -191,11 +193,23 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
                           tickfont=dict(size=10, color=MUTED), outlinewidth=0)))
     if destaque_al and "al" in df:
         em_al = df.al.fillna(False).astype(bool).values
+        if level == "Estado" and al_parcial and "uf" in df:
+            em_al = em_al & ~df.uf.isin(al_parcial).values
         if em_al.any() and not em_al.all():
             fig.add_trace(go.Choroplethmap(
                 geojson=sub, locations=codes[em_al], z=[0] * int(em_al.sum()), showscale=False, hoverinfo="skip",
                 colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
                 marker_line_color=TEXT, marker_line_width=2.2 if level == "Estado" else 0.9))
+    if level == "Estado" and al_parcial and "uf" in df and df.uf.isin(al_parcial).any():
+        # contorno só da parte do estado que fica na Amazônia Legal (gerado por scripts/geo_al_parcial.py)
+        arq = ASSETS / "geo" / "al_parcial.json"
+        if arq.exists():
+            gp = json.loads(arq.read_text())
+            gp["features"] = [f for f in gp["features"] if f["properties"]["uf"] in set(df.uf)]
+            fig.add_trace(go.Choroplethmap(
+                geojson=gp, locations=[f["id"] for f in gp["features"]], z=[0] * len(gp["features"]), showscale=False,
+                hoverinfo="skip", colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+                marker_line_color=TEXT, marker_line_width=2.2))
     if level == "Estado" and rotulos and "uf" in df and (len(df) <= 12 or height >= 560):
         feats = {f["id"]: f for f in sub["features"]}
         ok = [i for i, c in enumerate(codes) if c in feats]

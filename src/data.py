@@ -145,6 +145,10 @@ def _load(versao: str) -> dict:
     mun = long[long.nivel == "Município"]
     al_ufs = sorted(mun.loc[mun.al.fillna(False).astype(bool), "uf"].astype(str).unique())
     est_ufs = set(long.loc[long.nivel == "Estado", "uf"].dropna().astype(str))
+    # estados com só parte dos municípios na Amazônia Legal (ex.: Maranhão): {UF: (municípios na AL, total)}
+    m = mun[["uf", "cod", "al"]].drop_duplicates("cod").assign(al=lambda d: d.al.fillna(False).astype(bool))
+    g = m.groupby("uf", observed=True).al.agg(["sum", "count"])
+    al_parcial = {str(u): (int(r["sum"]), int(r["count"])) for u, r in g.iterrows() if 0 < r["sum"] < r["count"]}
 
     # população de referência (mediana dos anos disponíveis) → porte do município
     porte = None
@@ -169,6 +173,7 @@ def _load(versao: str) -> dict:
         "latest": {str(k): int(v) for k, v in latest.items()},
         "ufs": sorted(set(al_ufs) | est_ufs),
         "al_ufs": al_ufs,
+        "al_parcial": al_parcial,
         "meta": {f["id"]: f for f in fichas},
         "axis_colors": axis_meta.get("axisColors", {}),
         "axis_desc": axis_meta.get("axisDescriptions", {}),

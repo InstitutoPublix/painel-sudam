@@ -22,6 +22,15 @@ st.set_page_config(page_title="PRDA · Diagnóstico da Amazônia Legal",
 theme.inject()
 D = data.load()
 L, REG = D["long"], D["registry"]
+NOME_UF = L[L.nivel == "Estado"][["uf", "nome"]].drop_duplicates().astype(str).set_index("uf").nome.to_dict()
+PARCIAL = D["al_parcial"]  # estados só em parte na Amazônia Legal: {UF: (municípios na AL, total)}
+
+
+def nota_parcial() -> str:
+    """Aviso sobre estados que fazem parte da Amazônia Legal só em parte (hoje, o Maranhão)."""
+    return "; ".join(f"{NOME_UF[u]}: só {a} dos {t} municípios fazem parte da Amazônia Legal" for u, (a, t) in PARCIAL.items()) \
+        + (". Nas tabelas e mapas por estado, o valor é o do estado inteiro; nos totais da Amazônia Legal entram só os "
+           "municípios da região." if PARCIAL else "")
 BRASIL, AMZ = "Brasil:1", "Amazônia Legal:0"
 CFG = {"displayModeBar": False}
 
@@ -122,7 +131,7 @@ with st.sidebar:
     k = state("w_recorte", "Amazônia Legal", list(RECORTES))
     recorte = (st.radio("Abrangência", list(RECORTES), format_func=RECORTES.get, horizontal=True, key=k,
                         help=f"Só Amazônia Legal: {len(D['al_ufs'])} estados e {D['n_mun_al']} municípios. "
-                             "Brasil inteiro: todos os estados e municípios do país.")
+                             "Brasil inteiro: todos os estados e municípios do país. " + nota_parcial())
                if "recorte" in show else st.session_state[k])
     AL_ONLY = recorte == "Amazônia Legal"
     ufs_pool = D["al_ufs"] if AL_ONLY else D["ufs"]
@@ -322,8 +331,11 @@ with T["Visão Geral"]:
                 theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(st_df))} · "
                             "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                 if len(st_df) >= 5:
-                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado"), height=370), "ov_map")
+                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado"), height=370,
+                                           al_parcial=tuple(PARCIAL)), "ov_map")
                     st.markdown(charts.legend_html(st_df, I), unsafe_allow_html=True)
+                    if PARCIAL and AL_ONLY:
+                        st.caption("◐ " + nota_parcial())
                 else:
                     st.info(f"O mapa por estado divide os estados em faixas e precisa de pelo menos 5 estados; "
                             f"o filtro atual deixa {len(st_df)}. Para ver os municípios desses estados no mapa, "
@@ -462,7 +474,13 @@ def comparativo(tid: str, plvl: str, uf: str | None, ref_tids: tuple, versao: st
         v_ref = val.get(comp_tid, float("nan")) if comp_tid else float("nan")
         if comp_tid:
             if ik.additive:
-                row[col_comp] = f"{fmt.pct(v / v_ref * 100)} do total" if v_ref and not fmt.isna(v_ref) else "—"
+                num, parte = v, ""
+                if plvl == "Estado" and comp_tid == AMZ and uf in PARCIAL:
+                    # estado só em parte na região: a participação usa só os municípios que fazem parte dela
+                    mm = L[(L.nivel == "Município") & (L.uf == uf) & (L.ind == k) & (L.ano == y)
+                           & L.al.fillna(False).astype(bool) & L.valor.notna()]
+                    num, parte = float(mm.valor.sum()), " (parte AL)"
+                row[col_comp] = f"{fmt.pct(num / v_ref * 100)} do total{parte}" if v_ref and not fmt.isna(v_ref) else "—"
             else:
                 dif = change(v, v_ref)
                 row[col_comp] = "—" if fmt.isna(dif) else ("+" if dif >= 0 else "−") + fmt.pct(abs(dif))
@@ -518,8 +536,11 @@ with T["Território"]:
         chips = [plvl]
         if plvl == "Estado":
             n_mun = int(L[(L.nivel == "Município") & (L.uf == uf_t)].cod.nunique())
-            chips += [uf_t, refs[0][0], "Amazônia Legal" if uf_t in D["al_ufs"] else "Fora da Amazônia Legal",
-                      f"{n_mun} municípios"]
+            if uf_t in PARCIAL:
+                al_chip = f"Amazônia Legal só em parte: {PARCIAL[uf_t][0]} de {PARCIAL[uf_t][1]} municípios"
+            else:
+                al_chip = "Amazônia Legal" if uf_t in D["al_ufs"] else "Fora da Amazônia Legal"
+            chips += [uf_t, refs[0][0], al_chip, f"{n_mun} municípios"]
         if plvl == "Município":
             mrow = L[(L.tid == tid)].iloc[0]
             chips += [str(mrow.uf), str(mrow.regiao), "Amazônia Legal" if bool(mrow.al) else "Fora da Amazônia Legal"]
@@ -607,6 +628,10 @@ with T["Território"]:
                     st.caption(f"Última coluna: para totais, participação do território em {comp_nome}; para taxas e médias, "
                                "diferença em relação a ela (verde = melhor, vermelho = pior, sem cor quando o indicador não "
                                "tem polaridade). — indica ausência de dado.")
+                    if plvl == "Estado" and uf_t in PARCIAL:
+                        st.caption("◐ " + nota_parcial() + " Nos totais somáveis, a participação usa só os municípios "
+                                   "da região (\"parte AL\"); nas taxas e médias, a comparação é do estado inteiro com a "
+                                   "Amazônia Legal.")
 
         # ---- Evolução --------------------------------------------------------------------
         with S["Evolução"]:
@@ -633,6 +658,8 @@ with T["Território"]:
                         pares = pares[pares.al.fillna(False).astype(bool)]
                     grupo_txt = "estados da Amazônia Legal" if plvl == "Estado" and uf_t in D["al_ufs"] else rank_grp[plvl]
                     theme.title(f"{nome_curto} entre os {grupo_txt}", f"{charts.axis_label(I)} em {YEAR}")
+                    if plvl == "Estado" and uf_t in D["al_ufs"] and PARCIAL:
+                        st.caption("◐ " + nota_parcial())
                     if pares.empty:
                         st.info(f"Sem dado de {charts.low(I.label)} em {YEAR} para comparar.")
                     else:
@@ -806,6 +833,8 @@ with T["Mapa e Ranking"]:
             cor_faixa = charts.band_colors(I, rk.faixa.nunique())  # as mesmas cores da legenda do mapa
             rk["cor"] = None if em_faixas else charts.continuous_colors(rk.valor, I)  # escala contínua do mapa
             marca_al = not AL_ONLY and lvl != "Grande Região" and rk.al.fillna(False).astype(bool).any()
+            parciais = sorted(u for u in rk.uf.unique() if u in PARCIAL) if lvl == "Estado" else []
+            mostra_al = marca_al or bool(parciais)  # coluna AL: ● na Amazônia Legal, ◐ no estado só em parte
 
             def resumo(n_col: int = 4):
                 """Mediana, média, máximo e mínimo; na coluna estreita ao lado do mapa, em 2 por linha."""
@@ -828,7 +857,8 @@ with T["Mapa e Ranking"]:
                     view = view.iloc[::-1]
                 tbl = pd.DataFrame({
                     "Posição": view.pos, "Território": view.label,  # o rótulo de município já traz a UF
-                    **({"AL": view.al.fillna(False).astype(bool).map({True: "●", False: ""})} if marca_al else {}),
+                    **({"AL": [("◐" if (lvl == "Estado" and u in PARCIAL) else "●" if (a and marca_al) else "")
+                               for u, a in zip(view.uf, view.al.fillna(False).astype(bool))]} if mostra_al else {}),
                     f"{I.label}": view.valor.map(I.fmt), "Comparado ao 1º": view.rel,
                     "Variação (%)": view["var"].round(1), "Participação (%)": view.share.round(2),
                     "Faixa": view.faixa})
@@ -839,8 +869,9 @@ with T["Mapa e Ranking"]:
                 # larguras em pixels somando cerca de 600, para a tabela caber ao lado do mapa sem rolagem lateral;
                 # o título do valor é "Valor" (o nome do indicador já está no título e a unidade, na ajuda)
                 cfg = {"Posição": st.column_config.NumberColumn(width=52),
-                       "Território": st.column_config.TextColumn(width=170 if marca_al else 190),
-                       "AL": st.column_config.TextColumn(width=34, help="Território da Amazônia Legal."),
+                       "Território": st.column_config.TextColumn(width=170 if mostra_al else 190),
+                       "AL": st.column_config.TextColumn(
+                           width=34, help="● Território da Amazônia Legal. ◐ Estado só em parte na região: " + nota_parcial()),
                        f"{I.label}": st.column_config.TextColumn("Valor", width=90, help=f"{I.label} · {I.unit}, em {YEAR}"),
                        "Comparado ao 1º": st.column_config.ProgressColumn(
                            "% do 1º", min_value=0, max_value=100, format="%.0f%%", width=66,
@@ -874,6 +905,8 @@ with T["Mapa e Ranking"]:
                                   height=min(520, 35 * (len(tbl) + 1) + 3), column_config=cfg,
                                   on_select="rerun", selection_mode="single-row", key="mr_tabela")
                 escolhidas = ev.selection.rows if ev is not None and ev.selection else []
+                if parciais:
+                    st.caption("◐ " + nota_parcial())
                 b1, b2 = st.columns([1, 1.4])
                 b1.download_button("Baixar ranking (CSV)", rk[["pos", "label", "uf", "valor", "var", "share", "faixa"]]
                                    .rename(columns={"pos": "posicao", "label": "territorio", "var": "variacao_pct",
@@ -888,10 +921,14 @@ with T["Mapa e Ranking"]:
             if tem_mapa:
                 mc, side = st.columns([1, 1])
                 with mc:
-                    theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}"
-                                + (" · contorno forte = Amazônia Legal" if marca_al else ""))
+                    destaque = " · contorno forte = Amazônia Legal" if marca_al else ""
+                    if parciais:
+                        destaque += (" · " + ", ".join(NOME_UF[u] for u in parciais) + ": só em parte, o contorno forte "
+                                     "marca só a parte do estado na região (◐ na tabela)")
+                    theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}{destaque}")
                     plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
-                                           **map_view(lvl), height=640, destaque_al=marca_al), "map_main")
+                                           **map_view(lvl), height=640, destaque_al=marca_al,
+                                           al_parcial=tuple(PARCIAL)), "map_main")
                     if mode_lbl.startswith("Faixas"):
                         st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)
                 with side:
@@ -1130,6 +1167,10 @@ with T["Sobre o Painel"]:
                 "**Amazônia Legal.** Calculada a partir dos municípios marcados como *Amazônia Legal = SIM* "
                 f"({D['n_mun_al']} municípios em {len(D['al_ufs'])} UFs), conforme a regra de agregação de cada "
                 "indicador: soma, para totais, ou média ponderada (razão entre totais), para taxas e valores per capita.")
+            if PARCIAL:
+                st.markdown("**Estados só em parte na Amazônia Legal.** " + nota_parcial() + " Os valores por estado vêm "
+                            "publicados pela fonte para o estado inteiro; a Amazônia Legal usa só os municípios marcados como "
+                            "pertencentes a ela. Por isso a soma dos estados da região pode diferir do total da Amazônia Legal.")
             st.caption(f"Versão da base: {mf['versao']} · gerada em {mf['gerado_em'][:16].replace('T', ' ')}")
             st.markdown("**Faixas.** Os mapas e gráficos de distribuição dividem os territórios em cinco faixas de "
                         "mesmo tamanho (quintis) no ano selecionado.")
