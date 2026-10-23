@@ -46,15 +46,15 @@ def state(key: str, default, options=None) -> str:
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
-ABAS = ["Visão Geral", "Visão Estadual", "Mapa e Ranking", "Perfil do Território", "Séries Temporais",
+ABAS = ["Visão Geral", "Estados e Municípios", "Mapa e Ranking", "Ficha do Território", "Séries Temporais",
         "Comparações", "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte", "grupos"}
 FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa e Ranking": {"ind", "ano"} | TERRIT,
-           "Visão Estadual": {"ind", "ano"}, "Perfil do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
+           "Estados e Municípios": {"ind", "ano"}, "Ficha do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
            "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
-NOTAS = {"Visão Estadual": "O estado é escolhido na própria página; a tabela do topo usa o último ano com dado "
+NOTAS = {"Estados e Municípios": "O estado é escolhido na própria página; a tabela do topo usa o último ano com dado "
                            "de cada indicador.",
-         "Perfil do Território": "O território (e a UF, para municípios) é escolhido na própria página.",
+         "Ficha do Território": "O território (e a UF, para municípios) é escolhido na própria página.",
          "Séries Temporais": "Os territórios são escolhidos na própria página; as séries mostram todos os anos.",
          "Sobre o Painel": "Esta página não usa filtros."}
 
@@ -345,10 +345,15 @@ with T["Visão Geral"]:
             st.markdown("---")
             left, right = st.columns([1.3, 1])
             with left:
-                theme.title(f"Evolução de {charts.low(I.label)}: Brasil, Amazônia Legal e Grandes Regiões",
-                            "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho.", fixo=True)
                 regs = data.territories(D, "Grande Região")
                 sr = data.series(D, [BRASIL, AMZ, *regs.tid], IND)
+                tem = set(sr.loc[sr.valor.notna(), "tid"])  # só o que existe para este indicador
+                nomes = [n for n, ok in (("Brasil", BRASIL in tem), ("Amazônia Legal", AMZ in tem),
+                                         ("Grandes Regiões", bool(tem & set(regs.tid)))) if ok]
+                quem = nomes[0] if len(nomes) == 1 else ", ".join(nomes[:-1]) + " e " + nomes[-1] if nomes else "sem série"
+                theme.title(f"Evolução de {charts.low(I.label)}: {quem}",
+                            "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho."
+                            + ("" if len(nomes) > 1 else " Este indicador só tem série para " + quem.lower() + "."), fixo=True)
                 plot(charts.lines(sr, I, "indice", height=360), "ov_line")
             with right:
                 if len(muni) > 10 and muni.uf.nunique() > 1:
@@ -415,9 +420,11 @@ def csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
 
 
-with T["Visão Estadual"]:
-    if T["Visão Estadual"].open:
+with T["Estados e Municípios"]:
+    if T["Estados e Municípios"].open:
         barra_filtros()
+        st.caption("Um estado em todos os indicadores, comparado com a Região, a Amazônia Legal e o Brasil, e o mapa "
+                   "dos seus municípios. Para ver um município específico, use a aba **Ficha do Território**.")
         ests = data.territories(D, "Estado")
         e1, e2 = st.columns([1, 2])
         todos = e2.checkbox("Incluir estados fora da Amazônia Legal", key=state("w_ve_todos", False),
@@ -665,9 +672,11 @@ with T["Mapa e Ranking"]:
 # =========================================================================== #
 # 4. PERFIL DO TERRITÓRIO
 # =========================================================================== #
-with T["Perfil do Território"]:
-    if T["Perfil do Território"].open:
+with T["Ficha do Território"]:
+    if T["Ficha do Território"].open:
         barra_filtros()
+        st.caption("A ficha de um território, de município ao Brasil: todos os indicadores, evolução e posição. "
+                   "Para um estado com o mapa dos municípios e as comparações regionais, use **Estados e Municípios**.")
         p1, p2, p3 = st.columns([1, 1, 2])
         niveis = ["Município", "Estado", "Grande Região", "Amazônia Legal", "Brasil"]
         plvl = p1.selectbox("Tipo de território", niveis, key=state("w_pf_lvl", "Município", niveis))
@@ -692,6 +701,13 @@ with T["Perfil do Território"]:
             chips += [str(mrow.uf), str(mrow.regiao), "Amazônia Legal" if bool(mrow.al) else "Fora da Amazônia Legal"]
             if D["porte"] is not None:
                 chips.append("Porte: " + str(D["porte"].get(cod, "—")))
+            if D["carac"] is not None and cod in D["carac"].index:
+                cr = D["carac"].loc[cod]
+                chips += [f"Região imediata: {cr.rg_imediata}", f"Região intermediária: {cr.rg_intermediaria}"]
+                chips += [f"PNDR: {cr.pndr}"] if pd.notna(cr.pndr) else []
+                chips += ["Cidade de fronteira"] * bool(cr.fronteira) + ["Sede de região imediata"] * bool(cr.sede_imediata)
+                chips += [f"{nome}: {cr[col]}" for col, nome in (("idhm", "IDHM"), ("idsc", "IDSC"), ("ips", "IPS"))
+                          if pd.notna(cr[col])]
         st.markdown(f"<h2 style='margin:.2rem 0 .3rem'>{sel}</h2>" + "".join(f'<span class="chip">{c}</span>' for c in chips),
                     unsafe_allow_html=True)
 
@@ -701,39 +717,41 @@ with T["Perfil do Território"]:
                     + "variação do primeiro ano com dado até o ano mostrado no cartão"
                     + (". Se o território não tem dado no último ano do indicador, o cartão mostra o último dado "
                        "dele, sem posição, pois não seria comparável com os demais." if RECENTE else ""))
-        for col, k in grid(D["indicators"]):
-            ik = REG[k]
-            ano = year_for(k)
-            v = value_of(tid, k, ano)
-            antigo = False
-            if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
-                sk = data.series(D, [tid], k).dropna(subset=["valor"])
-                if len(sk):
-                    ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
-            yr0, v0 = first_valid(tid, k, ano)
-            peers = (snap(plvl, k, ano, filt=False)
-                     if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
-            rk = ""
-            if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
-                pos = int((peers.valor > v).sum() + 1)
-                empate = int(np.isclose(peers.valor, v).sum())
-                if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
-                    rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
-                else:
-                    rk = f"{pos}º de {len(peers)} · "
-            ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
-            if yr0 and yr0 < ano and v0 == 0:
-                sub = f"{rk}{ref} · era zero em {yr0}"
-            elif yr0 and yr0 < ano:
-                sub = f"{rk}{ref} · {arrow(change(v, v0))} desde {yr0}"
-            elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
-                sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
-                                         else "sem ano anterior para comparar")
-            else:
-                sub = ref
-            with col:
-                st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon), unsafe_allow_html=True)
-
+        for eixo_nome in eixos:
+            ks = [k for k in D["indicators"] if REG[k].axis == eixo_nome]
+            with st.expander(f"{eixo_nome} · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""), expanded=True):
+                for col, k in grid(ks):
+                    ik = REG[k]
+                    ano = year_for(k)
+                    v = value_of(tid, k, ano)
+                    antigo = False
+                    if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
+                        sk = data.series(D, [tid], k).dropna(subset=["valor"])
+                        if len(sk):
+                            ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
+                    yr0, v0 = first_valid(tid, k, ano)
+                    peers = (snap(plvl, k, ano, filt=False)
+                             if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
+                    rk = ""
+                    if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
+                        pos = int((peers.valor > v).sum() + 1)
+                        empate = int(np.isclose(peers.valor, v).sum())
+                        if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
+                            rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
+                        else:
+                            rk = f"{pos}º de {len(peers)} · "
+                    ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
+                    if yr0 and yr0 < ano and v0 == 0:
+                        sub = f"{rk}{ref} · era zero em {yr0}"
+                    elif yr0 and yr0 < ano:
+                        sub = f"{rk}{ref} · {arrow(change(v, v0))} desde {yr0}"
+                    elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
+                        sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
+                                                 else "sem ano anterior para comparar")
+                    else:
+                        sub = ref
+                    with col:
+                        st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon), unsafe_allow_html=True)
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         g1, g2 = st.columns([1.4, 1])
         with g1:
@@ -775,6 +793,36 @@ with T["Perfil do Território"]:
                             f"{plvl.lower()}s com dado em {YEAR}" + (" (escala logarítmica)." if I.log else "."))
             else:
                 st.info("Sem grupo de pares para esta granularidade.")
+
+        if plvl == "Município" and D["carac"] is not None and cod in D["carac"].index:
+            cr = D["carac"].loc[cod]
+            grupos_cmp = {"Mesmo porte populacional": (D["porte"], D["porte"].get(cod) if D["porte"] is not None else None),
+                          "Mesma tipologia PNDR": (D["carac"].pndr, cr.pndr),
+                          "Mesma região imediata": (D["carac"].rg_imediata, cr.rg_imediata),
+                          "Mesma classe de IDHM": (D["carac"].idhm, cr.idhm),
+                          "Mesma classe de IDSC": (D["carac"].idsc, cr.idsc),
+                          "Mesma classe de IPS": (D["carac"].ips, cr.ips)}
+            grupos_cmp = {k: v for k, v in grupos_cmp.items() if v[0] is not None and pd.notna(v[1])}
+            if grupos_cmp:
+                theme.title(f"{sel.split(' (')[0]} comparado a municípios parecidos",
+                            f"{charts.axis_label(I)} em {YEAR} · compara com os municípios do Brasil que têm a mesma "
+                            "característica, e não com todos")
+                escolha = st.radio("Parecidos por", list(grupos_cmp), horizontal=True,
+                                   key=state("w_pf_par", next(iter(grupos_cmp)), list(grupos_cmp)))
+                serie, valor_grupo = grupos_cmp[escolha]
+                todos = snap("Município", IND, YEAR, filt=False)
+                par = todos[todos.cod.map(serie) == valor_grupo]
+                vm = value_of(tid)
+                if len(par) < 5 or fmt.isna(vm):
+                    st.info(f"{sel} não tem dado de {charts.low(I.label)} em {YEAR}." if fmt.isna(vm)
+                            else "Poucos municípios com dado neste grupo para comparar.")
+                else:
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric(sel.split(" (")[0], I.fmt(vm))
+                    m2.metric(f"Mediana do grupo ({len(par):,})".replace(",", "."), I.fmt(par.valor.median()))
+                    m3.metric("Posição no grupo", f"{int((par.valor > vm).sum()) + 1}º de {len(par):,}".replace(",", "."))
+                    st.caption(f"Grupo: {valor_grupo}. Posição: 1º = maior valor.")
+                    plot(charts.histogram(par, I, I.log, (sel.split(" (")[0], vm), height=300), "perfil_par")
 
         theme.title(f"{sel}: tabela com todos os indicadores, ano a ano")
         wide = (L[(L.tid == tid)].pivot_table(index="ano", columns="ind", values="valor", observed=True)

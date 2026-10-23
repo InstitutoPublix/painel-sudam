@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -16,12 +17,20 @@ from .theme import ACCENT, BG, COLORWAY, LEVEL_COLOR, MUTED, ORANGE, RED, SEQ, S
 # --------------------------------------------------------------------------- #
 # utilidades
 # --------------------------------------------------------------------------- #
+def _tick_text(ind: Indicator, v: float) -> str:
+    """Rótulo de um tick; abaixo de 1 (na unidade exibida) ganha as casas decimais que faltam para não virar '0'."""
+    x = abs(v * ind.scale)
+    if 0 < x < 1:
+        return replace(ind, decimals=max(ind.decimals, math.ceil(-math.log10(x)))).fmt(v)
+    return ind.fmt(v)
+
+
 def _ticks(ind: Indicator, lo: float, hi: float, log: bool = False, n: int = 5):
     if log and lo > 0:
         vals = [10 ** k for k in range(math.floor(math.log10(lo)), math.ceil(math.log10(hi)) + 1)]
     else:
         vals = list(np.linspace(lo, hi, n))
-    return vals, [ind.fmt(v) for v in vals]
+    return vals, [_tick_text(ind, v) for v in vals]
 
 
 def value_axis(fig: go.Figure, ind: Indicator, lo: float, hi: float, axis: str = "y", log: bool = False, **kw):
