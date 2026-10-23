@@ -97,7 +97,7 @@ amarelo (Situação, Pendência, Decisão, Responsável, Observações) são pre
 catálogo é gerado de novo; as demais são recalculadas a partir da planilha e do `config/indicadores.toml`.
 
 ## Abas
-Visão Geral · Mapa Territorial · Perfil do Território · Séries Temporais · Ranking · Comparações · Sobre.
+Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.
 
 ## Estrutura
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual

@@ -46,12 +46,12 @@ def state(key: str, default, options=None) -> str:
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
-ABAS = ["Visão Geral", "Visão Estadual", "Mapa Territorial", "Perfil do Território", "Séries Temporais",
-        "Ranking", "Comparações", "Sobre o Painel"]
+ABAS = ["Visão Geral", "Visão Estadual", "Mapa e Ranking", "Perfil do Território", "Séries Temporais",
+        "Comparações", "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte", "grupos"}
-FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa Territorial": {"ind", "ano"} | TERRIT,
+FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa e Ranking": {"ind", "ano"} | TERRIT,
            "Visão Estadual": {"ind", "ano"}, "Perfil do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
-           "Ranking": {"ind", "ano"} | TERRIT, "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
+           "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
 NOTAS = {"Visão Estadual": "O estado é escolhido na própria página; a tabela do topo usa o último ano com dado "
                            "de cada indicador.",
          "Perfil do Território": "O território (e a UF, para municípios) é escolhido na própria página.",
@@ -64,8 +64,7 @@ T = dict(zip(ABAS, tabs))
 ABA = next((a for a, t in T.items() if t.open), ABAS[0])
 show = set(FILTROS[ABA])
 # a escala escolhida dentro da aba define quais filtros territoriais fazem efeito
-escala = {"Mapa Territorial": st.session_state.get("w_map_lvl", "Estado"),
-          "Ranking": st.session_state.get("w_rk_lvl", "Município")}.get(ABA)
+escala = {"Mapa e Ranking": st.session_state.get("w_mr_lvl", "Município")}.get(ABA)
 if escala == "Estado":
     show -= {"porte", "grupos"}
 elif escala == "Grande Região":
@@ -304,6 +303,10 @@ with T["Visão Geral"]:
             top, bot = muni.loc[muni.valor.idxmax()], muni.loc[muni.valor.idxmin()]
             c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), top.label, "▲", "hi"), unsafe_allow_html=True)
             c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), bot.label, "▼", "lo"), unsafe_allow_html=True)
+            n0 = int((muni.valor == 0).sum())
+            if 0 < n0 <= .05 * len(muni):  # zero em muitos municípios é padrão do indicador (ex.: sim/não), não lacuna
+                st.caption(f"⚠ {n0:,} município(s) com valor zero entre os {len(muni):,}".replace(",", ".")
+                           + ". Pode ser ausência de registro e não valor real; confira na fonte antes de interpretar.")
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
         if muni.empty:
@@ -320,12 +323,12 @@ with T["Visão Geral"]:
                 else:
                     st.info(f"O mapa por estado divide os estados em 5 faixas e precisa de pelo menos 5 estados; "
                             f"o filtro atual deixa {len(st_df)}. Para ver os municípios desses estados no mapa, "
-                            "use a aba Mapa Territorial.")
+                            "use a aba Mapa e Ranking.")
             with b:
-                theme.title(f"Municípios por faixa de {charts.low(I.label)}",
-                            f"{YEAR} · {escopo('Município', len(muni))} divididos em 5 faixas de mesmo tamanho; "
-                            "a legenda mostra os limites de cada faixa")
-                plot(charts.donut(muni, I), "ov_donut")
+                theme.title(f"Distribuição dos municípios por {charts.low(I.label)}",
+                            f"{YEAR} · {escopo('Município', len(muni))} · cada barra conta os municípios de um "
+                            "intervalo de valores; tracejado = mediana" + ("" if I.additive else " e Brasil"))
+                plot(charts.histogram(muni, I, I.log, None if I.additive else ("Brasil", v_br)), "ov_hist")
             with c3:
                 theme.title(f"5 municípios com maior {charts.low(I.label)}",
                             f"{YEAR} · entre os {escopo('Município', len(muni))}")
@@ -345,25 +348,33 @@ with T["Visão Geral"]:
                 sr = data.series(D, [BRASIL, AMZ, *regs.tid], IND)
                 plot(charts.lines(sr, I, "indice", height=360), "ov_line")
             with right:
-                st_df = snap("Estado")
-                theme.title(f"{I.label} por estado, do maior para o menor",
-                            f"{YEAR} · " + (f"15 maiores entre os {escopo('Estado', len(st_df))}" if len(st_df) > 15
-                                            else escopo("Estado", len(st_df))))
-                plot(charts.hbar(st_df, I, 15, height=360), "ov_states")
+                if len(muni) > 10 and muni.uf.nunique() > 1:
+                    theme.title(f"{I.label} entre os municípios de cada UF",
+                                f"{YEAR} · caixa = metade central dos municípios, linha = mediana, pontos = fora do padrão")
+                    plot(charts.box_by_uf(muni, I, log=I.log).update_layout(height=360), "ov_box")
+                else:  # poucos municípios ou uma só UF: a caixa perde o sentido
+                    st_df = snap("Estado")
+                    theme.title(f"{I.label} por estado, do maior para o menor",
+                                f"{YEAR} · " + (f"15 maiores entre os {escopo('Estado', len(st_df))}" if len(st_df) > 15
+                                                else escopo("Estado", len(st_df))))
+                    plot(charts.hbar(st_df, I, 15, height=360), "ov_states")
 
         st.markdown("---")
         theme.title("Todos os indicadores na Amazônia Legal",
                     "Valor no último ano com dado de cada indicador e a evolução desde o primeiro ano", fixo=True)
-        for col, k in grid(D["indicators"]):
-            ik = REG[k]
-            s = data.series(D, [AMZ], k).dropna(subset=["valor"])
-            with col:
-                last = s.iloc[-1] if len(s) else None
-                st.markdown(theme.kpi(ik.label, ik.fmt(last.valor) if last is not None else "—",
-                                      f"{int(last.ano)} · " + ik.unit if last is not None else "", ik.icon),
-                            unsafe_allow_html=True)
-                if len(s) > 1:
-                    plot(charts.sparkline(s.ano, s.valor, ik), f"spark_{k}")
+        for eixo_nome in eixos:
+            ks = [k for k in D["indicators"] if REG[k].axis == eixo_nome]
+            with st.expander(f"{eixo_nome} · {len(ks)} indicadores", expanded=eixo_nome == eixos[0]):
+                for col, k in grid(ks):
+                    ik = REG[k]
+                    s = data.series(D, [AMZ], k).dropna(subset=["valor"])
+                    with col:
+                        last = s.iloc[-1] if len(s) else None
+                        st.markdown(theme.kpi(ik.label, ik.fmt(last.valor) if last is not None else "—",
+                                              f"{int(last.ano)} · " + ik.unit if last is not None else "", ik.icon),
+                                    unsafe_allow_html=True)
+                        if len(s) > 1:
+                            plot(charts.sparkline(s.ano, s.valor, ik), f"spark_{k}")
 
 # =========================================================================== #
 # 2. VISÃO ESTADUAL
@@ -557,40 +568,91 @@ with T["Visão Estadual"]:
                            help="Uma linha por município, indicador e ano.")
 
 # =========================================================================== #
-# 3. MAPA TERRITORIAL
+# 3. MAPA E RANKING
 # =========================================================================== #
-with T["Mapa Territorial"]:
-    if T["Mapa Territorial"].open:
+with T["Mapa e Ranking"]:
+    if T["Mapa e Ranking"].open:
         barra_filtros()
-        m1, m2, m3 = st.columns([1, 1, 2])
-        lvl = m1.radio("Colorir o mapa por", ["Estado", "Município"], horizontal=True,
-                       key=state("w_map_lvl", "Estado", ["Estado", "Município"]))
+        niveis = ["Estado", "Município", "Grande Região"]
+        r1, r2, r3, r4 = st.columns([1.5, 1.3, 1.1, 1.2])
+        lvl = r1.radio("Territórios", niveis, horizontal=True, key=state("w_mr_lvl", "Município", niveis),
+                       format_func=lambda x: {"Estado": "Estados", "Município": "Municípios",
+                                              "Grande Região": "Grandes Regiões"}[x])
+        tem_mapa = lvl != "Grande Região"
         cores = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
-        mode_lbl = m2.radio("Escala de cores", cores, horizontal=True, key=state("w_map_mode", cores[0], cores),
-                            help="Faixas: 5 grupos com o mesmo número de territórios, bom para ver posição relativa. "
-                                 "Contínua: a cor acompanha o valor" + (" (em escala logarítmica)." if I.log else "."))
-        mdf = snap(lvl)
-        if len(mdf) < 5:
+        mode_lbl = (r2.radio("Escala de cores", cores, horizontal=True, key=state("w_mr_mode", cores[0], cores),
+                             help="Faixas: 5 grupos com o mesmo número de territórios, bom para ver posição relativa. "
+                                  "Contínua: a cor acompanha o valor" + (" (em escala logarítmica)." if I.log else "."))
+                    if tem_mapa else cores[0])
+        ordens = ["Maiores primeiro", "Menores primeiro"]
+        ordem = r3.radio("Ordem da tabela", ordens, key=state("w_mr_ordem", ordens[0], ordens))
+        busca = r4.text_input("Buscar na tabela", placeholder="ex.: Belém", key=state("w_mr_busca", ""),
+                              help="Só filtra as linhas da tabela; as posições continuam as do ranking completo.")
+        rk = snap(lvl)
+        if len(rk) < (5 if tem_mapa else 1):
             st.warning("Poucos territórios com dado nesta combinação de filtros.")
         else:
-            mc, side = st.columns([2.3, 1])
-            with mc:
-                theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(mdf))}")
-                plot(charts.choropleth(mdf, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
-                                       **map_view(lvl), height=640), "map_main")
-                if mode_lbl.startswith("Faixas"):
-                    st.markdown(charts.legend_html(mdf, I), unsafe_allow_html=True)
-            with side:
-                theme.title(f"Resumo dos {escopo(lvl)}", f"{charts.axis_label(I)} em {YEAR}")
-                s1, s2 = st.columns(2)
-                s1.metric("Mediana", I.fmt(mdf.valor.median()))
-                s2.metric("Média", I.fmt(mdf.valor.mean()))
-                s1.metric("Máximo", I.fmt(mdf.valor.max()))
-                s2.metric("Mínimo", I.fmt(mdf.valor.min()))
-                theme.title(f"10 {lvl.lower()}s com maior valor")
-                plot(charts.hbar(mdf, I, 10, height=300), "map_top")
-                theme.title(f"10 {lvl.lower()}s com menor valor")
-                plot(charts.hbar(mdf, I, 10, ascending=True, height=300, color=theme.TEAL), "map_bot")
+            # a posição é sempre a do ranking do maior para o menor; "Menores primeiro" só inverte a ordem de leitura
+            rk = rk.sort_values("valor", ascending=False).reset_index(drop=True)
+            rk["pos"] = np.arange(1, len(rk) + 1)
+            rk["var"] = rk.cod.map(change_since_start(lvl))
+            rk["share"] = rk.valor / rk.valor.sum() * 100 if I.additive else np.nan
+            rk["rel"] = rk.valor / rk.valor.max() * 100
+            rk["faixa"] = (data.bands(rk.valor).astype(int) + 1).map(lambda i: f"Faixa {i}")
+            view = rk[rk.label.str.contains(busca, case=False, regex=False)] if busca else rk
+            if ordem == ordens[1]:
+                view = view.iloc[::-1]
+            tbl = pd.DataFrame({
+                "Posição": view.pos, "Território": view.label, "UF": view.uf if lvl != "Grande Região" else "",
+                f"{I.label}": view.valor.map(I.fmt), "Comparado ao 1º": view.rel,
+                "Variação (%)": view["var"].round(1), "Participação (%)": view.share.round(2),
+                "Faixa": view.faixa})
+            cfg = {f"{I.label}": st.column_config.TextColumn(help=f"{I.unit}, em {YEAR}"),
+                   "Comparado ao 1º": st.column_config.ProgressColumn(
+                       "Comparado ao 1º", min_value=0, max_value=100, format="%.0f%%",
+                       help="Valor do território como % do valor do 1º colocado."),
+                   "Variação (%)": st.column_config.NumberColumn(
+                       format="%.1f%%",
+                       help=f"Do primeiro ano com dado até {YEAR}; vazio quando o valor inicial era zero."),
+                   "Participação (%)": st.column_config.NumberColumn(
+                       format="%.2f%%", help="Parte do total somado de todos os territórios do ranking."),
+                   "Faixa": st.column_config.TextColumn(
+                       help="Faixa 1 = 20% com menores valores … Faixa 5 = 20% com maiores valores.")}
+            if not I.additive:
+                tbl = tbl.drop(columns=["Participação (%)"])
+
+            def resumo():
+                s1, s2, s3, s4 = st.columns(4)
+                s1.metric("Mediana", I.fmt(rk.valor.median()))
+                s2.metric("Média", I.fmt(rk.valor.mean()))
+                s3.metric("Máximo", I.fmt(rk.valor.max()))
+                s4.metric("Mínimo", I.fmt(rk.valor.min()))
+
+            def tabela(altura: int):
+                theme.title(f"Ranking de {charts.low(I.label)}: {escopo(lvl)}",
+                            f"{YEAR} · {len(rk):,} no ranking".replace(",", ".")
+                            + (f" · {len(view)} encontrados para '{busca}'" if busca else ""))
+                st.dataframe(tbl, width="stretch", hide_index=True, height=altura, column_config=cfg)
+                st.download_button("Baixar ranking (CSV)", rk[["pos", "label", "uf", "valor", "var", "share", "faixa"]]
+                                   .rename(columns={"pos": "posicao", "label": "territorio", "var": "variacao_pct",
+                                                    "share": "participacao_pct"})
+                                   .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
+                                   f"ranking_{lvl}_{YEAR}.csv", "text/csv")
+
+            if tem_mapa:
+                mc, side = st.columns([1.15, 1])
+                with mc:
+                    theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}")
+                    plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
+                                           **map_view(lvl), height=640), "map_main")
+                    if mode_lbl.startswith("Faixas"):
+                        st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)
+                with side:
+                    resumo()
+                    tabela(560)
+            else:
+                resumo()
+                tabela(300)
         if I.kind == "moeda":
             st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
                         'inflação.</div>', unsafe_allow_html=True)
@@ -816,65 +878,6 @@ with T["Séries Temporais"]:
                                                  "valor_fmt": "valor (formatado)"}), width="stretch", hide_index=True)
                 st.download_button("Baixar CSV", sr.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
                                    "series_selecionadas.csv", "text/csv")
-
-# =========================================================================== #
-# 6. RANKING
-# =========================================================================== #
-with T["Ranking"]:
-    if T["Ranking"].open:
-        barra_filtros()
-        r1, r2, r3 = st.columns([1, 1.4, 1])
-        rniveis = ["Município", "Estado", "Grande Região"]
-        rlvl = r1.radio("Ordenar", rniveis, horizontal=True, key=state("w_rk_lvl", "Município", rniveis),
-                        format_func=lambda x: {"Município": "Municípios", "Estado": "Estados",
-                                               "Grande Região": "Grandes Regiões"}[x])
-        busca = r2.text_input("Buscar na tabela", placeholder="ex.: Belém", key=state("w_rk_busca", ""),
-                              help="Só filtra as linhas da tabela; as posições continuam as do ranking completo.")
-        topn = r3.slider("Quantos no gráfico de barras", 5, 40, key=state("w_rk_topn", 15))
-        rk = snap(rlvl if rlvl != "Grande Região" else rlvl)
-        if rk.empty:
-            st.warning("Sem dados para os filtros selecionados.")
-        else:
-            rk = rk.sort_values("valor", ascending=False).reset_index(drop=True)
-            rk["pos"] = np.arange(1, len(rk) + 1)
-            ch = change_since_start(rlvl)
-            rk["var"] = rk.cod.map(ch)
-            rk["share"] = rk.valor / rk.valor.sum() * 100 if I.additive else np.nan
-            rk["rel"] = rk.valor / rk.valor.max() * 100
-            rk["faixa"] = (data.bands(rk.valor).astype(int) + 1).map(lambda i: f"Faixa {i}")
-            view = rk[rk.label.str.contains(busca, case=False, regex=False)] if busca else rk
-            tbl = pd.DataFrame({
-                "Posição": view.pos, "Território": view.label, "UF": view.uf if rlvl != "Grande Região" else "",
-                f"{I.label}": view.valor.map(I.fmt), "Comparado ao 1º": view.rel,
-                "Variação (%)": view["var"].round(1), "Participação (%)": view.share.round(2),
-                "Faixa": view.faixa})
-            cfg = {f"{I.label}": st.column_config.TextColumn(help=f"{I.unit}, em {YEAR}"),
-                   "Comparado ao 1º": st.column_config.ProgressColumn(
-                       "Comparado ao 1º", min_value=0, max_value=100, format="%.0f%%",
-                       help="Valor do território como % do valor do 1º colocado."),
-                   "Variação (%)": st.column_config.NumberColumn(
-                       format="%.1f%%",
-                       help=f"Do primeiro ano com dado até {YEAR}; vazio quando o valor inicial era zero."),
-                   "Participação (%)": st.column_config.NumberColumn(
-                       format="%.2f%%", help="Parte do total somado de todos os territórios do ranking."),
-                   "Faixa": st.column_config.TextColumn(
-                       help="Faixa 1 = 20% com menores valores … Faixa 5 = 20% com maiores valores.")}
-            if not I.additive:
-                tbl = tbl.drop(columns=["Participação (%)"])
-            t1, t2 = st.columns([1.5, 1])
-            with t1:
-                theme.title(f"Ranking de {charts.low(I.label)}: {escopo(rlvl)}",
-                            f"{YEAR} · {len(rk):,} no ranking".replace(",", ".")
-                            + (f" · {len(view)} encontrados para '{busca}'" if busca else ""))
-                st.dataframe(tbl, width="stretch", hide_index=True, height=620, column_config=cfg)
-                st.download_button("Baixar ranking (CSV)", rk[["pos", "label", "uf", "valor", "var", "share", "faixa"]]
-                                   .rename(columns={"pos": "posicao", "label": "territorio", "var": "variacao_pct",
-                                                    "share": "participacao_pct"})
-                                   .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
-                                   f"ranking_{rlvl}_{YEAR}.csv", "text/csv")
-            with t2:
-                theme.title(f"Os {topn} maiores", f"{charts.axis_label(I)} em {YEAR}")
-                plot(charts.hbar(rk, I, topn, height=max(300, 26 * topn + 40)), "rk_bar")
 
 # =========================================================================== #
 # 7. COMPARAÇÕES

@@ -167,6 +167,56 @@ def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> 
     return fig
 
 
+def histogram(df: pd.DataFrame, ind: Indicator, log: bool = False, ref: tuple[str, float] | None = None,
+              height: int = 300) -> go.Figure:
+    """Distribuição dos territórios; marca a mediana e, se dado, um valor de referência (ex.: Brasil).
+    Em escala logarítmica os intervalos são calculados nos logaritmos e o eixo recebe os rótulos reais.
+    Com cauda muito longa (máximo bem acima do percentil 99), o eixo para no percentil 99 e o gráfico
+    avisa quantos territórios ficaram além dele."""
+    v = df.valor.astype(float)
+    log = log and (v > 0).all()
+    fora = 0
+    if not log:
+        p99 = float(v.quantile(.99))
+        if p99 > v.min() and v.max() > 1.5 * p99:
+            fora = int((v > p99).sum())
+            v = v[v <= p99]
+    t = np.log10(v) if log else v
+    n = int(np.clip(np.sqrt(len(v)), 8, 30))
+    cnt, edges = np.histogram(t, bins=n)
+    mid, w = (edges[:-1] + edges[1:]) / 2, np.diff(edges)
+    f = (lambda x: 10 ** x) if log else (lambda x: x)
+    lo_t, hi_t = f(edges[:-1]), f(edges[1:])
+    fig = go.Figure(go.Bar(
+        x=mid, y=cnt, width=w * .94, marker=dict(color=ACCENT, cornerradius=2),
+        customdata=np.column_stack([[ind.fmt(a) for a in lo_t], [ind.fmt(b) for b in hi_t]]),
+        hovertemplate="%{customdata[0]} – %{customdata[1]}<br><b>%{y}</b> municípios<extra></extra>"))
+    g = (lambda x: float(np.log10(x))) if log else float
+    marks = [("Mediana", float(df.valor.median()), ORANGE)] \
+        + ([(ref[0], ref[1], RED)] if ref and not fmt.isna(ref[1]) else [])
+    for nome, x, cor in marks:
+        if (log and x <= 0) or not edges[0] - w[0] <= g(x) <= edges[-1] + w[-1]:
+            continue  # fora do trecho desenhado (ex.: Brasil acima do percentil 99)
+        fig.add_vline(x=g(x), line=dict(color=cor, width=2, dash="dash"))
+    top = float(cnt.max()) * 1.32
+    for i, (nome, x, cor) in enumerate(marks):  # rótulos numa faixa acima das barras, um sobre o outro
+        if (log and x <= 0) or not edges[0] - w[0] <= g(x) <= edges[-1] + w[-1]:
+            continue
+        fig.add_annotation(x=g(x), y=top * (1 - .1 * i), yref="y", text=f"{nome}: {ind.fmt(x)}", showarrow=False,
+                           xanchor="left", xshift=4, font=dict(color=cor, size=11), bgcolor="rgba(255,255,255,.8)")
+    ticks = _ticks(ind, float(v.min()), float(v.max()), log)[0]
+    ticks = [x for x in ticks if not log or x > 0]
+    fig.update_xaxes(tickvals=[g(x) for x in ticks], ticktext=[ind.fmt(x) for x in ticks], title=axis_label(ind),
+                     range=[edges[0] - w[0], edges[-1] + w[-1]])
+    fig.update_yaxes(title="Nº de municípios", range=[0, top * 1.05])
+    if fora:
+        fig.add_annotation(x=1, y=1.0, xref="paper", yref="paper", xanchor="right", yanchor="bottom", showarrow=False,
+                           text=f"{fora} municípios acima de {ind.fmt(float(v.max()))} não aparecem",
+                           font=dict(size=10, color=MUTED))
+    fig.update_layout(height=height, bargap=0, margin=dict(l=0, r=0, t=22, b=6))
+    return fig
+
+
 def hbar(df: pd.DataFrame, ind: Indicator, n: int = 10, highlight: str | None = None,
          ascending: bool = False, height: int | None = None, color: str = ACCENT) -> go.Figure:
     d = df.nsmallest(n, "valor") if ascending else df.nlargest(n, "valor")
@@ -323,13 +373,24 @@ def growth_heatmap(sr: pd.DataFrame, height: int | None = None) -> go.Figure:
 
 
 def sparkline(years, values, ind: Indicator, color: str = ACCENT) -> go.Figure:
+    """Tendência de uma série; o eixo acompanha o intervalo dos valores (não parte do zero), para a
+    variação aparecer mesmo em séries que mudam pouco em relação ao nível."""
+    lo, hi = float(np.nanmin(values)), float(np.nanmax(values))
+    span = max(hi - lo, .02 * max(abs(hi), abs(lo)))  # variação abaixo de 2% do valor não é esticada na altura toda
+    mid = (hi + lo) / 2
+    lo, hi = mid - span / 2, mid + span / 2
+    pad = span * .15 or 1
     fig = go.Figure(go.Scatter(
         x=years, y=values, mode="lines+markers", connectgaps=True, line=dict(color=color, width=2.2),
         marker=dict(size=4), fill="tozeroy", fillcolor="rgba(4,65,60,0.08)",
         text=[ind.fmt(v) for v in values], hovertemplate="%{x}: <b>%{text}</b><extra></extra>"))
-    fig.update_layout(height=90, margin=dict(l=0, r=0, t=2, b=0), showlegend=False)
+    yrs = [int(y) for y in years]
+    fig.update_layout(height=104, margin=dict(l=0, r=0, t=2, b=16), showlegend=False)
+    for x, anchor, y in ((0, "left", yrs[0]), (1, "right", yrs[-1])):
+        fig.add_annotation(x=x, y=0, xref="paper", yref="paper", yshift=-9, text=str(y), showarrow=False,
+                           xanchor=anchor, font=dict(size=10, color=MUTED))
     fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False, rangemode="normal")
+    fig.update_yaxes(visible=False, rangemode="normal", range=[lo - pad, hi + pad])
     return fig
 
 
