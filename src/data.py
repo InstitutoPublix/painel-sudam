@@ -252,17 +252,38 @@ def territories(D: dict, level: str) -> pd.DataFrame:
     return d.sort_values("label").reset_index(drop=True)
 
 
-def bands(values: pd.Series, k: int = 5) -> pd.Series:
-    """Faixas por quantis (0 = menores valores … k-1 = maiores)."""
-    r = values.rank(method="first")
-    if len(r) < k:  # poucos territórios (ex.: uma UF filtrada): distribui pelas faixas sem repetir bordas
-        return ((r - 1) * k // max(len(r), 1)).astype(int)
-    return pd.qcut(r, k, labels=False)
+def n_bands(n: int) -> int:
+    """Nº de faixas: 5 quando há territórios para isso; só 3 com poucos (ex.: 9 estados), para não ter faixa de um."""
+    return 5 if n >= 20 else 3
 
 
-def band_ranges(values: pd.Series, k: int = 5) -> list[tuple[float, float]]:
+def _quantis(values: pd.Series, k: int) -> pd.Series:
+    b = pd.qcut(values, k, labels=False, duplicates="drop") if values.nunique() > 1 else None
+    return pd.Series(0, index=values.index) if b is None else b.astype(int)
+
+
+def bands(values: pd.Series, k: int | None = None) -> pd.Series:
+    """Faixas por quantis (0 = menores valores … última = maiores). Valores iguais ficam na mesma faixa.
+    Se um mesmo valor extremo (ex.: zero) reúne ao menos 1/k dos territórios, ele ganha uma faixa própria e o
+    resto se divide nas demais; senão, valores repetidos reduzem o nº de faixas."""
+    k = k or n_bands(len(values))
+    top = values.value_counts().index[0]
+    if k > 2 and values.nunique() > 2 and (values == top).mean() >= 1 / k and top in (values.min(), values.max()):
+        tie = values == top
+        rest = _quantis(values[~tie], k - 1)
+        out = pd.Series(0, index=values.index)
+        if top == values.min():
+            out[~tie] = rest + 1
+        else:
+            out[~tie], out[tie] = rest, int(rest.max()) + 1
+        return out
+    return _quantis(values, k)
+
+
+def band_ranges(values: pd.Series, k: int | None = None) -> list[tuple[float, float, int]]:
+    """(mínimo, máximo, nº de territórios) de cada faixa, do menor ao maior valor."""
     b = bands(values, k)
-    return [(values[b == i].min(), values[b == i].max()) for i in range(k)]
+    return [(values[b == i].min(), values[b == i].max(), int((b == i).sum())) for i in sorted(b.unique())]
 
 
 def cagr(first: float, last: float, years: int) -> float:

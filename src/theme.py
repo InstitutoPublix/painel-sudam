@@ -138,6 +138,8 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .note {{ border-left:3px solid {ORANGE}; background:rgba(238,125,34,.08); padding:8px 12px; border-radius:6px;
   color:{TEXT}; font-size:.8rem; margin:6px 0 10px; }}
 .legend {{ display:flex; gap:12px; flex-wrap:wrap; font-size:.72rem; color:{TEXT}; }}
+.legend em {{ color:{MUTED}; font-style:normal; }}
+.legend .lnote {{ color:{MUTED}; font-size:.68rem; }}
 .legend i {{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px;
   border:1px solid {LINE}; }}
 /* filtros: faixa "aplicados nesta página", grupos da barra lateral e etiqueta de gráfico fixo */

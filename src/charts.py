@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from . import fmt
-from .data import ASSETS, Indicator, band_ranges, bands
+from .data import ASSETS, Indicator, band_ranges, bands, n_bands
 from .theme import ACCENT, BG, COLORWAY, LEVEL_COLOR, MUTED, ORANGE, RED, SEQ, SEQ_CONT, SURFACE, TEXT, text_on
 
 
@@ -58,6 +58,12 @@ def axis_label(ind: Indicator) -> str:
 def seq(ind: Indicator) -> list[str]:
     """Faixas do menor ao maior valor; invertida quando menor é melhor (verde-escuro = melhor situação)."""
     return SEQ[::-1] if ind.polarity < 0 else SEQ
+
+
+def band_colors(ind: Indicator, m: int) -> list[str]:
+    """m cores espaçadas ao longo da paleta de 5 (m < 5 quando valores repetidos reduzem as faixas)."""
+    base = seq(ind)
+    return [base[int(round(i))] for i in np.linspace(0, len(base) - 1, m)] if m > 1 else [base[2]]
 
 
 def seq_cont(ind: Indicator) -> list:
@@ -110,11 +116,12 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
     hover = df.label + "<br><b>" + df.valor.map(ind.fmt) + "</b>"
     if mode == "faixas":
         b = bands(df.valor).astype(int)
+        m = int(b.max()) + 1
         scale = []
-        for i, c in enumerate(seq(ind)):
-            scale += [[i / 5, c], [(i + 1) / 5, c]]
+        for i, c in enumerate(band_colors(ind, m)):
+            scale += [[i / m, c], [(i + 1) / m, c]]
         fig.add_trace(go.Choroplethmap(
-            geojson=sub, locations=codes, z=b + 0.5, zmin=0, zmax=5, colorscale=scale, showscale=False,
+            geojson=sub, locations=codes, z=b + 0.5, zmin=0, zmax=m, colorscale=scale, showscale=False,
             text=hover, hovertemplate="%{text}<extra></extra>",
             marker_line_color="rgba(255,253,247,0.9)", marker_line_width=0.25 if level == "Município" else 0.8))
     else:
@@ -138,35 +145,24 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
 
 
 def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
+    """Uma entrada por faixa existente: intervalo de valores (um só valor quando a faixa é de valores iguais)
+    e quantos territórios ela reúne."""
     rng = band_ranges(df.valor)
-    items = "".join(f'<span><i style="background:{c}"></i>{ind.fmt(lo)} – {ind.fmt(hi)}</span>'
-                    for c, (lo, hi) in zip(seq(ind), rng))
-    return f'<div class="legend"><b>Faixas de {low(axis_label(ind))}:</b>{items}</div>'
+    def faixa(lo, hi):
+        return ind.fmt(lo) if ind.fmt(lo) == ind.fmt(hi) else f"{ind.fmt(lo)} – {ind.fmt(hi)}"
+    items = "".join(f'<span><i style="background:{c}"></i>{faixa(lo, hi)} <em>({n})</em></span>'
+                    for c, (lo, hi, n) in zip(band_colors(ind, len(rng)), rng))
+    nota = ""
+    if len(rng) < n_bands(len(df)):
+        nota = '<span class="lnote">Valores repetidos agruparam as faixas; por isso há menos de ' \
+               f'{n_bands(len(df))}.</span>'
+    return (f'<div class="legend"><b>Faixas de {low(axis_label(ind))}</b> '
+            f'<span class="lnote">(menor → maior · entre parênteses, nº de territórios)</span>{items}{nota}</div>')
 
 
 # --------------------------------------------------------------------------- #
 # distribuição / ranking
 # --------------------------------------------------------------------------- #
-def donut(df: pd.DataFrame, ind: Indicator, unit_label: str = "municípios") -> go.Figure:
-    b = bands(df.valor).astype(int)
-    rng = band_ranges(df.valor)
-    counts = b.value_counts().reindex(range(5), fill_value=0)
-    names = [f"Faixa {i + 1}: {ind.fmt(lo)} – {ind.fmt(hi)}" for i, (lo, hi) in enumerate(rng)]
-    fig = go.Figure(go.Pie(
-        labels=names, values=counts.values, hole=0.62, sort=False, direction="clockwise",
-        marker=dict(colors=seq(ind), line=dict(color=BG, width=2)),
-        customdata=[f"{ind.fmt(lo)} – {ind.fmt(hi)}" for lo, hi in rng],
-        hovertemplate="%{label}<br>%{value} " + unit_label + " (%{percent})<br>%{customdata}<extra></extra>",
-        textinfo="value", textfont=dict(color=[text_on(c) for c in seq(ind)], size=12)))
-    fig.add_annotation(text=f"<b>{len(df):,}</b><br><span style='font-size:11px;color:{MUTED}'>{unit_label}</span>"
-                       .replace(",", "."), showarrow=False, font=dict(size=24))
-    fig.update_layout(height=300, showlegend=True,
-                      legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=10),
-                                  title=dict(text=f"{ind.unit}<br>(menor → maior)", font=dict(size=10))),
-                      margin=dict(l=0, r=0, t=6, b=6))
-    return fig
-
-
 def histogram(df: pd.DataFrame, ind: Indicator, log: bool = False, ref: tuple[str, float] | None = None,
               height: int = 300) -> go.Figure:
     """Distribuição dos territórios; marca a mediana e, se dado, um valor de referência (ex.: Brasil).

@@ -290,11 +290,14 @@ with T["Visão Geral"]:
                     f"Os quatro primeiros cartões são totais fixos; maior e menor município saem dos "
                     f"{escopo('Município', len(muni))}.")
         c = st.columns(6)
-        c[0].markdown(theme.kpi("Brasil", I.fmt(v_br), f"{I.label} · {YEAR}", "🇧🇷"), unsafe_allow_html=True)
+        sem_br = fmt.isna(v_br)  # alguns indicadores não têm total nacional
+        c[0].markdown(theme.kpi("Brasil", I.fmt(v_br), "sem dado nacional para este indicador" if sem_br
+                                else f"{I.label} · {YEAR}", "🇧🇷"), unsafe_allow_html=True)
         c[1].markdown(theme.kpi("Amazônia Legal", I.fmt(v_al), f"{I.label} · {YEAR}", "AL", "hi"), unsafe_allow_html=True)
         c[2].markdown(theme.kpi("Participação no Brasil" if I.additive else "Relação com o Brasil",
                                 fmt.pct(share if I.additive else ratio),
-                                "da Amazônia Legal no total nacional" if I.additive else "AL ÷ Brasil", "%"),
+                                "sem total nacional para comparar" if sem_br
+                                else "da Amazônia Legal no total nacional" if I.additive else "AL ÷ Brasil", "%"),
                       unsafe_allow_html=True)
         c[3].markdown(theme.kpi("Variação desde " + (str(y0) if y0 else "—"), arrow(var_al),
                                 f"Amazônia Legal, de {y0} a {YEAR}" if y0 else "Amazônia Legal", "Δ"),
@@ -316,24 +319,24 @@ with T["Visão Geral"]:
             with a:
                 st_df = snap("Estado")
                 theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(st_df))} · "
-                            "cor = faixa do estado (5 faixas com o mesmo nº de estados)")
+                            "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                 if len(st_df) >= 5:
                     plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado"), height=370), "ov_map")
                     st.markdown(charts.legend_html(st_df, I), unsafe_allow_html=True)
                 else:
-                    st.info(f"O mapa por estado divide os estados em 5 faixas e precisa de pelo menos 5 estados; "
+                    st.info(f"O mapa por estado divide os estados em faixas e precisa de pelo menos 5 estados; "
                             f"o filtro atual deixa {len(st_df)}. Para ver os municípios desses estados no mapa, "
                             "use a aba Mapa e Ranking.")
             with b:
                 theme.title(f"Distribuição dos municípios por {charts.low(I.label)}",
                             f"{YEAR} · {escopo('Município', len(muni))} · cada barra conta os municípios de um "
-                            "intervalo de valores; tracejado = mediana" + ("" if I.additive else " e Brasil"))
-                plot(charts.histogram(muni, I, I.log, None if I.additive else ("Brasil", v_br)), "ov_hist")
+                            "intervalo de valores; tracejado = mediana" + ("" if I.additive or sem_br else " e Brasil"))
+                plot(charts.histogram(muni, I, I.log, None if I.additive or sem_br else ("Brasil", v_br), height=420), "ov_hist")
             with c3:
-                theme.title(f"5 municípios com maior {charts.low(I.label)}",
+                theme.title(f"5 municípios com maior valor de {charts.low(I.label)}",
                             f"{YEAR} · entre os {escopo('Município', len(muni))}")
                 t5 = muni.nlargest(5, "valor")
-                plot(charts.hbar(t5, I, 5, height=250), "ov_top5")
+                plot(charts.hbar(t5, I, 5, height=360), "ov_top5")
                 tot = muni.valor.sum() if I.additive else None
                 if tot:
                     st.caption(f"Os 5 maiores concentram **{fmt.pct(t5.valor.sum() / tot * 100)}** do total dos "
@@ -364,7 +367,8 @@ with T["Visão Geral"]:
                     "Valor no último ano com dado de cada indicador e a evolução desde o primeiro ano", fixo=True)
         for eixo_nome in eixos:
             ks = [k for k in D["indicators"] if REG[k].axis == eixo_nome]
-            with st.expander(f"{eixo_nome} · {len(ks)} indicadores", expanded=eixo_nome == eixos[0]):
+            with st.expander(f"{eixo_nome} · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""),
+                             expanded=eixo_nome == REG[IND].axis):
                 for col, k in grid(ks):
                     ik = REG[k]
                     s = data.series(D, [AMZ], k).dropna(subset=["valor"])
@@ -515,7 +519,7 @@ with T["Visão Estadual"]:
         md = data.snapshot(D, "Município", IND, YEAR, ufs=[uf])
         theme.title(f"{I.label} nos municípios de {sel}",
                     f"{YEAR} · {len(md)} de {n_mun} municípios com dado · cor = faixa do município dentro do estado "
-                    "(5 faixas com o mesmo nº de municípios)")
+                    "(grupos de tamanho parecido, do menor ao maior valor)")
         if len(md) < 5:
             st.info(f"{I.label} não tem dado municipal suficiente para {sel} em {YEAR}"
                     + (" (indicador só tem dado estadual)." if md.empty else "."))
@@ -581,7 +585,8 @@ with T["Mapa e Ranking"]:
         tem_mapa = lvl != "Grande Região"
         cores = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
         mode_lbl = (r2.radio("Escala de cores", cores, horizontal=True, key=state("w_mr_mode", cores[0], cores),
-                             help="Faixas: 5 grupos com o mesmo número de territórios, bom para ver posição relativa. "
+                             help="Faixas: grupos de tamanho parecido (5, ou 3 quando há poucos territórios), bom para ver posição "
+                                  "relativa. "
                                   "Contínua: a cor acompanha o valor" + (" (em escala logarítmica)." if I.log else "."))
                     if tem_mapa else cores[0])
         ordens = ["Maiores primeiro", "Menores primeiro"]
@@ -617,7 +622,7 @@ with T["Mapa e Ranking"]:
                    "Participação (%)": st.column_config.NumberColumn(
                        format="%.2f%%", help="Parte do total somado de todos os territórios do ranking."),
                    "Faixa": st.column_config.TextColumn(
-                       help="Faixa 1 = 20% com menores valores … Faixa 5 = 20% com maiores valores.")}
+                       help="Faixa 1 = menores valores … última faixa = maiores valores. São as mesmas faixas do mapa.")}
             if not I.additive:
                 tbl = tbl.drop(columns=["Participação (%)"])
 
