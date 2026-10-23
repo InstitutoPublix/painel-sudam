@@ -79,6 +79,21 @@ def seq_cont(ind: Indicator) -> list:
     return [[1 - p, c] for p, c in reversed(SEQ_CONT)] if ind.polarity < 0 else SEQ_CONT
 
 
+def continuous_colors(values: pd.Series, ind: Indicator) -> list[str]:
+    """Cor de cada valor na escala contínua do mapa (logarítmica se o indicador pedir), para pintar a tabela
+    com as mesmas cores do mapa."""
+    v = values.astype(float)
+    if ind.log:
+        v = np.log10(v.clip(lower=positive_min(v)))
+    lo, hi = float(v.min()), float(v.max())
+    t = ((v - lo) / (hi - lo)).fillna(0).values if hi > lo else np.zeros(len(v))
+    pts = seq_cont(ind)
+    ps = [p for p, _ in pts]
+    rgb = np.array([[int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)] for _, c in pts], dtype=float)
+    cols = np.column_stack([np.interp(t, ps, rgb[:, k]) for k in range(3)]).round().astype(int)
+    return [f"#{r:02X}{g:02X}{b:02X}" for r, g, b in cols]
+
+
 def positive_min(s: pd.Series, default: float = 1) -> float:
     s = s[s > 0]
     return float(s.min()) if len(s) else default
@@ -106,9 +121,35 @@ def geojson(level: str) -> dict:
 # --------------------------------------------------------------------------- #
 # mapa
 # --------------------------------------------------------------------------- #
+_CENTRO: dict[str, tuple[float, float]] = {}
+
+
+def _centro(feature: dict) -> tuple[float, float]:
+    """(lat, lon) do centroide do maior polígono de uma feição (fórmula da área de Gauss)."""
+    if feature["id"] not in _CENTRO:
+        g = feature["geometry"]
+        rings = [p[0] for p in (g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]])]
+        best, area_best = rings[0], -1.0
+        for r in rings:
+            xs, ys = np.array([c[0] for c in r]), np.array([c[1] for c in r])
+            a = abs(np.dot(xs, np.roll(ys, -1)) - np.dot(ys, np.roll(xs, -1))) / 2
+            if a > area_best:
+                best, area_best = r, a
+        xs, ys = np.array([c[0] for c in best]), np.array([c[1] for c in best])
+        cross = xs * np.roll(ys, -1) - np.roll(xs, -1) * ys
+        a6 = cross.sum() * 3
+        cx = ((xs + np.roll(xs, -1)) * cross).sum() / a6 if a6 else xs.mean()
+        cy = ((ys + np.roll(ys, -1)) * cross).sum() / a6 if a6 else ys.mean()
+        _CENTRO[feature["id"]] = (float(cy), float(cx))
+    return _CENTRO[feature["id"]]
+
+
 def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas",
-               zoom: float = 3.2, center=(-9.0, -54.0), height: int = 560) -> go.Figure:
-    """df: cod, label, valor. mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir)."""
+               zoom: float = 3.2, center=(-9.0, -54.0), height: int = 560, rotulos: bool = True,
+               destaque_al: bool = False) -> go.Figure:
+    """df: cod, label, valor (e uf, al). mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir).
+    rotulos: siglas das UFs sobre o mapa de estados (quando há poucos estados ou o mapa é grande).
+    destaque_al: contorno mais forte nos territórios da Amazônia Legal, quando o mapa traz também os de fora."""
     gj_all = geojson(level)
     ids = set(df.cod.astype(str).str.zfill(2 if level == "Estado" else 7))
     sub = {"type": "FeatureCollection", "features": [f for f in gj_all["features"] if f["id"] in ids]}
@@ -148,6 +189,25 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
             marker_line_color="rgba(255,253,247,0.9)", marker_line_width=0.25 if level == "Município" else 0.8,
             colorbar=dict(tickvals=tickvals, ticktext=txt, len=0.6, thickness=10, title=dict(text=ind.unit, side="right"),
                           tickfont=dict(size=10, color=MUTED), outlinewidth=0)))
+    if destaque_al and "al" in df:
+        em_al = df.al.fillna(False).astype(bool).values
+        if em_al.any() and not em_al.all():
+            fig.add_trace(go.Choroplethmap(
+                geojson=sub, locations=codes[em_al], z=[0] * int(em_al.sum()), showscale=False, hoverinfo="skip",
+                colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+                marker_line_color=TEXT, marker_line_width=2.2 if level == "Estado" else 0.9))
+    if level == "Estado" and rotulos and "uf" in df and (len(df) <= 12 or height >= 560):
+        feats = {f["id"]: f for f in sub["features"]}
+        ok = [i for i, c in enumerate(codes) if c in feats]
+        centros = [_centro(feats[codes.iloc[i]]) for i in ok]
+        b = bands(df.valor).astype(int).values
+        cores_b = band_colors(ind, int(b.max()) + 1)
+        tcor = [text_on(cores_b[b[i]]) for i in ok]
+        for cor in dict.fromkeys(tcor):  # a cor do texto não aceita lista: um traço por cor (claro ou escuro)
+            idx = [j for j, c in enumerate(tcor) if c == cor]
+            fig.add_trace(go.Scattermap(
+                lat=[centros[j][0] for j in idx], lon=[centros[j][1] for j in idx], mode="text", showlegend=False,
+                hoverinfo="skip", text=[str(df.uf.iloc[ok[j]]) for j in idx], textfont=dict(size=11, color=cor)))
     fig.update_layout(map=dict(style="carto-positron", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig

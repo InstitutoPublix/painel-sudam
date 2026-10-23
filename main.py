@@ -5,6 +5,7 @@ Executar:  streamlit run main.py
 from __future__ import annotations
 
 import re
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -759,11 +760,27 @@ with T["Território"]:
 # =========================================================================== #
 # 3. MAPA E RANKING
 # =========================================================================== #
+def sem_acento(t: str) -> str:
+    """Minúsculas e sem acentos, para buscar 'belem' e achar 'Belém'."""
+    return "".join(c for c in unicodedata.normalize("NFD", str(t).strip().lower()) if unicodedata.category(c) != "Mn")
+
+
+def abrir_territorio(nivel: str, label: str, uf: str):
+    """Leva o território escolhido no ranking para a aba Território (roda antes da nova execução da página)."""
+    st.session_state["w_tr_lvl"] = nivel
+    if nivel == "Município":
+        st.session_state["w_tr_uf"] = uf
+    if nivel == "Estado" and uf not in D["al_ufs"]:
+        st.session_state["w_tr_fora"] = True
+    st.session_state["w_tr_terr"] = label
+    st.session_state["aba"] = "Território"
+
+
 with T["Mapa e Ranking"]:
     if T["Mapa e Ranking"].open:
         barra_filtros()
         niveis = ["Estado", "Município", "Grande Região"]
-        r1, r2, r3, r4 = st.columns([1.5, 1.3, 1.1, 1.2])
+        r1, r2 = st.columns([1.3, 1])
         lvl = r1.radio("Territórios", niveis, horizontal=True, key=state("w_mr_lvl", "Município", niveis),
                        format_func=lambda x: {"Estado": "Estados", "Município": "Municípios",
                                               "Grande Região": "Grandes Regiões"}[x])
@@ -774,10 +791,6 @@ with T["Mapa e Ranking"]:
                                   "relativa. "
                                   "Contínua: a cor acompanha o valor" + (" (em escala logarítmica)." if I.log else "."))
                     if tem_mapa else cores[0])
-        ordens = ["Maiores primeiro", "Menores primeiro"]
-        ordem = r3.radio("Ordem da tabela", ordens, key=state("w_mr_ordem", ordens[0], ordens))
-        busca = r4.text_input("Buscar na tabela", placeholder="ex.: Belém", key=state("w_mr_busca", ""),
-                              help="Só filtra as linhas da tabela; as posições continuam as do ranking completo.")
         rk = snap(lvl)
         if len(rk) < (5 if tem_mapa else 1):
             st.warning("Poucos territórios com dado nesta combinação de filtros.")
@@ -789,60 +802,104 @@ with T["Mapa e Ranking"]:
             rk["share"] = rk.valor / rk.valor.sum() * 100 if I.additive else np.nan
             rk["rel"] = rk.valor / rk.valor.max() * 100
             rk["faixa"] = (data.bands(rk.valor).astype(int) + 1).map(lambda i: f"Faixa {i}")
-            view = rk[rk.label.str.contains(busca, case=False, regex=False)] if busca else rk
-            if ordem == ordens[1]:
-                view = view.iloc[::-1]
-            tbl = pd.DataFrame({
-                "Posição": view.pos, "Território": view.label, "UF": view.uf if lvl != "Grande Região" else "",
-                f"{I.label}": view.valor.map(I.fmt), "Comparado ao 1º": view.rel,
-                "Variação (%)": view["var"].round(1), "Participação (%)": view.share.round(2),
-                "Faixa": view.faixa})
-            cfg = {f"{I.label}": st.column_config.TextColumn(help=f"{I.unit}, em {YEAR}"),
-                   "Comparado ao 1º": st.column_config.ProgressColumn(
-                       "Comparado ao 1º", min_value=0, max_value=100, format="%.0f%%",
-                       help="Valor do território como % do valor do 1º colocado."),
-                   "Variação (%)": st.column_config.NumberColumn(
-                       format="%.1f%%",
-                       help=f"Do primeiro ano com dado até {YEAR}; vazio quando o valor inicial era zero."),
-                   "Participação (%)": st.column_config.NumberColumn(
-                       format="%.2f%%", help="Parte do total somado de todos os territórios do ranking."),
-                   "Faixa": st.column_config.TextColumn(
-                       help="Faixa 1 = menores valores … última faixa = maiores valores. São as mesmas faixas do mapa.")}
-            if not I.additive:
-                tbl = tbl.drop(columns=["Participação (%)"])
+            em_faixas = mode_lbl.startswith("Faixas")
+            cor_faixa = charts.band_colors(I, rk.faixa.nunique())  # as mesmas cores da legenda do mapa
+            rk["cor"] = None if em_faixas else charts.continuous_colors(rk.valor, I)  # escala contínua do mapa
+            marca_al = not AL_ONLY and lvl != "Grande Região" and rk.al.fillna(False).astype(bool).any()
 
-            def resumo():
-                s1, s2, s3, s4 = st.columns(4)
-                s1.metric("Mediana", I.fmt(rk.valor.median()))
-                s2.metric("Média", I.fmt(rk.valor.mean()))
-                s3.metric("Máximo", I.fmt(rk.valor.max()))
-                s4.metric("Mínimo", I.fmt(rk.valor.min()))
+            def resumo(n_col: int = 4):
+                """Mediana, média, máximo e mínimo; na coluna estreita ao lado do mapa, em 2 por linha."""
+                itens = [("Mediana", rk.valor.median()), ("Média", rk.valor.mean()),
+                         ("Máximo", rk.valor.max()), ("Mínimo", rk.valor.min())]
+                for i in range(0, 4, n_col):
+                    for c, (nome, v) in zip(st.columns(n_col), itens[i:i + n_col]):
+                        c.metric(nome, I.fmt(v))
+                st.caption(f"Unidade: {I.unit} · {YEAR} · {escopo(lvl, len(rk))}")
 
-            def tabela(altura: int):
+            def tabela():
+                ordens = ["Maiores primeiro", "Menores primeiro"]
+                t1, t2 = st.columns([1.2, 1])
+                ordem = t1.radio("Ordem da tabela", ordens, horizontal=True, key=state("w_mr_ordem", ordens[0], ordens))
+                busca = t2.text_input("Buscar na tabela", placeholder="ex.: belem", key=state("w_mr_busca", ""),
+                                      help="Só filtra as linhas da tabela, sem diferenciar acentos nem maiúsculas; as "
+                                           "posições continuam as do ranking completo.")
+                view = rk[rk.label.map(sem_acento).str.contains(sem_acento(busca), regex=False)] if busca else rk
+                if ordem == ordens[1]:
+                    view = view.iloc[::-1]
+                tbl = pd.DataFrame({
+                    "Posição": view.pos, "Território": view.label,  # o rótulo de município já traz a UF
+                    **({"AL": view.al.fillna(False).astype(bool).map({True: "●", False: ""})} if marca_al else {}),
+                    f"{I.label}": view.valor.map(I.fmt), "Comparado ao 1º": view.rel,
+                    "Variação (%)": view["var"].round(1), "Participação (%)": view.share.round(2),
+                    "Faixa": view.faixa})
+                if not em_faixas:  # na escala contínua não há faixas: a cor do mapa vai no próprio valor
+                    tbl = tbl.drop(columns=["Faixa"])
+                if not I.additive:
+                    tbl = tbl.drop(columns=["Participação (%)"])
+                # larguras em pixels somando cerca de 600, para a tabela caber ao lado do mapa sem rolagem lateral;
+                # o título do valor é "Valor" (o nome do indicador já está no título e a unidade, na ajuda)
+                cfg = {"Posição": st.column_config.NumberColumn(width=52),
+                       "Território": st.column_config.TextColumn(width=170 if marca_al else 190),
+                       "AL": st.column_config.TextColumn(width=34, help="Território da Amazônia Legal."),
+                       f"{I.label}": st.column_config.TextColumn("Valor", width=90, help=f"{I.label} · {I.unit}, em {YEAR}"),
+                       "Comparado ao 1º": st.column_config.ProgressColumn(
+                           "% do 1º", min_value=0, max_value=100, format="%.0f%%", width=66,
+                           help="Valor do território como % do valor do 1º colocado."),
+                       "Variação (%)": st.column_config.NumberColumn(
+                           format="%.1f%%", width=70,
+                           help=f"Do primeiro ano com dado até {YEAR}; vazio quando o valor inicial era zero."),
+                       "Participação (%)": st.column_config.NumberColumn(
+                           "Parte (%)", format="%.2f%%", width=70,
+                           help="Parte do total somado de todos os territórios do ranking."),
+                       "Faixa": st.column_config.TextColumn(
+                           width=56, help="Faixa 1 = menores valores … última faixa = maiores valores. "
+                                          "Mesmas faixas e cores do mapa.")}
+
+                def pinta(v):
+                    c = cor_faixa[int(str(v).split()[1]) - 1]
+                    return f"background-color:{c}; color:{theme.text_on(c)}; font-weight:600"
+
+                if em_faixas:
+                    sty = tbl.style.map(pinta, subset=["Faixa"])
+                else:
+                    cores_v = view.cor.values
+                    sty = tbl.style.apply(lambda col: [f"background-color:{c}; color:{theme.text_on(c)}; font-weight:600"
+                                                       for c in cores_v], subset=[f"{I.label}"])
+
                 theme.title(f"Ranking de {charts.low(I.label)}: {escopo(lvl)}",
                             f"{YEAR} · {len(rk):,} no ranking".replace(",", ".")
-                            + (f" · {len(view)} encontrados para '{busca}'" if busca else ""))
-                st.dataframe(tbl, width="stretch", hide_index=True, height=altura, column_config=cfg)
-                st.download_button("Baixar ranking (CSV)", rk[["pos", "label", "uf", "valor", "var", "share", "faixa"]]
+                            + (f" · {len(view)} encontrados para '{busca}'" if busca else "")
+                            + " · clique numa linha para abri-la na aba Território")
+                ev = st.dataframe(sty, width="stretch", hide_index=True,
+                                  height=min(520, 35 * (len(tbl) + 1) + 3), column_config=cfg,
+                                  on_select="rerun", selection_mode="single-row", key="mr_tabela")
+                escolhidas = ev.selection.rows if ev is not None and ev.selection else []
+                b1, b2 = st.columns([1, 1.4])
+                b1.download_button("Baixar ranking (CSV)", rk[["pos", "label", "uf", "valor", "var", "share", "faixa"]]
                                    .rename(columns={"pos": "posicao", "label": "territorio", "var": "variacao_pct",
                                                     "share": "participacao_pct"})
                                    .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
                                    f"ranking_{lvl}_{YEAR}.csv", "text/csv")
+                if escolhidas and escolhidas[0] < len(view):
+                    r = view.iloc[escolhidas[0]]
+                    b2.button(f"Abrir {r.label} na aba Território", on_click=abrir_territorio,
+                              args=(lvl, str(r.label), str(r.uf)), key="mr_abrir")
 
             if tem_mapa:
-                mc, side = st.columns([1.15, 1])
+                mc, side = st.columns([1, 1])
                 with mc:
-                    theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}")
+                    theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}"
+                                + (" · contorno forte = Amazônia Legal" if marca_al else ""))
                     plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
-                                           **map_view(lvl), height=640), "map_main")
+                                           **map_view(lvl), height=640, destaque_al=marca_al), "map_main")
                     if mode_lbl.startswith("Faixas"):
                         st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)
                 with side:
-                    resumo()
-                    tabela(560)
+                    resumo(2)
+                    tabela()
             else:
                 resumo()
-                tabela(300)
+                tabela()
         if I.kind == "moeda":
             st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
                         'inflação.</div>', unsafe_allow_html=True)

@@ -158,6 +158,9 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 
 /* widgets */
 div[data-testid="stMetric"] {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:12px; padding:10px 14px; }}
+/* valores como "R$ 972,0 bi" não podem virar "R$ 9…": fonte menor e sem corte */
+div[data-testid="stMetricValue"] {{ font-size:1.55rem; }}
+div[data-testid="stMetricValue"] > div, div[data-testid="stMetricLabel"] p {{ overflow:visible; text-overflow:clip; white-space:normal; }}
 .stDownloadButton button, .stButton button {{ border-radius:999px; border:1px solid {INK}; color:{INK}; background:transparent; font-weight:600; }}
 .stDownloadButton button:hover, .stButton button:hover {{ background:{INK}; color:{BG}; border-color:{INK}; }}
 div[data-testid="stDataFrame"] {{ border:1px solid {LINE}; border-radius:12px; }}
