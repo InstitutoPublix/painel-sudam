@@ -48,17 +48,13 @@ def state(key: str, default, options=None) -> str:
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
-ABAS = ["Visão Geral", "Território", "Estados e Municípios", "Mapa e Ranking", "Ficha do Território", "Séries Temporais",
-        "Comparações", "Sobre o Painel"]
+ABAS = ["Visão Geral", "Território", "Mapa e Ranking", "Séries Temporais", "Comparações", "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte", "grupos"}
 FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa e Ranking": {"ind", "ano"} | TERRIT,
-           "Território": {"ind", "ano"}, "Estados e Municípios": {"ind", "ano"}, "Ficha do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
+           "Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
            "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
 NOTAS = {"Território": "O território é escolhido na própria página; o indicador e o ano valem nas seções Evolução, "
                       "Posição e Municípios do estado.",
-         "Estados e Municípios": "O estado é escolhido na própria página; a tabela do topo usa o último ano com dado "
-                           "de cada indicador.",
-         "Ficha do Território": "O território (e a UF, para municípios) é escolhido na própria página.",
          "Séries Temporais": "Os territórios são escolhidos na própria página; as séries mostram todos os anos.",
          "Sobre o Painel": "Esta página não usa filtros."}
 
@@ -390,7 +386,7 @@ with T["Visão Geral"]:
                             plot(charts.sparkline(s.ano, s.valor, ik), f"spark_{k}")
 
 # =========================================================================== #
-# 2. VISÃO ESTADUAL
+# 2. TERRITÓRIO: funções de apoio
 # =========================================================================== #
 def _pontos(c):
     if isinstance(c[0], (int, float)):
@@ -424,166 +420,8 @@ def csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
 
 
-with T["Estados e Municípios"]:
-    if T["Estados e Municípios"].open:
-        barra_filtros()
-        st.caption("Um estado em todos os indicadores, comparado com a Região, a Amazônia Legal e o Brasil, e o mapa "
-                   "dos seus municípios. Para ver um município específico, use a aba **Ficha do Território**.")
-        ests = data.territories(D, "Estado")
-        e1, e2 = st.columns([1, 2])
-        todos = e2.checkbox("Incluir estados fora da Amazônia Legal", key=state("w_ve_todos", False),
-                            help="Por padrão a lista traz só os 9 estados da Amazônia Legal.")
-        pool_e = ests if todos else ests[ests.uf.isin(D["al_ufs"])]
-        nomes = pool_e.label.tolist()
-        sel = e1.selectbox("Estado", nomes, key=state("w_ve_est", "Pará" if "Pará" in nomes else nomes[0], nomes))
-        er = pool_e[pool_e.label == sel].iloc[0]
-        uf, cod_uf, tid = str(er.uf), int(er.cod), str(er.tid)
-        REGIAO = f"Grande Região:{cod_uf // 10}"
-        AGG = L[L.nivel != "Município"]
-        reg_nome = str(AGG.loc[AGG.tid == REGIAO, "nome"].iloc[0])
-        is_al = uf in D["al_ufs"]
-        mun_uf = L[(L.nivel == "Município") & (L.uf == uf)]
-        n_mun = int(mun_uf.cod.nunique())
-
-        chips = [uf, f"Região {reg_nome}", "Amazônia Legal" if is_al else "Fora da Amazônia Legal", f"{n_mun} municípios"]
-        st.markdown(f"<h2 style='margin:.2rem 0 .3rem'>{sel}</h2>" + "".join(f'<span class="chip">{c}</span>' for c in chips),
-                    unsafe_allow_html=True)
-
-        # ---- A. todos os indicadores ---------------------------------------------------
-        COMP = "Estado × Amazônia Legal"
-        theme.title(f"{sel} em todos os indicadores, comparado com a Região {reg_nome}, a Amazônia Legal e o Brasil",
-                    "Cada indicador no último ano com dado para o estado. Posição: 1º = maior valor.")
-        rows, cores = [], []
-        GOOD, BAD = theme.GREEN, theme.RED
-        for k in D["indicators"]:
-            ik = REG[k]
-            d = AGG[(AGG.ind == k) & AGG.valor.notna()]
-            de = d[d.tid == tid]
-            row = {"Indicador": charts.axis_label(ik)}
-            if de.empty:
-                rows.append(row | {"Ano": "—"})
-                cores.append("")
-                continue
-            y = int(de.ano.max())
-            dy = d[d.ano == y]
-            val = dict(zip(dy.tid.astype(str), dy.valor))
-            v, v_al = val[tid], val.get(AMZ, float("nan"))
-            e_all = dy[dy.nivel == "Estado"]
-            e_al = e_all[e_all.al.fillna(False).astype(bool)]
-            row |= {"Ano": str(y), sel: ik.fmt(v)}
-            if is_al:
-                row["Posição na Amazônia Legal"] = f"{int((e_al.valor > v).sum()) + 1}º de {len(e_al)}"
-            row |= {"Posição no Brasil": f"{int((e_all.valor > v).sum()) + 1}º de {len(e_all)}",
-                    f"Região {reg_nome}": ik.fmt(val.get(REGIAO, float("nan"))),
-                    "Amazônia Legal": ik.fmt(v_al), "Brasil": ik.fmt(val.get(BRASIL, float("nan")))}
-            cor = ""
-            if ik.additive:
-                row[COMP] = f"{fmt.pct(v / v_al * 100)} do total" if is_al and v_al else "—"
-            else:
-                dif = change(v, v_al)
-                row[COMP] = "—" if fmt.isna(dif) else ("+" if dif >= 0 else "−") + fmt.pct(abs(dif))
-                if not fmt.isna(dif) and ik.polarity and abs(dif) >= 0.05:
-                    cor = GOOD if dif * ik.polarity > 0 else BAD
-            rows.append(row)
-            cores.append(cor)
-        resumo = pd.DataFrame(rows).fillna("—")
-        sty = resumo.style.apply(lambda s: [f"color:{c}; font-weight:700" if c else "" for c in cores], subset=[COMP])
-        st.dataframe(sty, hide_index=True, width="stretch", column_config={
-            "Ano": st.column_config.TextColumn(help="Último ano com dado do indicador para o estado."),
-            "Posição na Amazônia Legal": st.column_config.TextColumn(help="Entre os 9 estados da Amazônia Legal."),
-            "Posição no Brasil": st.column_config.TextColumn(help="Entre os 27 estados."),
-            COMP: st.column_config.TextColumn(
-                help="Totais (somas): participação do estado no total da Amazônia Legal. Taxas e médias: quanto o "
-                     "estado está acima (+) ou abaixo (−) da Amazônia Legal; verde = situação melhor, vermelho = pior, "
-                     "conforme a polaridade do indicador.")})
-        st.caption(f"Última coluna: para totais, participação do estado na Amazônia Legal; para taxas e médias, "
-                   "diferença em relação à Amazônia Legal (verde = melhor, vermelho = pior, sem cor quando o indicador "
-                   "não tem polaridade). — indica ausência de dado.")
-        st.markdown("---")
-
-        # ---- B. evolução e posição do indicador escolhido --------------------------------
-        g1, g2 = st.columns([1.4, 1])
-        with g1:
-            medidas = ["Índice (base 100)", "Valor"]
-            med = st.radio("Medida", medidas, horizontal=True,
-                           key=state("w_ve_med", medidas[0] if I.additive else medidas[1], medidas),
-                           help="Índice: crescimento relativo, bom para totais de tamanhos diferentes. "
-                                "Valor: o número publicado, bom para taxas e médias.")
-            theme.title(f"Evolução de {charts.low(I.label)}: {sel}, Região {reg_nome}, Amazônia Legal e Brasil",
-                        "Todos os anos com dado" + ("; base 100 = primeiro ano com valor diferente de zero"
-                                                    if med.startswith("Índice") else ""))
-            sr = data.series(D, list(dict.fromkeys([tid, REGIAO, AMZ, BRASIL])), IND)
-            plot(charts.lines(sr, I, "indice" if med.startswith("Índice") else "valor", height=360), "ve_line")
-        with g2:
-            pares = snap("Estado", filt=False)
-            if is_al:
-                pares = pares[pares.al.fillna(False).astype(bool)]
-            grupo_txt = "estados da Amazônia Legal" if is_al else "estados"
-            theme.title(f"{sel} entre os {grupo_txt}", f"{charts.axis_label(I)} em {YEAR}")
-            if pares.empty:
-                st.info(f"Sem dado estadual de {charts.low(I.label)} em {YEAR}.")
-            else:
-                plot(charts.hbar(pares, I, len(pares), highlight=sel, height=max(300, 30 * len(pares) + 40)), "ve_rank")
-        st.markdown("---")
-
-        # ---- C. municípios do estado ------------------------------------------------------
-        md = data.snapshot(D, "Município", IND, YEAR, ufs=[uf])
-        theme.title(f"{I.label} nos municípios de {sel}",
-                    f"{YEAR} · {len(md)} de {n_mun} municípios com dado · cor = faixa do município dentro do estado "
-                    "(grupos de tamanho parecido, do menor ao maior valor)")
-        if len(md) < 5:
-            st.info(f"{I.label} não tem dado municipal suficiente para {sel} em {YEAR}"
-                    + (" (indicador só tem dado estadual)." if md.empty else "."))
-        else:
-            mc, side = st.columns([2, 1])
-            with mc:
-                cores_m = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
-                modo = st.radio("Escala de cores", cores_m, horizontal=True, key=state("w_ve_mode", cores_m[0], cores_m))
-                plot(charts.choropleth(md, I, "Município", "faixas" if modo.startswith("Faixas") else "continua",
-                                       **uf_view(cod_uf), height=520), "ve_map")
-                if modo.startswith("Faixas"):
-                    st.markdown(charts.legend_html(md, I), unsafe_allow_html=True)
-            with side:
-                s1, s2 = st.columns(2)
-                s1.metric("Mediana", I.fmt(md.valor.median()))
-                s2.metric("Média", I.fmt(md.valor.mean()))
-                s1.metric("Máximo", I.fmt(md.valor.max()))
-                s2.metric("Mínimo", I.fmt(md.valor.min()))
-                if I.additive and md.valor.sum():
-                    t5 = md.nlargest(5, "valor")
-                    st.caption(f"Os 5 maiores municípios concentram **{fmt.pct(t5.valor.sum() / md.valor.sum() * 100)}** "
-                               f"do total do estado.")
-                acima = int((md.valor > md.valor.median()).sum())
-                st.caption(f"{acima} municípios estão acima da mediana estadual.")
-            b1, b2 = st.columns(2)
-            with b1:
-                theme.title(f"10 municípios com maior valor", f"{charts.axis_label(I)} em {YEAR}")
-                plot(charts.hbar(md, I, 10, height=320), "ve_top")
-            with b2:
-                theme.title(f"10 municípios com menor valor", f"{charts.axis_label(I)} em {YEAR}")
-                plot(charts.hbar(md, I, 10, ascending=True, height=320, color=theme.TEAL), "ve_bot")
-        if I.kind == "moeda":
-            st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
-                        'inflação.</div>', unsafe_allow_html=True)
-        st.markdown("---")
-
-        # ---- D. downloads -----------------------------------------------------------------
-        theme.title(f"Baixar os dados de {sel}",
-                    "Arquivos CSV (separador ;, decimal ,) com todos os indicadores e anos, na unidade mostrada no painel")
-        slug = uf.lower()
-        d1, d2, d3 = st.columns(3)
-        d1.download_button("Tabela-resumo do estado", csv_bytes(resumo), f"resumo_{slug}.csv", "text/csv",
-                           help="A tabela do topo desta página.", width="stretch")
-        d2.download_button(f"Séries: {uf}, Região {reg_nome}, Amazônia Legal e Brasil",
-                           csv_bytes(tabela_longa(AGG[AGG.tid.isin([tid, REGIAO, AMZ, BRASIL])])),
-                           f"series_{slug}.csv", "text/csv", width="stretch",
-                           help="Uma linha por território, indicador e ano.")
-        d3.download_button(f"Municípios de {uf} ({n_mun})", csv_bytes(tabela_longa(mun_uf)),
-                           f"municipios_{slug}.csv", "text/csv", width="stretch",
-                           help="Uma linha por município, indicador e ano.")
-
 # =========================================================================== #
-# 2. TERRITÓRIO (estados e municípios, ficha de qualquer território)
+# 2. TERRITÓRIO: aba
 # =========================================================================== #
 @st.cache_data(show_spinner="Montando o comparativo…", max_entries=64)
 def comparativo(tid: str, plvl: str, uf: str | None, ref_tids: tuple, versao: str):
@@ -1008,169 +846,6 @@ with T["Mapa e Ranking"]:
         if I.kind == "moeda":
             st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
                         'inflação.</div>', unsafe_allow_html=True)
-
-# =========================================================================== #
-# 4. PERFIL DO TERRITÓRIO
-# =========================================================================== #
-with T["Ficha do Território"]:
-    if T["Ficha do Território"].open:
-        barra_filtros()
-        st.caption("A ficha de um território, de município ao Brasil: todos os indicadores, evolução e posição. "
-                   "Para um estado com o mapa dos municípios e as comparações regionais, use **Estados e Municípios**.")
-        p1, p2, p3 = st.columns([1, 1, 2])
-        niveis = ["Município", "Estado", "Grande Região", "Amazônia Legal", "Brasil"]
-        plvl = p1.selectbox("Tipo de território", niveis, key=state("w_pf_lvl", "Município", niveis))
-        terr = data.territories(D, plvl)
-        if plvl == "Município":
-            puf = p2.selectbox("UF", D["ufs"], key=state("w_pf_uf", "PA" if "PA" in D["ufs"] else D["ufs"][0], D["ufs"]))
-            terr = terr[terr.uf == puf]
-        else:
-            p2.selectbox("UF", ["—"], disabled=True, help="Usada só para escolher municípios.")
-        default = next((i for i, l in enumerate(terr.label) if l.startswith("Belém")), 0)
-        labels = terr.label.tolist()
-        sel = p3.selectbox("Território", labels,
-                           key=state("w_pf_terr", labels[default if plvl == "Município" else 0], labels))
-        row = terr[terr.label == sel].iloc[0]
-        tid = row.tid
-        uf_of = row.uf if plvl in ("Município",) else None
-        cod = int(row.cod)
-
-        chips = [plvl]
-        if plvl == "Município":
-            mrow = L[(L.tid == tid)].iloc[0]
-            chips += [str(mrow.uf), str(mrow.regiao), "Amazônia Legal" if bool(mrow.al) else "Fora da Amazônia Legal"]
-            if D["porte"] is not None:
-                chips.append("Porte: " + str(D["porte"].get(cod, "—")))
-            if D["carac"] is not None and cod in D["carac"].index:
-                cr = D["carac"].loc[cod]
-                chips += [f"Região imediata: {cr.rg_imediata}", f"Região intermediária: {cr.rg_intermediaria}"]
-                chips += [f"PNDR: {cr.pndr}"] if pd.notna(cr.pndr) else []
-                chips += ["Cidade de fronteira"] * bool(cr.fronteira) + ["Sede de região imediata"] * bool(cr.sede_imediata)
-                chips += [f"{nome}: {cr[col]}" for col, nome in (("idhm", "IDHM"), ("idsc", "IDSC"), ("ips", "IPS"))
-                          if pd.notna(cr[col])]
-        st.markdown(f"<h2 style='margin:.2rem 0 .3rem'>{sel}</h2>" + "".join(f'<span class="chip">{c}</span>' for c in chips),
-                    unsafe_allow_html=True)
-
-        rank_grp = {"Município": "municípios do Brasil", "Estado": "estados", "Grande Região": "Grandes Regiões"}
-        theme.title(f"{sel}: todos os indicadores {ANO_TXT}",
-                    (f"Posição entre os {rank_grp[plvl]} no mesmo ano e " if plvl in rank_grp else "")
-                    + "variação do primeiro ano com dado até o ano mostrado no cartão"
-                    + (". Se o território não tem dado no último ano do indicador, o cartão mostra o último dado "
-                       "dele, sem posição, pois não seria comparável com os demais." if RECENTE else ""))
-        for eixo_nome in eixos:
-            ks = [k for k in D["indicators"] if REG[k].axis == eixo_nome]
-            with st.expander(f"{eixo_nome} · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""), expanded=True):
-                for col, k in grid(ks):
-                    ik = REG[k]
-                    ano = year_for(k)
-                    v = value_of(tid, k, ano)
-                    antigo = False
-                    if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
-                        sk = data.series(D, [tid], k).dropna(subset=["valor"])
-                        if len(sk):
-                            ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
-                    yr0, v0 = first_valid(tid, k, ano)
-                    peers = (snap(plvl, k, ano, filt=False)
-                             if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
-                    rk = ""
-                    if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
-                        pos = int((peers.valor > v).sum() + 1)
-                        empate = int(np.isclose(peers.valor, v).sum())
-                        if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
-                            rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
-                        else:
-                            rk = f"{pos}º de {len(peers)} · "
-                    ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
-                    if yr0 and yr0 < ano and v0 == 0:
-                        sub = f"{rk}{ref} · era zero em {yr0}"
-                    elif yr0 and yr0 < ano:
-                        sub = f"{rk}{ref} · {arrow(change(v, v0))} desde {yr0}"
-                    elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
-                        sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
-                                                 else "sem ano anterior para comparar")
-                    else:
-                        sub = ref
-                    with col:
-                        st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon), unsafe_allow_html=True)
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        g1, g2 = st.columns([1.4, 1])
-        with g1:
-            ref_txt = {"Município": "o estado, a Amazônia Legal e o Brasil", "Amazônia Legal": "o Brasil",
-                       "Brasil": ""}.get(plvl, "a Amazônia Legal e o Brasil")
-            theme.title(f"Evolução de {charts.low(I.label)}: {sel}" + (f" comparado com {ref_txt}" if ref_txt else ""),
-                        "Índice: base 100 = primeiro ano com valor diferente de zero")
-            refs = [tid]
-            if plvl == "Município":
-                refs.append(f"Estado:{cod // 100000}")
-            if plvl != "Amazônia Legal" and plvl != "Brasil":
-                refs.append(AMZ)
-            if plvl != "Brasil":
-                refs.append(BRASIL)
-            refs = list(dict.fromkeys(refs))
-            plot(charts.lines(data.series(D, refs, IND), I, "indice", height=360), "perfil_line")
-        with g2:
-            nome_curto = sel.split(" (")[0]
-            theme.title(f"Onde {nome_curto} fica entre os {rank_grp.get(plvl, 'pares')}",
-                        f"Quantos territórios têm cada valor de {charts.low(I.label)} em {YEAR}; "
-                        f"a linha laranja é {nome_curto}")
-            peers = snap(plvl, IND, YEAR, filt=False) if plvl in ("Município", "Estado", "Grande Região") else None
-            v = value_of(tid)
-            if peers is not None and len(peers) > 3 and not fmt.isna(v):
-                pct = float((peers.valor < v).mean() * 100)
-                lo = charts.positive_min(peers.valor)
-                tf = (lambda x: np.log10(np.clip(x, lo, None))) if I.log else (lambda x: x)
-                fig = go.Figure(go.Histogram(x=tf(peers.valor), nbinsx=40,
-                                             marker=dict(color=theme.SEQ[2], line=dict(color=theme.BG, width=.5)),
-                                             hoverinfo="skip"))
-                fig.add_vline(x=float(tf(v)), line=dict(color=theme.ORANGE, width=3),
-                              annotation_text=f"{sel.split(' (')[0]}", annotation_font_color=theme.ORANGE)
-                vals, txt = charts._ticks(I, lo if I.log else peers.valor.min(), peers.valor.max(), log=I.log)
-                fig.update_layout(height=300, bargap=.05, yaxis_title=f"nº de {rank_grp.get(plvl, 'territórios')}",
-                                  xaxis_title=charts.axis_label(I) + (" · escala log" if I.log else ""))
-                fig.update_xaxes(tickvals=[float(tf(x)) for x in vals], ticktext=txt)
-                plot(fig, "perfil_hist")
-                st.markdown(f"**{sel}** está acima de **{fmt.num(pct, 0)}%** dos {len(peers)} "
-                            f"{plvl.lower()}s com dado em {YEAR}" + (" (escala logarítmica)." if I.log else "."))
-            else:
-                st.info("Sem grupo de pares para esta granularidade.")
-
-        if plvl == "Município" and D["carac"] is not None and cod in D["carac"].index:
-            cr = D["carac"].loc[cod]
-            grupos_cmp = {"Mesmo porte populacional": (D["porte"], D["porte"].get(cod) if D["porte"] is not None else None),
-                          "Mesma tipologia PNDR": (D["carac"].pndr, cr.pndr),
-                          "Mesma região imediata": (D["carac"].rg_imediata, cr.rg_imediata),
-                          "Mesma classe de IDHM": (D["carac"].idhm, cr.idhm),
-                          "Mesma classe de IDSC": (D["carac"].idsc, cr.idsc),
-                          "Mesma classe de IPS": (D["carac"].ips, cr.ips)}
-            grupos_cmp = {k: v for k, v in grupos_cmp.items() if v[0] is not None and pd.notna(v[1])}
-            if grupos_cmp:
-                theme.title(f"{sel.split(' (')[0]} comparado a municípios parecidos",
-                            f"{charts.axis_label(I)} em {YEAR} · compara com os municípios do Brasil que têm a mesma "
-                            "característica, e não com todos")
-                escolha = st.radio("Parecidos por", list(grupos_cmp), horizontal=True,
-                                   key=state("w_pf_par", next(iter(grupos_cmp)), list(grupos_cmp)))
-                serie, valor_grupo = grupos_cmp[escolha]
-                todos = snap("Município", IND, YEAR, filt=False)
-                par = todos[todos.cod.map(serie) == valor_grupo]
-                vm = value_of(tid)
-                if len(par) < 5 or fmt.isna(vm):
-                    st.info(f"{sel} não tem dado de {charts.low(I.label)} em {YEAR}." if fmt.isna(vm)
-                            else "Poucos municípios com dado neste grupo para comparar.")
-                else:
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric(sel.split(" (")[0], I.fmt(vm))
-                    m2.metric(f"Mediana do grupo ({len(par):,})".replace(",", "."), I.fmt(par.valor.median()))
-                    m3.metric("Posição no grupo", f"{int((par.valor > vm).sum()) + 1}º de {len(par):,}".replace(",", "."))
-                    st.caption(f"Grupo: {valor_grupo}. Posição: 1º = maior valor.")
-                    plot(charts.histogram(par, I, I.log, (sel.split(" (")[0], vm), height=300), "perfil_par")
-
-        theme.title(f"{sel}: tabela com todos os indicadores, ano a ano")
-        wide = (L[(L.tid == tid)].pivot_table(index="ano", columns="ind", values="valor", observed=True)
-                .reindex(columns=D["indicators"]))
-        tabela = wide.apply(lambda s: s.map(REG[s.name].fmt) if s.name in REG else s)
-        st.dataframe(tabela.rename(columns={k: charts.axis_label(REG[k]) for k in tabela.columns}),
-                     width="stretch")
-        st.caption("— indica ano sem dado na base de origem.")
 
 # =========================================================================== #
 # 5. SÉRIES TEMPORAIS
