@@ -154,6 +154,8 @@ def _load(versao: str) -> dict:
         porte = pd.cut(ref, [b[1] for b in PORTES] + [float("inf")], right=False,
                        labels=[b[0] for b in PORTES]).astype(str).rename("porte")
 
+    carac = load_caracterizacao()
+
     # último ano com dado de cada indicador (em qualquer nível): base do modo "mais recente" do painel
     latest = long[long.valor.notna()].groupby("ind", observed=True).ano.max()
 
@@ -163,6 +165,7 @@ def _load(versao: str) -> dict:
         "registry": registry,
         "indicators": inds,
         "porte": porte,
+        "carac": carac,
         "latest": {str(k): int(v) for k, v in latest.items()},
         "ufs": sorted(set(al_ufs) | est_ufs),
         "al_ufs": al_ufs,
@@ -176,6 +179,32 @@ def _load(versao: str) -> dict:
     }
 
 
+def load_caracterizacao() -> pd.DataFrame | None:
+    """Agrupamentos dos municípios (gerados por scripts/caracterizacao.py), indexados pelo código IBGE.
+    Nomes de regiões se repetem entre UFs, por isso levam a UF entre parênteses."""
+    path = ASSETS / "municipios_caracterizacao.csv"
+    if not path.exists():
+        return None
+    c = pd.read_csv(path)
+    for col in ("rg_intermediaria", "rg_imediata"):
+        c[col] = c[col] + " (" + c.uf + ")"
+    return c.set_index("cod")
+
+
+# Filtros por agrupamento: coluna da caracterização → rótulo na barra lateral
+AGRUPAMENTOS = {
+    "rg_intermediaria": "Região Geográfica Intermediária",
+    "rg_imediata": "Região Geográfica Imediata",
+    "pndr": "Tipologia PNDR",
+    "idhm": "Classe do IDHM (2010)",
+    "idsc": "Classe do IDSC-BR (2025)",
+    "ips": "Classe do IPS (2026)",
+}
+# filtros Sim/Não (colunas booleanas)
+AGRUPAMENTOS_SN = {"fronteira": "Cidade de fronteira", "sede_imediata": "Sede de região imediata"}
+ORDEM_CLASSES = ["Muito baixo", "Baixo", "Médio", "Alto", "Muito alto"]
+
+
 # --------------------------------------------------------------------------- #
 # Consultas
 # --------------------------------------------------------------------------- #
@@ -185,7 +214,8 @@ def years_with_data(D: dict, ind: str) -> list[int]:
     return sorted(s.unique().tolist())
 
 
-def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=None, portes=None) -> pd.DataFrame:
+def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=None, portes=None,
+             grupos=None) -> pd.DataFrame:
     """Territórios de um nível em um ano, já com os filtros do painel aplicados."""
     d = D["long"]
     d = d[(d.nivel == level) & (d.ind == ind) & (d.ano == year)]
@@ -198,6 +228,9 @@ def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=Non
             d = d[d.uf.isin(ufs)]
     if level == "Município" and portes and D["porte"] is not None:
         d = d[d.cod.map(D["porte"]).isin(portes)]
+    if level == "Município" and grupos and D["carac"] is not None:
+        for col, vals in grupos.items():
+            d = d[d.cod.map(D["carac"][col]).isin(vals)]
     for c in ("nivel", "ind", "uf", "regiao", "nome", "label", "tid"):
         d[c] = d[c].astype(str)
     return d.reset_index(drop=True)

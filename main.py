@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import charts, data, fmt, theme
-from src.data import LEVELS, PORTES
+from src.data import AGRUPAMENTOS, AGRUPAMENTOS_SN, LEVELS, ORDEM_CLASSES, PORTES
 
 ICON = data.ASSETS / "logos" / "emblema.png"
 st.set_page_config(page_title="PRDA · Diagnóstico da Amazônia Legal",
@@ -48,7 +48,7 @@ def state(key: str, default, options=None) -> str:
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
 ABAS = ["Visão Geral", "Visão Estadual", "Mapa Territorial", "Perfil do Território", "Séries Temporais",
         "Ranking", "Comparações", "Sobre o Painel"]
-TERRIT = {"recorte", "uf", "porte"}
+TERRIT = {"recorte", "uf", "porte", "grupos"}
 FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa Territorial": {"ind", "ano"} | TERRIT,
            "Visão Estadual": {"ind", "ano"}, "Perfil do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
            "Ranking": {"ind", "ano"} | TERRIT, "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
@@ -67,7 +67,7 @@ show = set(FILTROS[ABA])
 escala = {"Mapa Territorial": st.session_state.get("w_map_lvl", "Estado"),
           "Ranking": st.session_state.get("w_rk_lvl", "Município")}.get(ABA)
 if escala == "Estado":
-    show -= {"porte"}
+    show -= {"porte", "grupos"}
 elif escala == "Grande Região":
     show -= TERRIT
 
@@ -134,6 +134,30 @@ with st.sidebar:
     PORTE = (st.multiselect("Porte do município (habitantes)", portes, placeholder="Todos", key=k,
                             help="Só para municípios: faixa de população (mediana dos anos com dado). "
                                  "Não altera estados.") if "porte" in show else [])
+    GRUPOS = {}
+    carac = D["carac"]
+    if "grupos" in show and carac is not None:
+        base = carac[carac.al] if AL_ONLY else carac
+        if UFS:
+            base = base[base.uf.isin(UFS)]
+        with st.expander("Mais filtros de municípios", expanded=bool(st.session_state.get("w_grupos_aberto"))):
+            st.caption("Só para municípios. Combinam entre si (e com UF e porte): sobram os que atendem a todos.")
+            for col, nome in AGRUPAMENTOS.items():
+                pool = sorted(base[col].dropna().unique())
+                if col == "rg_imediata" and GRUPOS.get("rg_intermediaria"):
+                    pool = sorted(base[base.rg_intermediaria.isin(GRUPOS["rg_intermediaria"])][col].dropna().unique())
+                if col in ("idhm", "idsc", "ips"):
+                    pool = [c for c in ORDEM_CLASSES if c in pool]
+                k = state(f"w_g_{col}", [], pool)
+                sel = st.multiselect(nome, pool, placeholder="Todos", key=k)
+                if sel:
+                    GRUPOS[col] = sel
+            for col, nome in AGRUPAMENTOS_SN.items():
+                k = state(f"w_g_{col}", "Todos", ["Todos", "Sim", "Não"])
+                sel = st.radio(nome, ["Todos", "Sim", "Não"], horizontal=True, key=k)
+                if sel != "Todos":
+                    GRUPOS[col] = [sel == "Sim"]
+            st.session_state["w_grupos_aberto"] = bool(GRUPOS)
     if ABA in NOTAS:
         st.caption(NOTAS[ABA])
     elif escala == "Grande Região":
@@ -150,6 +174,14 @@ def year_for(ind: str) -> int:
 ANO_TXT = "no ano mais recente de cada indicador" if RECENTE else f"em {YEAR}"
 
 
+def nome_grupo(col: str) -> str:
+    return {**AGRUPAMENTOS, **AGRUPAMENTOS_SN}[col]
+
+
+def _sn(v):
+    return ("sim" if v else "não") if isinstance(v, (bool, np.bool_)) else str(v)
+
+
 def escopo(level: str, n: int | None = None) -> str:
     """Descreve os territórios que sobram depois dos filtros (ex.: '773 municípios da Amazônia Legal · UF: PA')."""
     plural = {"Município": "municípios", "Estado": "estados", "Grande Região": "Grandes Regiões"}[level]
@@ -163,6 +195,8 @@ def escopo(level: str, n: int | None = None) -> str:
         out += " · UF: " + ", ".join(UFS)
     if PORTE and level == "Município":
         out += " · porte: " + ", ".join(PORTE)
+    if level == "Município":
+        out += "".join(f" · {nome_grupo(c)}: {', '.join(map(_sn, v))}" for c, v in GRUPOS.items())
     return out
 
 
@@ -179,6 +213,8 @@ def barra_filtros():
         itens.append("UF: <b>" + (", ".join(UFS) if UFS else "todas") + "</b>")
     if "porte" in show:
         itens.append("Porte: <b>" + (", ".join(PORTE) if PORTE else "todos") + "</b>")
+    if "grupos" in show:
+        itens += [f"{nome_grupo(c)}: <b>{', '.join(map(_sn, v))}</b>" for c, v in GRUPOS.items()]
     st.markdown('<div class="fbar"><span class="t">Filtros aplicados</span>' + "".join(f"<span>{x}</span>" for x in itens)
                 + "</div>", unsafe_allow_html=True)
 
@@ -187,7 +223,8 @@ def snap(level: str, ind: str = IND, year: int | None = None, filt: bool = True)
     year = year_for(ind) if year is None else year
     if not filt:
         return data.snapshot(D, level, ind, year)
-    return data.snapshot(D, level, ind, year, al_only=AL_ONLY, ufs=UFS or None, portes=PORTE or None)
+    return data.snapshot(D, level, ind, year, al_only=AL_ONLY, ufs=UFS or None, portes=PORTE or None,
+                         grupos=GRUPOS or None)
 
 
 def value_of(tid: str, ind: str = IND, year: int | None = None) -> float:
