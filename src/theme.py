@@ -29,6 +29,9 @@ BLUE = "#0968B1"        # azul PNUD
 BROWN = "#9A6A4C"
 RED = "#C8462B"
 ACCENT = INK
+# situação conforme a polaridade do indicador (azul = melhor, vermelho = pior)
+MELHOR = GREEN
+PIOR = RED
 
 # do menor (claro) ao maior (verde-escuro)
 SEQ = ["#E4EEC4", "#A9CF46", "#4DB06A", "#11806A", "#04413C"]
@@ -130,6 +133,7 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi.hi .ic {{ background:{INK}; color:{BG}; }}
 .kpi.lo .vl {{ color:{RED}; }}
 .up {{ color:{GREEN}; font-weight:700; }} .down {{ color:{RED}; font-weight:700; }}
+.neutro {{ color:{TEXT}; font-weight:700; }}
 
 .panel-title {{ font-weight:700; color:{INK}; font-size:.98rem; margin:6px 0 0; }}
 .panel-sub {{ color:{MUTED}; font-size:.76rem; margin-bottom:4px; }}
@@ -166,6 +170,16 @@ div[data-testid="stMetricValue"] > div, div[data-testid="stMetricLabel"] p {{ ov
 div[data-testid="stDataFrame"] {{ border:1px solid {LINE}; border-radius:12px; }}
 [data-testid="stExpander"] {{ border:1px solid {LINE}; border-radius:12px; background:{SURFACE}; }}
 hr {{ border-color:{LINE} !important; }}
+/* Mapa e Ranking: sentido do indicador, resumo em linha e aviso de que a linha do ranking é clicável */
+.sentido {{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:.66rem; font-weight:600;
+  border:1px solid {LINE}; color:{TEXT}; background:{SURFACE}; margin-left:6px; vertical-align:1px; }}
+.stats {{ display:flex; flex-wrap:wrap; gap:6px 18px; font-size:.8rem; color:{MUTED}; padding:8px 12px;
+  background:{SURFACE}; border:1px solid {LINE}; border-radius:10px; margin:2px 0 10px; }}
+.stats b {{ color:{TEXT}; font-weight:700; }}
+.hint {{ display:flex; align-items:center; gap:10px; font-size:.8rem; color:{TEXT}; padding:8px 12px; margin:4px 0 8px;
+  background:rgba(238,125,34,.08); border:1px solid rgba(238,125,34,.35); border-radius:10px; }}
+.hint .i {{ flex:0 0 26px; height:26px; border-radius:50%; background:{ORANGE}; color:#FFFFFF; font-weight:800;
+  display:flex; align-items:center; justify-content:center; font-size:.85rem; }}
 </style>
 """
 

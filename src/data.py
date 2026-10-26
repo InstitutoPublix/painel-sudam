@@ -72,6 +72,56 @@ class Indicator:
     def polarity_text(self) -> str:
         return {1: "maior é melhor", -1: "menor é melhor"}.get(self.polarity, "")
 
+    # ------------------------------------------------------------------ comparação entre dois valores
+    @property
+    def delta(self) -> str:
+        """Como comparar dois valores: 'pp' (proporções: diferença em pontos percentuais), 'pts' (índices de escala
+        fixa: diferença em pontos do índice) ou 'pct' (totais, taxas e valores por habitante: variação relativa)."""
+        if self.kind == "percentual":
+            return "pp"
+        if self.unit.strip().lower().startswith("índice"):
+            return "pts"
+        return "pct"
+
+    @property
+    def delta_unit(self) -> str:
+        return {"pp": "p.p.", "pts": "pontos", "pct": "%"}[self.delta]
+
+    @property
+    def diff_decimals(self) -> int:
+        return {"pp": 1, "pts": max(self.decimals, 1), "pct": 1}[self.delta]
+
+    def diff(self, v, v0) -> float:
+        """Diferença de v0 para v na medida do indicador; NaN sem dado (ou base zero, na variação %)."""
+        if fmt.isna(v) or fmt.isna(v0):
+            return float("nan")
+        if self.delta != "pct":
+            return float(v - v0) * self.scale
+        return float("nan") if v0 == 0 else (v / v0 - 1) * 100
+
+    def rate(self, v0, v1, years: int) -> float:
+        """Variação média por ano: taxa composta (%) ou diferença média anual (p.p. ou pontos)."""
+        if fmt.isna(v0) or fmt.isna(v1) or years <= 0:
+            return float("nan")
+        if self.delta != "pct":
+            return float(v1 - v0) * self.scale / years
+        return float("nan") if v0 <= 0 or v1 < 0 else ((v1 / v0) ** (1 / years) - 1) * 100
+
+    def fmt_diff(self, d) -> str:
+        """'+7,0 p.p.', '−0,046 pontos', '+13,1%'."""
+        if fmt.isna(d):
+            return "—"
+        d = round(d, self.diff_decimals)
+        sinal = "+" if d > 0 else "−" if d < 0 else ""
+        num = fmt.num(abs(d), self.diff_decimals)
+        return f"{sinal}{num}%" if self.delta == "pct" else f"{sinal}{num}\u00a0{self.delta_unit}"
+
+    def situacao(self, d) -> int:
+        """1 = melhora, −1 = piora, 0 = sem juízo (sem polaridade, sem dado ou diferença que arredonda para zero)."""
+        if fmt.isna(d) or not self.polarity or round(d, self.diff_decimals) == 0:
+            return 0
+        return 1 if d * self.polarity > 0 else -1
+
 
 def make_indicator(f: dict) -> Indicator:
     d = f["display"]
@@ -121,8 +171,10 @@ def _manifest() -> dict:
 
 
 def load() -> dict:
-    """Bases do painel, recarregadas quando a versão no manifest muda."""
-    return _load(_manifest()["versao"])
+    """Bases do painel, recarregadas quando a versão no manifest muda. Os indicadores (objetos Indicator) são
+    recriados a cada execução, fora do cache: assim uma mudança no código da classe vale na hora, sem reiniciar."""
+    D = _load(_manifest()["versao"])
+    return {**D, "registry": {k: make_indicator(f) for k, f in D["meta"].items()}}
 
 
 @st.cache_resource(show_spinner="Carregando bases…", max_entries=1)
@@ -295,3 +347,28 @@ def cagr(first: float, last: float, years: int) -> float:
     if fmt.isna(first) or fmt.isna(last) or first <= 0 or years <= 0:
         return float("nan")
     return ((last / first) ** (1 / years) - 1) * 100
+
+
+def ranks(values: pd.Series, polarity: int) -> pd.Series:
+    """Posição de cada território: 1º = melhor situação (maior valor se 'maior é melhor', menor valor se 'menor é
+    melhor'); sem polaridade, 1º = maior valor. Empatados recebem a mesma posição (1º, 1º, 3º…)."""
+    return values.rank(method="min", ascending=polarity < 0).astype(int)
+
+
+def rank_rule(polarity: int) -> str:
+    return {1: "1º = maior valor (melhor situação)", -1: "1º = menor valor (melhor situação)"}.get(
+        polarity, "1º = maior valor (indicador sem polaridade)")
+
+
+def position(values: pd.Series, v: float, polarity: int) -> tuple[int, int]:
+    """Posição de v entre `values` pela regra de `ranks`, e quantos territórios têm o mesmo valor (empate)."""
+    import numpy as np
+    igual = np.isclose(values, v)
+    melhor = (values < v) if polarity < 0 else (values > v)
+    return int((melhor & ~igual).sum()) + 1, int(igual.sum())
+
+
+def position_txt(values: pd.Series, v: float, polarity: int) -> str:
+    """'3º de 9' ou '=3º de 9' quando a posição é dividida com outro território."""
+    p, emp = position(values, v, polarity)
+    return ("=" if emp > 1 else "") + f"{p}º de {len(values):,}".replace(",", ".")

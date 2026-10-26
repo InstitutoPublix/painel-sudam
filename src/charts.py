@@ -11,7 +11,8 @@ import plotly.graph_objects as go
 
 from . import fmt
 from .data import ASSETS, Indicator, band_ranges, bands, n_bands
-from .theme import ACCENT, BG, COLORWAY, LEVEL_COLOR, MUTED, ORANGE, RED, SEQ, SEQ_CONT, SURFACE, TEXT, text_on
+from .theme import (ACCENT, BG, BLUE, BROWN, COLORWAY, LEVEL_COLOR, MELHOR, MUTED, ORANGE, PIOR, RED, SEQ, SEQ_CONT,
+                    SURFACE, TEXT, text_on)
 
 
 # --------------------------------------------------------------------------- #
@@ -378,7 +379,7 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
 # --------------------------------------------------------------------------- #
 # séries temporais
 # --------------------------------------------------------------------------- #
-def transform(sr: pd.DataFrame, mode: str) -> pd.DataFrame:
+def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.DataFrame:
     """mode: 'valor' | 'indice' (base 100 no 1º ano com valor diferente de zero) | 'var' (% a.a. entre pontos
     disponíveis; trechos que partem de zero ficam sem valor)."""
     out = []
@@ -393,7 +394,10 @@ def transform(sr: pd.DataFrame, mode: str) -> pd.DataFrame:
             g["y"] = g.valor / g.valor.iloc[0] * 100
         elif mode == "var":
             dy = g.ano.diff()
-            g["y"] = ((g.valor / g.valor.shift()) ** (1 / dy) - 1) * 100
+            if ind is not None and ind.delta != "pct":  # proporções e índices: diferença por ano (p.p. ou pontos)
+                g["y"] = (g.valor - g.valor.shift()) * ind.scale / dy
+            else:
+                g["y"] = ((g.valor / g.valor.shift()) ** (1 / dy) - 1) * 100
             g = g[np.isfinite(g.y)]
         else:
             g["y"] = g.valor
@@ -402,15 +406,17 @@ def transform(sr: pd.DataFrame, mode: str) -> pd.DataFrame:
 
 
 def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430) -> go.Figure:
-    t = transform(sr, mode)
+    t = transform(sr, mode, ind)
     fig = go.Figure()
     if t.empty:
         return fig
+    un = "% a.a." if ind.delta == "pct" else f"{ind.delta_unit} ao ano"
     cmap = _colors(list(t.drop_duplicates("label")[["label", "nivel"]].itertuples(index=False, name=None)))
     for lab, g in t.groupby("label", sort=False):
         if mode == "var":
             fig.add_trace(go.Bar(x=g.ano, y=g.y, name=lab, marker_color=cmap[lab], opacity=.9,
-                                 hovertemplate=f"{lab}<br>%{{x}}: <b>%{{y:.1f}}% a.a.</b><extra></extra>"))
+                                 hovertemplate=f"{lab}<br>%{{x}}: <b>%{{y:.{ind.diff_decimals}f}} {un}</b>"
+                                               "<extra></extra>"))
             continue
         hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
         fig.add_trace(go.Scatter(
@@ -420,7 +426,7 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),
                       yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",
-                                   "var": "Variação (% ao ano)"}[mode])
+                                   "var": f"Variação ({un})"}[mode])
     fig.update_xaxes(dtick=1, tickformat="d")
     if mode == "valor":
         value_axis(fig, ind, t.y.min(), t.y.max(), "y", log and t.y.min() > 0)
@@ -428,23 +434,32 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
         fig.add_hline(y=100, line=dict(color="rgba(31,46,40,.35)", dash="dot"))
         fig.update_yaxes(ticksuffix="")
     else:
-        fig.update_yaxes(ticksuffix="%")
+        fig.update_yaxes(ticksuffix="%" if ind.delta == "pct" else "")
         fig.add_hline(y=0, line=dict(color="rgba(31,46,40,.35)"))
     return fig
 
 
-def growth_heatmap(sr: pd.DataFrame, height: int | None = None) -> go.Figure:
-    t = transform(sr, "var")
+def growth_heatmap(sr: pd.DataFrame, ind: Indicator, height: int | None = None) -> go.Figure:
+    """Variação a cada ano por território, na medida do indicador (% ou p.p./pontos por ano). Com polaridade, a cor
+    indica a situação (verde = melhora, vermelho = piora); sem polaridade, só a direção (azul = cresceu, marrom = caiu)."""
+    t = transform(sr, "var", ind)
     if t.empty:
         return go.Figure()
     p = t.pivot_table(index="label", columns="ano", values="y", sort=False)
     lim = float(np.nanpercentile(np.abs(p.values), 95)) or 1
+    if ind.polarity:
+        lo, hi = (MELHOR, PIOR) if ind.polarity < 0 else (PIOR, MELHOR)
+    else:
+        lo, hi = BROWN, BLUE
+    un = "% a.a." if ind.delta == "pct" else f"{ind.delta_unit} a.a."
+    casas = ind.diff_decimals
     fig = go.Figure(go.Heatmap(
         z=p.values, x=p.columns, y=p.index, zmin=-lim, zmax=lim,
-        colorscale=[[0, RED], [.5, "#FBF8EE"], [1, "#1F7A4D"]],
-        text=np.vectorize(lambda v: "" if np.isnan(v) else fmt.num(v, 1))(p.values), texttemplate="%{text}",
-        textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:.1f}% a.a.</b><extra></extra>",
-        colorbar=dict(ticksuffix="%", thickness=10, len=0.8, outlinewidth=0, title=dict(text="% a.a.", side="right"))))
+        colorscale=[[0, lo], [.5, "#FBF8EE"], [1, hi]],
+        text=np.vectorize(lambda v: "" if np.isnan(v) else fmt.num(v, casas))(p.values), texttemplate="%{text}",
+        textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:." + str(casas) + "f} " + un + "</b><extra></extra>",
+        colorbar=dict(ticksuffix="%" if ind.delta == "pct" else "", thickness=10, len=0.8, outlinewidth=0,
+                      title=dict(text=un, side="right"))))
     fig.update_layout(height=height or max(220, 38 * len(p) + 70), margin=dict(l=0, r=0, t=6, b=6))
     fig.update_xaxes(dtick=1, tickformat="d", side="top")
     fig.update_yaxes(autorange="reversed")
