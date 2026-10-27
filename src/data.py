@@ -26,6 +26,7 @@ GCS_PREFIX = "painel/"
 MANIFEST_TTL = 600  # segundos entre checagens de nova versão no bucket
 
 LEVELS = ["Brasil", "Amazônia Legal", "Grande Região", "Estado", "Município"]
+PARTE_AL = "Estado (parte AL)"  # nível com o valor da parcela de um estado que está só em parte na Amazônia Legal
 POP_ID = "IND-001"  # define o porte dos municípios e o tamanho dos pontos nas dispersões
 
 PORTES = [
@@ -226,6 +227,9 @@ def _load(versao: str) -> dict:
         "ufs": sorted(set(al_ufs) | est_ufs),
         "al_ufs": al_ufs,
         "al_parcial": al_parcial,
+        # indicadores com valor da parcela do estado na Amazônia Legal (nível "Estado (parte AL)"); os publicados só
+        # para o estado inteiro (ex.: IDHM) ficam de fora
+        "al_parte_ind": {str(i) for i in long.loc[(long.nivel == PARTE_AL) & long.valor.notna(), "ind"].unique()},
         "meta": {f["id"]: f for f in fichas},
         "axis_colors": axis_meta.get("axisColors", {}),
         "axis_desc": axis_meta.get("axisDescriptions", {}),
@@ -272,8 +276,11 @@ def years_with_data(D: dict, ind: str) -> list[int]:
 
 
 def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=None, portes=None,
-             grupos=None) -> pd.DataFrame:
-    """Territórios de um nível em um ano, já com os filtros do painel aplicados."""
+             grupos=None, parte_al=False) -> pd.DataFrame:
+    """Territórios de um nível em um ano, já com os filtros do painel aplicados.
+
+    parte_al: nos estados só em parte na Amazônia Legal (ex.: Maranhão), troca o valor do estado inteiro pelo da parcela
+    que fica na região, quando o indicador tem esse cálculo. A coluna `parcela` diz em quais linhas isso aconteceu."""
     d = D["long"]
     d = d[(d.nivel == level) & (d.ind == ind) & (d.ano == year)]
     d = d[d.valor.notna()].copy()
@@ -290,6 +297,13 @@ def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=Non
             d = d[d.cod.map(D["carac"][col]).isin(vals)]
     for c in ("nivel", "ind", "uf", "regiao", "nome", "label", "tid"):
         d[c] = d[c].astype(str)
+    d["parcela"] = False
+    if level == "Estado" and parte_al and D["al_parcial"]:
+        p = D["long"]
+        p = p[(p.nivel == PARTE_AL) & (p.ind == ind) & (p.ano == year) & p.valor.notna()]
+        valores = dict(zip(p.cod.astype(int), p.valor))
+        d["parcela"] = d.cod.isin(valores)
+        d.loc[d.parcela, "valor"] = d.loc[d.parcela, "cod"].map(valores)
     return d.reset_index(drop=True)
 
 

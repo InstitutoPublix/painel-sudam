@@ -225,9 +225,11 @@ def years_text(years) -> str:
 
 
 def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], minimos: dict[str, float],
-                   rep: Report) -> pd.DataFrame:
-    """Agrega os municípios da Amazônia Legal. Em cada ano, só publica o valor se a cobertura (municípios
-    com dado ÷ municípios da Amazônia Legal) alcançar o mínimo do indicador; abaixo disso fica vazio."""
+                   rep: Report, rotulo: str = "Amazônia Legal") -> pd.DataFrame:
+    """Agrega os municípios da Amazônia Legal presentes em `mun`. Em cada ano, só publica o valor se a cobertura
+    (municípios com dado ÷ municípios da Amazônia Legal em `mun`) alcançar o mínimo do indicador; abaixo disso
+    fica vazio. Passando só os municípios de um estado, calcula a parcela desse estado na região (`rotulo` nomeia
+    o recorte nos avisos)."""
     al = mun[mun.al]
     n_al = al.cod.nunique()
     years = sorted(mun.ano.unique())
@@ -261,7 +263,7 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
         if low.any():
             detail = ", ".join(f"{int(y)} ({cover[y]:.0f}%)" for y in s.index[low][:6])
             more = f" e mais {int(low.sum()) - 6}" if low.sum() > 6 else ""
-            rep.warn(f"{i}: Amazônia Legal não calculada em {years_text(s.index[low])}: cobertura municipal abaixo de "
+            rep.warn(f"{i}: {rotulo} não calculada em {years_text(s.index[low])}: cobertura municipal abaixo de "
                      f"{minimo:g}% ({detail}{more}). Ajuste `cobertura_minima` em config/indicadores.toml se o "
                      "valor ainda fizer sentido.")
             s = s.mask(low)
@@ -357,9 +359,25 @@ def main():
     est["regiao"] = (est.cod // 10).map(REGIONS)
     amz = amazonia_legal(mun, rules, minimos, rep)
 
+    # estados só em parte na Amazônia Legal (ex.: Maranhão): valor da parcela do estado na região, calculado a partir
+    # dos municípios marcados como Amazônia Legal, com a mesma regra de agregação de cada indicador. Entra como o
+    # nível "Estado (parte AL)"; o valor publicado do estado inteiro continua no nível "Estado".
+    parciais = []
+    for uf in sorted(al_ufs):
+        mu = mun[mun.uf == uf]
+        if mu.al.all():
+            continue
+        e = est[est.uf == uf].iloc[0]
+        p = amazonia_legal(mu, rules, minimos, rep, f"{e.nome} (parte na Amazônia Legal)")
+        p["cod"], p["nome"], p["uf"], p["regiao"], p["al"] = (int(e.cod), f"{e.nome} (parte na Amazônia Legal)", uf,
+                                                           e.regiao, True)
+        parciais.append(p)
+        print(f"Estado só em parte na Amazônia Legal: {e.nome} ({int(mu[mu.al].cod.nunique())} de "
+              f"{int(mu.cod.nunique())} municípios); parcela calculada para os indicadores agregáveis.")
+
     parts = []
     for lvl, df in (("Brasil", bra), ("Amazônia Legal", amz), ("Grande Região", reg),
-                    ("Estado", est), ("Município", mun)):
+                    ("Estado", est), ("Município", mun), *[("Estado (parte AL)", p) for p in parciais]):
         d = df.copy()
         d["nivel"] = lvl
         for c in ("uf", "regiao", "al"):
