@@ -14,9 +14,10 @@ Campos gravados:
     sede_imediata, fronteira         cidade-sede de região imediata e cidade de fronteira (bool)
     pndr                             Tipologia da PNDR
     porte                            classe de porte populacional (população de 2025, ver PORTES)
-    idhm, idsc, ips                  classes do IDHM (2010), do IDSC-BR (2025) e do IPS (2026)
+    idhm                             classe do IDHM (2010)
 
-O IEGM fica de fora: mais da metade dos municípios da Amazônia Legal não tem classificação.
+Ficam de fora o IEGM (mais da metade dos municípios da Amazônia Legal não tem classificação) e o IDSC-BR e o IPS
+(classes que o painel não usa nos filtros).
 """
 from __future__ import annotations
 
@@ -36,7 +37,6 @@ COLS = {
     "Regiões Intermediárias do IBGE": "rg_intermediaria", "Regiões Geográficas Imediatas do IBGE": "rg_imediata",
     "Cidades-sedes das regiões geográficas imediatas": "sede_imediata", "Cidades de Fronteira": "fronteira",
     "Tipologia PNDR": "pndr", "CLASSIFICAÇÃO POPULAÇÃO": "porte", "Classificação do IDHM": "idhm",
-    "Classificação do IDSC": "idsc", "Classificação do IPS": "ips",
 }
 POP = "POPULAÇÃO - 2025"
 # classes de porte (PNAS/IBGE): limite superior de cada classe, população de 2025
@@ -53,21 +53,17 @@ def _classe(v: pd.Series, limites: list[tuple[str, float]]) -> pd.Series:
 
 # faixas que a própria planilha aplica (conferidas nas linhas sem erro): IDHM = faixas do PNUD
 IDHM_FAIXAS = [("Muito baixo", 0), ("Baixo", .5), ("Médio", .6), ("Alto", .7), ("Muito alto", .8)]
-IPS_FAIXAS = [("Muito baixo", 0), ("Baixo", 51.98), ("Médio", 56.79), ("Alto", 62.92)]
-IDX = {"idhm": ("Índice de Desenvolvimento Humano Municipal (IDHM) - 2010", "IND-007", 2010, IDHM_FAIXAS),
-       "ips": ("Índice de Progresso Social (IPS) - 2026", "IND-146", 2026, IPS_FAIXAS)}
+IDX = {"idhm": ("Índice de Desenvolvimento Humano Municipal (IDHM) - 2010", "IND-007", 2010, IDHM_FAIXAS)}
 
 
 def corrigir_indices(df: pd.DataFrame, raw: pd.DataFrame):
     """A planilha traz, para parte dos municípios homônimos (ex.: Belém do PA recebeu o IDHM de outra Belém),
     índices de outro município — sinal de busca pelo nome em vez do código. Quando a base do painel existe
-    (build/dados.parquet), as classes de IDHM e IPS são recalculadas a partir dos valores oficiais da base, ligados
-    pelo código IBGE (municípios sem classe na planilha, mas com valor oficial, também passam a ter classe). O erro
-    ocorre coluna a coluna, sem padrão por linha; por isso o IDSC-BR, que não tem como ser conferido, fica sem classe
-    em todos os municípios homônimos."""
+    (build/dados.parquet), a classe do IDHM é recalculada a partir dos valores oficiais da base, ligados pelo código
+    IBGE (municípios sem classe na planilha, mas com valor oficial, também passam a ter classe)."""
     base = ROOT / "build" / "dados.parquet"
     if not base.exists():
-        print("  aviso: build/dados.parquet ausente; classes de IDHM, IDSC-BR e IPS mantidas como na planilha.")
+        print("  aviso: build/dados.parquet ausente; classe do IDHM mantida como na planilha.")
         return
     long = pd.read_parquet(base, columns=["nivel", "cod", "ind", "ano", "valor"])
     mun = long[long.nivel == "Município"]
@@ -81,9 +77,6 @@ def corrigir_indices(df: pd.DataFrame, raw: pd.DataFrame):
         df[col] = nova.where(nova.notna(), df[col])  # sem valor oficial: mantém a classe da planilha
         print(f"  {col}: {int(dif.sum())} municípios com índice de outro município na planilha "
               f"({int((dif & homon).sum())} homônimos); classe recalculada pelo {ind} ({mudou} classes mudaram)")
-    df.loc[homon, "idsc"] = None
-    print(f"  idsc: classe retirada dos {int(homon.sum())} municípios homônimos (não há como conferir); "
-          "corrigir na planilha de origem")
 
 
 def main() -> int:
@@ -112,9 +105,9 @@ def main() -> int:
             erros.append(f"valores inesperados em '{c}': {sorted(set(v) - {'SIM', 'NÃO', 'NAO'})}")
         df[c] = v.eq("SIM")
 
-    for c in ("rg_intermediaria", "rg_imediata", "pndr", "porte", "idhm", "idsc", "ips"):
+    for c in ("rg_intermediaria", "rg_imediata", "pndr", "porte", "idhm"):
         v = df[c].astype(str).str.strip()
-        df[c] = v.where(~v.isin(SEM_CLASSE)).str.capitalize() if c in ("idhm", "idsc", "ips") else v.where(~v.isin(SEM_CLASSE))
+        df[c] = v.where(~v.isin(SEM_CLASSE)).str.capitalize() if c == "idhm" else v.where(~v.isin(SEM_CLASSE))
     if df.rg_imediata.isna().any() or df.rg_intermediaria.isna().any():
         erros.append("há municípios sem região imediata ou intermediária")
 
@@ -143,7 +136,7 @@ def main() -> int:
     al = df[df.al]
     print(f"OK — {len(df)} municípios ({len(al)} na Amazônia Legal) gravados em {OUT.relative_to(ROOT)}")
     print(f"  regiões intermediárias: {df.rg_intermediaria.nunique()} · imediatas: {chave.nunique()}")
-    for c in ("porte", "pndr", "idhm", "idsc", "ips"):
+    for c in ("porte", "pndr", "idhm"):
         print(f"  {c}: {al[c].value_counts(dropna=False).to_dict()}  (Amazônia Legal)")
     return 0
 

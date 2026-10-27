@@ -47,7 +47,7 @@ MISSING_MARKS = {"", "-", "—", "–", "...", "..", "x", "X", "nan", "None"}
 
 # coluna da "Lista de Indicadores" -> chave em fichas.json
 FICHA = {
-    "Indicador": "name", "Descrição do Indicador": "description", "Eixo P1": "axis", "Tema": "theme",
+    "Indicador": "name", "Descrição do Indicador": "description", "Fórmula / Forma de Cálculo": "formula", "Eixo P1": "axis", "Tema": "theme",
     "Subtema": "subtheme", "Eixo(s) PRDA Relacionado(s)": "prda", "Unidade de Medida": "unit",
     "Polaridade": "polarity", "Fonte dos Dados": "source", "Periodicidade": "periodicity",
     "Série Histórica Disponível": "series", "Ano de Referência mais Recente": "latest",

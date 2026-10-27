@@ -151,6 +151,7 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
   padding:8px 14px; background:{SURFACE}; border:1px solid {LINE}; border-radius:10px; margin:6px 0 14px; }}
 .fbar .t {{ font-weight:700; color:{INK}; text-transform:uppercase; letter-spacing:.06em; font-size:.68rem; }}
 .fbar b {{ color:{TEXT}; font-weight:600; }}
+.fbar.leg {{ margin-top:-8px; background:transparent; }}
 .fgroup {{ font-weight:700; color:{INK}; font-size:.74rem; letter-spacing:.08em; text-transform:uppercase;
   margin:16px 0 0; padding-top:10px; border-top:1px solid {LINE}; }}
 .fhint {{ font-size:.72rem; color:{MUTED}; margin:2px 0 8px; line-height:1.35; }}

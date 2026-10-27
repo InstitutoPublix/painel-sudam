@@ -105,7 +105,7 @@ _GEO: dict[str, dict] = {}
 
 def geojson(level: str) -> dict:
     """Malhas do IBGE (arquivos em assets/geo), com coordenadas arredondadas."""
-    key = "uf" if level == "Estado" else "mun"
+    key = {"Estado": "uf", "Grande Região": "rg"}.get(level, "mun")
     if key not in _GEO:
         gj = json.loads((ASSETS / "geo" / f"{key}.json").read_text())
 
@@ -154,7 +154,8 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
     al_parcial: UFs só em parte na Amazônia Legal; ficam sem o contorno forte, pois o estado inteiro não pertence a ela.
     O contorno forte desses estados é desenhado só em volta da parte que fica na região (assets/geo/al_parcial.json)."""
     gj_all = geojson(level)
-    ids = set(df.cod.astype(str).str.zfill(2 if level == "Estado" else 7))
+    larg = {"Estado": 2, "Grande Região": 1}.get(level, 7)  # dígitos do código IBGE em cada nível
+    ids = set(df.cod.astype(str).str.zfill(larg))
     sub = {"type": "FeatureCollection", "features": [f for f in gj_all["features"] if f["id"] in ids]}
     fig = go.Figure()
 
@@ -165,7 +166,7 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
         colorscale=[[0, "rgba(4,65,60,0.03)"], [1, "rgba(4,65,60,0.03)"]], showscale=False,
         marker_line_color="rgba(4,65,60,0.45)", marker_line_width=0.7, hoverinfo="skip"))
 
-    codes = df.cod.astype(str).str.zfill(2 if level == "Estado" else 7)
+    codes = df.cod.astype(str).str.zfill(larg)
     hover = df.label + "<br><b>" + df.valor.map(ind.fmt) + "</b>"
     if mode == "faixas":
         b = bands(df.valor).astype(int)
@@ -211,6 +212,16 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
                 geojson=gp, locations=[f["id"] for f in gp["features"]], z=[0] * len(gp["features"]), showscale=False,
                 hoverinfo="skip", colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
                 marker_line_color=TEXT, marker_line_width=2.2))
+    if level == "Grande Região" and rotulos:
+        feats = {f["id"]: f for f in sub["features"]}
+        ok = [i for i, c in enumerate(codes) if c in feats]
+        b = bands(df.valor).astype(int).values
+        cores_b = band_colors(ind, int(b.max()) + 1)
+        for i in ok:
+            la, lo = _centro(feats[codes.iloc[i]])
+            fig.add_trace(go.Scattermap(
+                lat=[la], lon=[lo], mode="text", showlegend=False, hoverinfo="skip", text=[str(df.label.iloc[i])],
+                textfont=dict(size=12, color=text_on(cores_b[b[i]]))))
     if level == "Estado" and rotulos and "uf" in df and (len(df) <= 12 or height >= 560):
         feats = {f["id"]: f for f in sub["features"]}
         ok = [i for i, c in enumerate(codes) if c in feats]
@@ -331,6 +342,35 @@ def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int |
     return fig
 
 
+def tipico_por_uf(df: pd.DataFrame) -> str:
+    """Medida que resume os municípios de cada UF: 'media' quando o indicador só tem 0 e 100 (sim/não por município,
+    em que a média é o % de municípios), 'mediana' (o município do meio) nos demais casos."""
+    return "media" if set(df.valor.dropna().unique()) <= {0.0, 100.0} else "mediana"
+
+
+def bars_by_uf(df: pd.DataFrame, ind: Indicator, height: int | None = None) -> go.Figure:
+    """Barras com o valor do município típico de cada UF (mediana; média nos indicadores sim/não), da maior para a
+    menor. Ao passar o mouse: o maior e o menor município da UF e quantos municípios ela tem. df: label, uf, valor."""
+    medida = tipico_por_uf(df)
+    g = df.groupby("uf").valor
+    r = pd.DataFrame({"v": g.median() if medida == "mediana" else g.mean(), "n": g.size(),
+                      "min": g.min(), "max": g.max()})
+    r["menor"] = df.loc[g.idxmin()].set_index("uf").label
+    r["maior"] = df.loc[g.idxmax()].set_index("uf").label
+    r = r.sort_values("v", ascending=False).iloc[::-1]
+    nome = "Município típico (mediana)" if medida == "mediana" else "% dos municípios"
+    fig = go.Figure(go.Bar(
+        x=r.v, y=r.index, orientation="h", marker=dict(color=ACCENT, cornerradius=4),
+        text=r.v.map(ind.fmt), textposition="outside", cliponaxis=False,
+        customdata=np.column_stack([r.n, r["menor"], r["min"].map(ind.fmt), r["maior"], r["max"].map(ind.fmt)]),
+        hovertemplate="<b>%{y}</b> · %{customdata[0]} municípios<br>" + nome + ": <b>%{text}</b><br>"
+                      "Menor: %{customdata[1]} (%{customdata[2]})<br>Maior: %{customdata[3]} (%{customdata[4]})"
+                      "<extra></extra>"))
+    fig.update_layout(height=height or int(np.clip(24 * len(r) + 50, 300, 560)), margin=dict(l=0, r=70, t=6, b=6),
+                      yaxis=dict(automargin=True, tickfont=dict(size=12)), xaxis=dict(visible=False))
+    return fig
+
+
 def box_by_uf(df: pd.DataFrame, ind: Indicator, log: bool = True) -> go.Figure:
     order = df.groupby("uf").valor.median().sort_values(ascending=False).index
     fig = go.Figure()
@@ -405,13 +445,17 @@ def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.D
     return pd.concat(out) if out else pd.DataFrame(columns=list(sr.columns) + ["y"])
 
 
-def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430) -> go.Figure:
+def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430,
+          cores: dict[str, str] | None = None, tracejado: tuple = (), grossas: tuple = ()) -> go.Figure:
+    """Séries por território. cores: cor por nome de série (substitui a automática); tracejado e grossas: nomes de
+    séries desenhadas com linha tracejada ou mais grossa (para diferenciar séries de cores parecidas)."""
     t = transform(sr, mode, ind)
     fig = go.Figure()
     if t.empty:
         return fig
     un = "% a.a." if ind.delta == "pct" else f"{ind.delta_unit} ao ano"
     cmap = _colors(list(t.drop_duplicates("label")[["label", "nivel"]].itertuples(index=False, name=None)))
+    cmap.update({k: v for k, v in (cores or {}).items() if k in cmap})
     for lab, g in t.groupby("label", sort=False):
         if mode == "var":
             fig.add_trace(go.Bar(x=g.ano, y=g.y, name=lab, marker_color=cmap[lab], opacity=.9,
@@ -421,7 +465,8 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
         hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
         fig.add_trace(go.Scatter(
             x=g.ano, y=g.y, name=lab, mode="lines+markers", connectgaps=True,
-            line=dict(color=cmap[lab], width=2.6), marker=dict(size=7, line=dict(width=1, color=SURFACE)),
+            line=dict(color=cmap[lab], width=3.6 if lab in grossas else 2.6, dash="dash" if lab in tracejado else "solid"),
+            marker=dict(size=7, line=dict(width=1, color=SURFACE)),
             text=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{text}}</b><extra></extra>"))
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),

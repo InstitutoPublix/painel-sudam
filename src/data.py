@@ -258,8 +258,6 @@ AGRUPAMENTOS = {
     "rg_imediata": "Região Geográfica Imediata",
     "pndr": "Tipologia PNDR",
     "idhm": "Classe do IDHM (2010)",
-    "idsc": "Classe do IDSC-BR (2025)",
-    "ips": "Classe do IPS (2026)",
 }
 # filtros Sim/Não (colunas booleanas)
 AGRUPAMENTOS_SN = {"fronteira": "Cidade de fronteira", "sede_imediata": "Sede de região imediata"}

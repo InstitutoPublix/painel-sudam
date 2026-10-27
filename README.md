@@ -94,7 +94,7 @@ Por padrão, executar `python scripts/build_data.py` sem caminho usa o `.xlsx` m
 Hoje, o Maranhão: 181 dos 217 municípios fazem parte da região. Além do valor publicado para o estado inteiro (nível
 `Estado`), `build_data.py` calcula, a partir dos municípios da região e com a mesma regra de agregação de cada indicador,
 o valor da **parcela do estado na Amazônia Legal** (nível `Estado (parte AL)`). O painel usa a parcela nas telas com
-abrangência Amazônia Legal e o estado inteiro na abrangência Brasil inteiro; a aba Território permite alternar. Os
+abrangência Amazônia Legal e o estado inteiro na abrangência Brasil inteiro; a aba Perfil do Território permite alternar. Os
 indicadores publicados só para o estado todo (regra `publicado`, ex.: IDHM) ficam sem parcela e mantêm o valor do estado
 inteiro, com aviso. Toda tela com esses estados traz uma nota dizendo qual valor está em uso. Quem muda a lista de
 municípios da região deve rodar de novo `scripts/geo_al_parcial.py` (contorno no mapa) e `scripts/build_data.py`.
@@ -107,7 +107,7 @@ amarelo (Situação, Pendência, Decisão, Responsável, Observações) são pre
 catálogo é gerado de novo; as demais são recalculadas a partir da planilha e do `config/indicadores.toml`.
 
 ## Abas
-Visão Geral · Mapa e Ranking · Território · Séries Temporais · Comparações · Sobre.
+Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.
 
 ## Estrutura
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual

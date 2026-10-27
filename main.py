@@ -4,6 +4,7 @@ Executar:  streamlit run main.py
 """
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 
@@ -87,12 +88,12 @@ def state(key: str, default, options=None) -> str:
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
-ABAS = ["Visão Geral", "Mapa e Ranking", "Território", "Séries Temporais", "Comparações", "Sobre o Painel"]
+ABAS = ["Visão Geral", "Mapa e Ranking", "Perfil do Território", "Séries Temporais", "Comparações", "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte", "grupos"}
 FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa e Ranking": {"ind", "ano"} | TERRIT,
-           "Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
+           "Perfil do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
            "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
-NOTAS = {"Território": "O território é escolhido na própria página; o indicador e o ano valem nas seções Evolução, "
+NOTAS = {"Perfil do Território": "O território é escolhido na própria página; o indicador e o ano valem nas seções Evolução, "
                       "Posição e Municípios do estado.",
          "Séries Temporais": "Os territórios são escolhidos na própria página; as séries mostram todos os anos.",
          "Sobre o Painel": "Esta página não usa filtros."}
@@ -101,7 +102,7 @@ theme.header()
 tabs = st.tabs(ABAS, key="aba", on_change="rerun")
 T = dict(zip(ABAS, tabs))
 ABA = next((a for a, t in T.items() if t.open), ABAS[0])
-if ABA != "Território":  # o botão "Voltar" da aba Território só vale logo após o clique no ranking
+if ABA != "Perfil do Território":  # o botão "Voltar" da aba Perfil do Território só vale logo após o clique no ranking
     st.session_state.pop("tr_origem", None)
 show = set(FILTROS[ABA])
 # a escala escolhida dentro da aba define quais filtros territoriais fazem efeito
@@ -188,17 +189,17 @@ with st.sidebar:
                 pool = sorted(base[col].dropna().unique())
                 if col == "rg_imediata" and GRUPOS.get("rg_intermediaria"):
                     pool = sorted(base[base.rg_intermediaria.isin(GRUPOS["rg_intermediaria"])][col].dropna().unique())
-                if col in ("idhm", "idsc", "ips"):
+                if col == "idhm":
                     pool = [c for c in ORDEM_CLASSES if c in pool]
                 k = state(f"w_g_{col}", [], pool)
                 sel = st.multiselect(nome, pool, placeholder="Todos", key=k)
                 if sel:
                     GRUPOS[col] = sel
-            for col, nome in AGRUPAMENTOS_SN.items():
-                k = state(f"w_g_{col}", "Todos", ["Todos", "Sim", "Não"])
-                sel = st.radio(nome, ["Todos", "Sim", "Não"], horizontal=True, key=k)
-                if sel != "Todos":
-                    GRUPOS[col] = [sel == "Sim"]
+            for col, nome in AGRUPAMENTOS_SN.items():  # marcado: só esses municípios; desmarcado: todos
+                rotulo = {"fronteira": "Só cidades de fronteira", "sede_imediata": "Só sedes de região imediata"}.get(
+                    col, f"Só: {nome.lower()}")
+                if st.checkbox(rotulo, key=state(f"w_g2_{col}", False)):
+                    GRUPOS[col] = [True]
             st.session_state["w_grupos_aberto"] = bool(GRUPOS)
     if ABA in NOTAS:
         st.caption(NOTAS[ABA])
@@ -242,11 +243,30 @@ def escopo(level: str, n: int | None = None) -> str:
     return out
 
 
+FILTROS_LIMPAVEIS = ("w_recorte", "w_ufs", "w_porte", "w_ano_modo", "w_ano", "w_grupos_aberto")
+
+
+def limpar_filtros():
+    """Volta os filtros da barra lateral ao padrão: abrangência, UF, porte, agrupamentos e ano. O eixo e o indicador
+    escolhidos ficam, para não perder o que está sendo analisado. Roda antes da nova execução da página."""
+    for k in list(st.session_state):
+        if k in FILTROS_LIMPAVEIS or str(k).startswith(("w_g_", "w_g2_")):
+            del st.session_state[k]
+
+
+def filtros_alterados() -> bool:
+    """Há algum filtro fora do padrão na barra lateral (mesmo os que a aba aberta não usa)?"""
+    s = st.session_state
+    return bool(s.get("w_recorte", "Amazônia Legal") != "Amazônia Legal" or s.get("w_ufs") or s.get("w_porte")
+                or s.get("w_ano_modo", MODOS_ANO[0]) != MODOS_ANO[0]
+                or any(v for k, v in s.items() if str(k).startswith(("w_g_", "w_g2_"))))
+
+
 def barra_filtros():
-    """Resumo, no topo da aba, dos filtros da barra lateral que estão valendo nela."""
+    """Resumo, no topo da aba, dos filtros da barra lateral que estão valendo nela, com o botão para limpá-los."""
     if not show:
         return
-    itens = [f"Indicador: <b>{I.label}</b> · {I.unit}"]
+    itens = [f"Indicador: <b>{I.label}</b>"]
     if "ano" in show:
         itens.append(f"Ano: <b>{YEAR}</b>" + (" (mais recente do indicador)" if RECENTE else ""))
     if "recorte" in show:
@@ -257,10 +277,31 @@ def barra_filtros():
         itens.append("Porte: <b>" + (", ".join(PORTE) if PORTE else "todos") + "</b>")
     if "grupos" in show:
         itens += [f"{nome_grupo(c)}: <b>{', '.join(map(_sn, v))}</b>" for c, v in GRUPOS.items()]
-    if PARCIAL and ABA != "Território":  # a aba Território traz a sua própria nota, conforme a escolha feita nela
+    if PARCIAL and ABA != "Perfil do Território":  # a aba Perfil do Território traz a sua própria nota, conforme a escolha feita nela
         itens.append("◐ " + nota_parcial(modo_parcial(AL_ONLY and "recorte" in show, IND)))
-    st.markdown('<div class="fbar"><span class="t">Filtros aplicados</span>' + "".join(f"<span>{x}</span>" for x in itens)
-                + "</div>", unsafe_allow_html=True)
+    barra = ('<div class="fbar"><span class="t">Filtros aplicados</span>' + "".join(f"<span>{x}</span>" for x in itens)
+             + "</div>")
+    if show & (TERRIT | {"ano"}):  # botão ao lado do resumo: é ali que o usuário vê o que está aplicado
+        c_barra, c_botao = st.columns([5.2, 1], vertical_alignment="center")
+        c_barra.markdown(barra, unsafe_allow_html=True)
+        c_botao.button("Limpar filtros", on_click=limpar_filtros, key="limpar_filtros", disabled=not filtros_alterados(),
+                       width="stretch", help="Volta abrangência, UF, porte, agrupamentos e ano ao padrão. O eixo e o "
+                                             "indicador escolhidos ficam.")
+    else:
+        st.markdown(barra, unsafe_allow_html=True)
+    if "ind" in show:  # legenda do indicador: unidade, fonte e fórmula, como constam na planilha
+        m = D["meta"].get(IND, {})
+        esc = lambda t: html.escape(str(t).strip())  # noqa: E731
+        leg = [f"<span><b>Unidade:</b> {esc(I.unit)}</span>"]
+        if m.get("source"):
+            leg.append(f"<span><b>Fonte:</b> {esc(m['source'])}</span>")
+        if m.get("formula"):
+            fx = str(m["formula"]).strip()
+            if len(fx) > 220:  # fórmulas muito longas: o começo aqui, o texto inteiro na ficha do Sobre o Painel
+                fx = fx[:220].rsplit(" ", 1)[0] + "… (texto completo em Sobre o Painel)"
+            leg.append(f"<span><b>Fórmula:</b> {esc(fx)}</span>")
+        st.markdown('<div class="fbar leg"><span class="t">Sobre o indicador</span>' + "".join(leg) + "</div>",
+                    unsafe_allow_html=True)
 
 
 def snap(level: str, ind: str = IND, year: int | None = None, filt: bool = True, parte: bool | None = None) -> pd.DataFrame:
@@ -366,8 +407,19 @@ with T["Visão Geral"]:
                       unsafe_allow_html=True)
         if len(muni):
             top, bot = muni.loc[muni.valor.idxmax()], muni.loc[muni.valor.idxmin()]
-            c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), top.label, "▲", "hi"), unsafe_allow_html=True)
-            c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), bot.label, "▼", "lo"), unsafe_allow_html=True)
+            # posição entre todos os municípios da abrangência (Amazônia Legal ou Brasil), mesmo com UF, porte ou
+            # agrupamentos filtrados: 1º = maior valor
+            uni = data.snapshot(D, "Município", IND, year_for(IND), al_only=AL_ONLY)
+            onde = "da Amazônia Legal" if AL_ONLY else "do Brasil"
+
+            def posicao(v: float) -> str:
+                p, emp = data.position(uni.valor, v, 0)
+                return f"{'=' if emp > 1 else ''}{p}º entre os {len(uni):,} municípios {onde}".replace(",", ".")
+
+            c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), f"{top.label} · {posicao(top.valor)}", "▲", "hi"),
+                          unsafe_allow_html=True)
+            c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), f"{bot.label} · {posicao(bot.valor)}", "▼", "lo"),
+                          unsafe_allow_html=True)
             n0 = int((muni.valor == 0).sum())
             if 0 < n0 <= .05 * len(muni):  # zero em muitos municípios é padrão do indicador (ex.: sim/não), não lacuna
                 st.caption(f"⚠ {n0:,} município(s) com valor zero entre os {len(muni):,}".replace(",", ".")
@@ -415,19 +467,42 @@ with T["Visão Geral"]:
                 regs = data.territories(D, "Grande Região")
                 sr = data.series(D, [BRASIL, AMZ, *regs.tid], IND)
                 tem = set(sr.loc[sr.valor.notna(), "tid"])  # só o que existe para este indicador
-                nomes = [n for n, ok in (("Brasil", BRASIL in tem), ("Amazônia Legal", AMZ in tem),
-                                         ("Grandes Regiões", bool(tem & set(regs.tid)))) if ok]
-                quem = nomes[0] if len(nomes) == 1 else ", ".join(nomes[:-1]) + " e " + nomes[-1] if nomes else "sem série"
+                nome_de = {BRASIL: "Brasil", AMZ: "Amazônia Legal", **dict(zip(regs.tid, regs.label))}
+                opcoes = [nome_de[t] for t in (BRASIL, AMZ, *regs.tid) if t in tem]
+                padrao = [n for n in ("Brasil", "Amazônia Legal") if n in opcoes]
+                # chips clicáveis: Brasil e Amazônia Legal já vêm marcados; as Grandes Regiões entram com um clique.
+                # Quando as opções mudam (outro indicador), mantém o que ainda existe ou volta ao padrão.
+                if st.session_state.get("w_vg_opcoes") != opcoes:
+                    st.session_state["w_vg_recortes"] = [x for x in st.session_state.get("w_vg_recortes", padrao)
+                                                         if x in opcoes] or padrao
+                    st.session_state["w_vg_opcoes"] = opcoes
+                escolha = st.pills("Clique para incluir ou tirar recortes do gráfico", opcoes, selection_mode="multi",
+                                   key="w_vg_recortes") if opcoes else []
+                quem = ("sem série" if not opcoes else "nenhum recorte escolhido" if not escolha
+                        else escolha[0] if len(escolha) == 1 else ", ".join(escolha[:-1]) + " e " + escolha[-1])
                 theme.title(f"Evolução de {charts.low(I.label)}: {quem}",
-                            "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho."
-                            + ("" if len(nomes) > 1 else " Este indicador só tem série para " + quem.lower() + "."), fixo=True)
-                plot(charts.lines(sr, I, "indice", height=360), "ov_line")
+                            "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho.",
+                            fixo=True)
+                if not escolha:
+                    st.info("Escolha ao menos um recorte acima para ver a evolução.")
+                else:
+                    sr_v = sr[sr.tid.map(nome_de).isin(escolha)]
+                    plot(charts.lines(sr_v, I, "indice", height=360,
+                                      # os dois recortes principais em verdes bem distintos; as regiões, em outras cores
+                                      cores={"Amazônia Legal": theme.INK, "Brasil": "#6CC24A",
+                                             **{n: c for n, c in zip(regs.label, [theme.ORANGE, theme.BLUE, "#D49A12",
+                                                                                   theme.BROWN, "#8E9A93"])}},
+                                      tracejado=("Brasil",), grossas=("Amazônia Legal", "Brasil")), "ov_line")
             with right:
                 if len(muni) > 10 and muni.uf.nunique() > 1:
-                    theme.title(f"{I.label} entre os municípios de cada UF",
-                                f"{YEAR} · caixa = metade central dos municípios, linha = mediana, pontos = fora do padrão")
-                    plot(charts.box_by_uf(muni, I, log=I.log).update_layout(height=360), "ov_box")
-                else:  # poucos municípios ou uma só UF: a caixa perde o sentido
+                    por_pct = charts.tipico_por_uf(muni) == "media"
+                    theme.title(f"{I.label}: município típico de cada UF" if not por_pct
+                                else f"{I.label}: % dos municípios de cada UF",
+                                f"{YEAR} · " + ("percentual dos municípios da UF com o item" if por_pct else
+                                                "valor do município do meio em cada UF (metade tem mais, metade tem menos)")
+                                + " · passe o mouse para ver o maior e o menor")
+                    plot(charts.bars_by_uf(muni, I), "ov_uf")
+                else:  # poucos municípios ou uma só UF: a comparação entre UFs perde o sentido
                     st_df = snap("Estado")
                     theme.title(f"{I.label} por estado, do maior para o menor",
                                 f"{YEAR} · " + (f"15 maiores entre os {escopo('Estado', len(st_df))}" if len(st_df) > 15
@@ -555,8 +630,8 @@ def voltar_origem():
     st.session_state["aba"] = st.session_state.pop("tr_origem", "Mapa e Ranking")
 
 
-with T["Território"]:
-    if T["Território"].open:
+with T["Perfil do Território"]:
+    if T["Perfil do Território"].open:
         barra_filtros()
         if st.session_state.get("tr_origem"):  # chegou aqui clicando numa linha do ranking
             st.button(f"← Voltar ao {st.session_state['tr_origem']}", on_click=voltar_origem, key="tr_voltar")
@@ -631,8 +706,7 @@ with T["Território"]:
                 chips += [f"Região imediata: {cr.rg_imediata}", f"Região intermediária: {cr.rg_intermediaria}"]
                 chips += [f"PNDR: {cr.pndr}"] if pd.notna(cr.pndr) else []
                 chips += ["Cidade de fronteira"] * bool(cr.fronteira) + ["Sede de região imediata"] * bool(cr.sede_imediata)
-                chips += [f"{nome}: {cr[col]}" for col, nome in (("idhm", "IDHM"), ("idsc", "IDSC"), ("ips", "IPS"))
-                          if pd.notna(cr[col])]
+                chips += [f"IDHM: {cr.idhm}"] if pd.notna(cr.idhm) else []
         st.markdown(f"<h2 style='margin:.2rem 0 .3rem'>{sel + ' (parte na Amazônia Legal)' if PARTE else sel}</h2>"
                     + "".join(f'<span class="chip">{c}</span>' for c in chips), unsafe_allow_html=True)
         if plvl == "Estado" and uf_t in PARCIAL:  # sempre diz qual valor do estado está em uso
@@ -786,9 +860,7 @@ with T["Território"]:
                         grupos_cmp = {"Mesmo porte populacional": (D["porte"], D["porte"].get(cod) if D["porte"] is not None else None),
                                       "Mesma tipologia PNDR": (D["carac"].pndr, cr.pndr),
                                       "Mesma região imediata": (D["carac"].rg_imediata, cr.rg_imediata),
-                                      "Mesma classe de IDHM": (D["carac"].idhm, cr.idhm),
-                                      "Mesma classe de IDSC": (D["carac"].idsc, cr.idsc),
-                                      "Mesma classe de IPS": (D["carac"].ips, cr.ips)}
+                                      "Mesma classe de IDHM": (D["carac"].idhm, cr.idhm)}
                         grupos_cmp = {k: v for k, v in grupos_cmp.items() if v[0] is not None and pd.notna(v[1])}
                         if grupos_cmp:
                             st.markdown("---")
@@ -903,7 +975,7 @@ def sem_acento(t: str) -> str:
 
 
 def abrir_territorio(nivel: str, label: str, uf: str):
-    """Leva o território escolhido no ranking para a aba Território (roda antes da nova execução da página)."""
+    """Leva o território escolhido no ranking para a aba Perfil do Território (roda antes da nova execução da página)."""
     st.session_state["w_tr_lvl"] = nivel
     if nivel == "Município":
         st.session_state["w_tr_uf"] = uf
@@ -912,12 +984,12 @@ def abrir_territorio(nivel: str, label: str, uf: str):
     if nivel == "Estado" and uf in PARCIAL:
         st.session_state["w_tr_parte"] = PARTE_OPCOES[0] if AL_ONLY else PARTE_OPCOES[1]
     st.session_state["w_tr_terr"] = label
-    st.session_state["tr_origem"] = "Mapa e Ranking"  # a aba Território mostra o botão de volta
-    st.session_state["aba"] = "Território"
+    st.session_state["tr_origem"] = "Mapa e Ranking"  # a aba Perfil do Território mostra o botão de volta
+    st.session_state["aba"] = "Perfil do Território"
 
 
 def clique_ranking(key: str, nivel: str, linhas: list[tuple[str, str]]):
-    """Clique numa linha do ranking: abre o território na aba Território. A tabela ganha uma chave nova, para a
+    """Clique numa linha do ranking: abre o território na aba Perfil do Território. A tabela ganha uma chave nova, para a
     linha não continuar marcada quando o usuário voltar ao ranking."""
     sel = st.session_state[key].selection.rows
     st.session_state["mr_tabela_n"] = st.session_state.get("mr_tabela_n", 0) + 1
@@ -956,7 +1028,7 @@ with T["Mapa e Ranking"]:
         lvl = r1.radio("Territórios", niveis, horizontal=True, key=state("w_mr_lvl", "Município", niveis),
                        format_func=lambda x: {"Estado": "Estados", "Município": "Municípios",
                                               "Grande Região": "Grandes Regiões"}[x])
-        tem_mapa = lvl != "Grande Região"
+        tem_mapa = True
         cores = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
         mode_lbl = (r2.radio("Escala de cores", cores, horizontal=True, key=state("w_mr_mode", cores[0], cores),
                              help="Faixas: grupos de tamanho parecido (5, ou 3 quando há poucos territórios), bom para ver posição "
@@ -964,7 +1036,7 @@ with T["Mapa e Ranking"]:
                                   "Contínua: a cor acompanha o valor" + (" (em escala logarítmica)." if I.log else "."))
                     if tem_mapa else cores[0])
         rk = snap(lvl)
-        if len(rk) < (5 if tem_mapa else 1):
+        if len(rk) < (5 if lvl != "Grande Região" else 1):
             st.warning("Poucos territórios com dado nesta combinação de filtros.")
         else:
             # posição pela polaridade da ficha: 1º = melhor situação (sem polaridade, 1º = maior valor);
@@ -997,6 +1069,9 @@ with T["Mapa e Ranking"]:
                         c.metric(nome, I.fmt(v), help=onde)
                 st.caption(f"Máximo: {hi.label} · Mínimo: {lo.label} · Unidade: {I.unit} · {YEAR} · "
                            f"{escopo(lvl, len(rk))}")
+                st.caption("**Mediana** é o valor do meio: metade dos territórios fica acima e metade abaixo. "
+                           "**Média** soma todos os valores e divide pelo número de territórios; valores muito altos "
+                           "puxam a média para cima, por isso as duas podem ser bem diferentes.")
 
             def tabela():
                 ordens = (["Melhor situação primeiro", "Pior situação primeiro"] if I.polarity
@@ -1062,7 +1137,7 @@ with T["Mapa e Ranking"]:
                             + f" · {data.rank_rule(I.polarity)}" + f'<span class="sentido">{sentido}</span>')
                 st.markdown('<div class="hint"><div class="i">↗</div><div><b>Clique em uma linha</b> para abrir o '
                             "perfil completo do território (todos os indicadores, evolução e comparação com os pares) "
-                            "na aba <b>Território</b>.</div></div>", unsafe_allow_html=True)
+                            "na aba <b>Perfil do Território</b>.</div></div>", unsafe_allow_html=True)
                 key = f"mr_tabela_{st.session_state.get('mr_tabela_n', 0)}"
                 linhas = [(str(r.label), str(r.uf)) for r in view.itertuples()]
                 st.dataframe(sty, width="stretch", hide_index=True, height=min(520, 35 * (len(tbl) + 1) + 3),
@@ -1088,7 +1163,7 @@ with T["Mapa e Ranking"]:
                                      else f" · {nomes}: estado inteiro; o contorno forte marca só a parte na região (◐ na tabela)")
                     theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}{destaque}")
                     plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
-                                           **map_view(lvl), height=640, destaque_al=marca_al,
+                                           **map_view(lvl), height=640 if lvl != "Grande Região" else 560, destaque_al=marca_al,
                                            al_parcial=tuple(PARCIAL)), "map_main")
                     if mode_lbl.startswith("Faixas"):
                         st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)
@@ -1284,13 +1359,16 @@ with T["Comparações"]:
                        "Perto de 1 ou −1: relação forte; perto de 0: fraca. Correlação não prova causa.")
         st.markdown("---")
 
-        # ---- C. distribuição por UF ---------------------------------------------------
+        # ---- C. distribuição por UF (extra, recolhido: gráfico mais técnico) ---------------
         mm = snap("Município")
-        theme.title(f"Como {charts.low(I.label)} varia entre os municípios de cada UF",
-                    f"{YEAR} · {escopo('Município', len(mm))} · a caixa vai do 1º ao 3º quartil (metade dos "
-                    "municípios), a linha no meio é a mediana e os pontos soltos são municípios fora do padrão")
-        if len(mm) > 10:
-            plot(charts.box_by_uf(mm, I, log=I.log), "box")
+        with st.expander("Extra · distribuição dos municípios em cada UF (boxplot)", expanded=False):
+            theme.title(f"Como {charts.low(I.label)} varia entre os municípios de cada UF",
+                        f"{YEAR} · {escopo('Município', len(mm))} · a caixa vai do 1º ao 3º quartil (metade dos "
+                        "municípios), a linha no meio é a mediana e os pontos soltos são municípios fora do padrão")
+            if len(mm) > 10:
+                plot(charts.box_by_uf(mm, I, log=I.log), "box")
+            else:
+                st.info("Poucos municípios com os filtros atuais para desenhar a distribuição.")
         st.markdown("---")
 
         # ---- D. face a face -----------------------------------------------------------
@@ -1362,7 +1440,7 @@ with T["Sobre o Painel"]:
                             "Amazônia Legal, o painel mostra só a parte desse estado que está na região, calculada com os "
                             "municípios dela. Os estados inteiros mais essa parte somam o total da Amazônia Legal. Indicadores "
                             "que só existem para o estado todo (como o IDHM) mostram o estado inteiro, com aviso. Quando a "
-                            "abrangência é Brasil inteiro, o estado aparece inteiro. Na aba Território dá para alternar entre "
+                            "abrangência é Brasil inteiro, o estado aparece inteiro. Na aba Perfil do Território dá para alternar entre "
                             "as duas leituras.")
             st.caption(f"Versão da base: {mf['versao']} · gerada em {mf['gerado_em'][:16].replace('T', ' ')}")
             st.markdown("**Faixas.** Os mapas e gráficos de distribuição dividem os territórios em cinco faixas de "
@@ -1395,6 +1473,7 @@ with T["Sobre o Painel"]:
                 st.markdown(
                     f"- **Eixo:** {m['axis']}\n- **Tema:** {m['theme']} · {m['subtheme']}\n"
                     f"- **Fonte:** {m['source']} ([{m['table']}]({m['link']}))\n"
+                    + (f"- **Fórmula:** {m['formula']}\n" if m.get("formula") else "") +
                     f"- **Periodicidade / série:** {m['periodicity']} · {m['series']}\n"
                     f"- **Unidade:** {m['unit']} · **Polaridade:** {m['polarity']}\n"
                     f"- **Regra de agregação (ficha):** {m['aggregation']} · **Menor unidade:** {m['minTerritory']}\n"
