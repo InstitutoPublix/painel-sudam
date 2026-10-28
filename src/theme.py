@@ -37,6 +37,10 @@ PIOR = RED
 # do menor (claro) ao maior (verde-escuro)
 SEQ = ["#E4EEC4", "#A9CF46", "#4DB06A", "#11806A", "#04413C"]
 SEQ_CONT = [[0, "#F0F3D2"], [0.35, "#A9CF46"], [0.7, "#11806A"], [1, "#04413C"]]
+# indicadores em que menor é melhor (desmatamento, mortalidade…): mesma lógica de "mais escuro = mais", em tons
+# quentes, para o leitor ver de cara que ali o valor alto é ruim
+SEQ_PIOR = ["#F6EBCF", "#F2BE74", "#E2843F", "#B9492B", "#6F2417"]
+SEQ_CONT_PIOR = [[0, "#F8EFD8"], [0.35, "#F2BE74"], [0.7, "#C9572F"], [1, "#6F2417"]]
 COLORWAY = [INK, TEAL, ORANGE, BLUE, GREEN, "#D49A12", BROWN, "#8E9A93"]
 LEVEL_COLOR = {"Brasil": "#5A6660", "Amazônia Legal": INK, "Grande Região": TEAL,
                "Estado": BLUE, "Município": ORANGE}

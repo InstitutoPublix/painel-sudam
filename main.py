@@ -385,6 +385,20 @@ def do_eixo(eixo_nome: str) -> list[str]:
     return [k for k in D["indicators"] if eixo_nome == "Todos os eixos" or REG[k].axis == eixo_nome]
 
 
+class _SecaoAusente:
+    """Seção de abas que não se aplica ao território escolhido: o bloco dela não roda e nada aparece."""
+    open = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+SECAO_AUSENTE = _SecaoAusente()
+
+
 def so_estadual(ind: str) -> bool:
     """Indicador sem dado municipal (vem só por estado, região e Brasil)."""
     return "Município" not in D["meta"].get(ind, {}).get("levels", ["Município"])
@@ -424,6 +438,9 @@ with T["Visão Geral"]:
                         f"Os quatro primeiros cartões são totais fixos; maior e menor município saem dos "
                         f"{escopo('Município', len(muni))}.")
         c = st.columns(6)
+        # maior e menor coloridos pela polaridade: destaque = melhor situação, vermelho = pior, neutro sem polaridade
+        COR_MAIOR = {1: "hi", -1: "lo"}.get(I.polarity, "")
+        COR_MENOR = {1: "lo", -1: "hi"}.get(I.polarity, "")
         sem_br = fmt.isna(v_br)  # alguns indicadores não têm total nacional
         c[0].markdown(theme.kpi("Brasil", I.fmt(v_br), "sem dado nacional para este indicador" if sem_br
                                 else f"{I.label} · {YEAR}", "🇧🇷"), unsafe_allow_html=True)
@@ -452,24 +469,24 @@ with T["Visão Geral"]:
                 p, emp = data.position(uni.valor, v, 0)
                 return f"{'=' if emp > 1 else ''}{p}º entre os {len(uni):,} municípios {onde}".replace(",", ".")
 
-            c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), f"{top.label} · {posicao(top.valor)}", "▲", "hi"),
+            c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), f"{top.label} · {posicao(top.valor)}", "▲", COR_MAIOR),
                           unsafe_allow_html=True)
             n0 = int((muni.valor == 0).sum())
             if charts.binario(muni):  # sim/não por município: o que importa é quantos têm o item
                 n1 = len(muni) - n0
                 c[4].markdown(theme.kpi("Municípios com o item", f"{n1:,}".replace(",", "."),
                                         f"{fmt.pct(n1 / len(muni) * 100)} dos " + f"{len(muni):,}".replace(",", ".")
-                                        + " municípios filtrados", "▲", "hi"), unsafe_allow_html=True)
+                                        + " municípios filtrados", "▲", COR_MAIOR), unsafe_allow_html=True)
                 c[5].markdown(theme.kpi("Municípios sem o item", f"{n0:,}".replace(",", "."),
-                                        f"{fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "▼", "lo"),
+                                        f"{fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "▼", COR_MENOR),
                               unsafe_allow_html=True)
             elif charts.esparso(muni):  # a maioria tem zero: o "menor" seria um entre milhares empatados
                 c[5].markdown(theme.kpi("Municípios com zero", f"{n0:,}".replace(",", "."),
                                         f"de {len(muni):,}".replace(",", ".")
-                                        + f" · {fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "0", "lo"),
+                                        + f" · {fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "0", COR_MENOR),
                               unsafe_allow_html=True)
             else:
-                c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), f"{bot.label} · {posicao(bot.valor)}", "▼", "lo"),
+                c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), f"{bot.label} · {posicao(bot.valor)}", "▼", COR_MENOR),
                               unsafe_allow_html=True)
             if 0 < n0 <= .05 * len(muni) and not charts.binario(muni):  # zero em muitos municípios é padrão do indicador (ex.: sim/não), não lacuna
                 st.caption(f"⚠ {n0:,} município(s) com valor zero entre os {len(muni):,}".replace(",", ".")
@@ -483,9 +500,9 @@ with T["Visão Geral"]:
                 p, emp = data.position(uni_e.valor, v, 0)
                 return f"{'=' if emp > 1 else ''}{p}º entre os {len(uni_e)} estados {onde_e}"
 
-            c[4].markdown(theme.kpi("Maior estado", I.fmt(top.valor), f"{top.label} · {posicao_e(top.valor)}", "▲", "hi"),
+            c[4].markdown(theme.kpi("Maior estado", I.fmt(top.valor), f"{top.label} · {posicao_e(top.valor)}", "▲", COR_MAIOR),
                           unsafe_allow_html=True)
-            c[5].markdown(theme.kpi("Menor estado", I.fmt(bot.valor), f"{bot.label} · {posicao_e(bot.valor)}", "▼", "lo"),
+            c[5].markdown(theme.kpi("Menor estado", I.fmt(bot.valor), f"{bot.label} · {posicao_e(bot.valor)}", "▼", COR_MENOR),
                           unsafe_allow_html=True)
         if fmt.isna(v_al):  # sempre diz por que o cartão da Amazônia Legal está vazio
             nota = I.agg_note if I.agg_note.startswith(("Não calculada", "Sem valor")) else (
@@ -569,6 +586,13 @@ with T["Visão Geral"]:
                                 f"{YEAR} · entre os {escopo('Município', len(muni))}")
                     t5 = muni.nlargest(5, "valor")
                     plot(charts.hbar(t5, I, 5, height=360), "ov_top5")
+                    if not I.additive and D["pop_col"]:  # taxa: município muito pequeno tem valor extremo por poucos casos
+                        pops = data.snapshot(D, "Município", D["pop_col"], D["latest"][D["pop_col"]]).set_index("cod").valor
+                        pequenos = int((t5.cod.map(pops) < 10_000).sum())
+                        if pequenos >= 3:
+                            st.caption(f"⚠ {pequenos} dos 5 têm menos de 10 mil habitantes. Em taxas, municípios pequenos "
+                                       "mudam muito de um ano para outro (poucos casos pesam muito); veja também a "
+                                       "mediana e o mapa.")
                     tot = muni.valor.sum() if I.additive else None
                     if tot:
                         st.caption(f"Os 5 maiores concentram **{fmt.pct(t5.valor.sum() / tot * 100)}** do total dos "
@@ -803,8 +827,12 @@ with T["Perfil do Território"]:
                    "entre os pares e, para estados, o mapa dos municípios.")
         AGG = L[L.nivel != "Município"]
         niveis_t = ["Estado", "Município", "Grande Região", "Amazônia Legal", "Brasil"]
-        p1, p2, p3 = st.columns([1, 1, 2])
-        plvl = p1.selectbox("Tipo de território", niveis_t, key=state("w_tr_lvl", "Estado", niveis_t))
+        # o campo do meio (UF) só existe para municípios e estados; nos demais, o território ocupa o espaço
+        com_uf = st.session_state[state("w_tr_lvl", "Estado", niveis_t)] in ("Estado", "Município")
+        p1, p2, p3 = st.columns([1, 1, 2]) if com_uf else (*st.columns([1, 3]), None)
+        if p3 is None:
+            p2, p3 = None, p2
+        plvl = p1.selectbox("Tipo de território", niveis_t, key="w_tr_lvl")
         terr = data.territories(D, plvl)
         if plvl == "Município":
             puf = p2.selectbox("UF", D["ufs"], key=state("w_tr_uf", "PA" if "PA" in D["ufs"] else D["ufs"][0], D["ufs"]))
@@ -813,8 +841,6 @@ with T["Perfil do Território"]:
             fora = p2.checkbox("Incluir estados fora da Amazônia Legal", key=state("w_tr_fora", False),
                                help=f"Por padrão a lista traz só os {len(D['al_ufs'])} estados da Amazônia Legal.")
             terr = terr if fora else terr[terr.uf.isin(D["al_ufs"])]
-        else:
-            p2.selectbox("UF", ["—"], disabled=True, help="Usada só para escolher municípios.")
         labels = terr.label.tolist()
         pref = {"Município": "Belém", "Estado": "Pará"}.get(plvl, "")
         padrao = next((l for l in labels if l.startswith(pref)), labels[0]) if pref else labels[0]
@@ -886,8 +912,13 @@ with T["Perfil do Território"]:
         if PARCIAL and plvl == "Amazônia Legal":
             st.info(nota_al())
 
-        secoes = ["Resumo", "Evolução", "Posição", "Municípios do estado", "Dados"]
+        # só as seções que fazem sentido para o tipo de território: posição precisa de pares (estados, municípios,
+        # Grandes Regiões) e o mapa dos municípios, de um estado
+        secoes = (["Resumo", "Evolução"] + (["Posição"] if plvl in ("Estado", "Município", "Grande Região") else [])
+                  + (["Municípios do estado"] if plvl == "Estado" else []) + ["Dados"])
         S = dict(zip(secoes, st.tabs(secoes, key="terr_sec", on_change="rerun")))
+        for ausente in {"Posição", "Municípios do estado"} - set(secoes):
+            S[ausente] = SECAO_AUSENTE
         rank_grp = {"Município": "municípios do Brasil", "Estado": "estados", "Grande Região": "Grandes Regiões"}
 
         # ---- Resumo: todos os indicadores -------------------------------------------------
@@ -1051,54 +1082,48 @@ with T["Perfil do Território"]:
                                 st.caption(f"Grupo: {valor_grupo}. Posição: {data.rank_rule(I.polarity)}; '=' indica "
                                            "posição dividida com outro município.")
                                 plot(charts.histogram(par, I, I.log, (nome_curto, vm), height=300), "tr_par")
-                else:
-                    st.info(f"{sel} não tem pares para comparar: a posição existe para estados, Grandes Regiões e municípios.")
 
         # ---- Municípios do estado ---------------------------------------------------------
         with S["Municípios do estado"]:
             if S["Municípios do estado"].open:
-                if plvl != "Estado":
-                    st.info("Esta seção aparece quando o território escolhido é um estado: mostra o mapa e os extremos "
-                            "dos municípios dele.")
+                md = data.snapshot(D, "Município", IND, YEAR, ufs=[uf_t])
+                theme.title(f"{I.label} nos municípios de {sel}",
+                            f"{YEAR} · {len(md)} de {n_mun} municípios com dado · cor = faixa do município dentro do "
+                            "estado (grupos de tamanho parecido, do menor ao maior valor)")
+                if len(md) < 5:
+                    st.info(f"{I.label} não tem dado municipal suficiente para {sel} em {YEAR}"
+                            + (" (indicador só tem dado estadual)." if md.empty else "."))
                 else:
-                    md = data.snapshot(D, "Município", IND, YEAR, ufs=[uf_t])
-                    theme.title(f"{I.label} nos municípios de {sel}",
-                                f"{YEAR} · {len(md)} de {n_mun} municípios com dado · cor = faixa do município dentro do "
-                                "estado (grupos de tamanho parecido, do menor ao maior valor)")
-                    if len(md) < 5:
-                        st.info(f"{I.label} não tem dado municipal suficiente para {sel} em {YEAR}"
-                                + (" (indicador só tem dado estadual)." if md.empty else "."))
-                    else:
-                        mc, side = st.columns([2, 1])
-                        with mc:
-                            cores_m = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
-                            modo = st.radio("Escala de cores", cores_m, horizontal=True, key=state("w_tr_mode", cores_m[0], cores_m))
-                            plot(charts.choropleth(md, I, "Município", "faixas" if modo.startswith("Faixas") else "continua",
-                                                   **uf_view(cod), height=520), "tr_map")
-                            if modo.startswith("Faixas"):
-                                st.markdown(charts.legend_html(md, I), unsafe_allow_html=True)
-                        with side:
-                            s1, s2 = st.columns(2)
-                            s1.metric("Mediana", I.fmt(md.valor.median()))
-                            s2.metric("Média", I.fmt(md.valor.mean()))
-                            s1.metric("Máximo", I.fmt(md.valor.max()))
-                            s2.metric("Mínimo", I.fmt(md.valor.min()))
-                            if I.additive and md.valor.sum():
-                                t5 = md.nlargest(5, "valor")
-                                st.caption(f"Os 5 maiores municípios concentram **{fmt.pct(t5.valor.sum() / md.valor.sum() * 100)}** "
-                                           "do total do estado.")
-                            acima = int((md.valor > md.valor.median()).sum())
-                            st.caption(f"{acima} municípios estão acima da mediana estadual.")
-                        b1, b2 = st.columns(2)
-                        with b1:
-                            theme.title("10 municípios com maior valor", f"{charts.axis_label(I)} em {YEAR}")
-                            plot(charts.hbar(md, I, 10, height=320), "tr_top")
-                        with b2:
-                            theme.title("10 municípios com menor valor", f"{charts.axis_label(I)} em {YEAR}")
-                            plot(charts.hbar(md, I, 10, ascending=True, height=320, color=theme.TEAL), "tr_bot")
-                    if I.kind == "moeda":
-                        st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
-                                    'inflação.</div>', unsafe_allow_html=True)
+                    mc, side = st.columns([2, 1])
+                    with mc:
+                        cores_m = ["Faixas (quintis)", "Contínua (log)" if I.log else "Contínua"]
+                        modo = st.radio("Escala de cores", cores_m, horizontal=True, key=state("w_tr_mode", cores_m[0], cores_m))
+                        plot(charts.choropleth(md, I, "Município", "faixas" if modo.startswith("Faixas") else "continua",
+                                               **uf_view(cod), height=520), "tr_map")
+                        if modo.startswith("Faixas"):
+                            st.markdown(charts.legend_html(md, I), unsafe_allow_html=True)
+                    with side:
+                        s1, s2 = st.columns(2)
+                        s1.metric("Mediana", I.fmt(md.valor.median()))
+                        s2.metric("Média", I.fmt(md.valor.mean()))
+                        s1.metric("Máximo", I.fmt(md.valor.max()))
+                        s2.metric("Mínimo", I.fmt(md.valor.min()))
+                        if I.additive and md.valor.sum():
+                            t5 = md.nlargest(5, "valor")
+                            st.caption(f"Os 5 maiores municípios concentram **{fmt.pct(t5.valor.sum() / md.valor.sum() * 100)}** "
+                                       "do total do estado.")
+                        acima = int((md.valor > md.valor.median()).sum())
+                        st.caption(f"{acima} municípios estão acima da mediana estadual.")
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        theme.title("10 municípios com maior valor", f"{charts.axis_label(I)} em {YEAR}")
+                        plot(charts.hbar(md, I, 10, height=320), "tr_top")
+                    with b2:
+                        theme.title("10 municípios com menor valor", f"{charts.axis_label(I)} em {YEAR}")
+                        plot(charts.hbar(md, I, 10, ascending=True, height=320, color=theme.TEAL), "tr_bot")
+                if I.kind == "moeda":
+                    st.markdown('<div class="note">Valores a preços correntes (nominais): comparações entre anos incluem '
+                                'inflação.</div>', unsafe_allow_html=True)
 
         # ---- Dados ------------------------------------------------------------------------
         with S["Dados"]:
@@ -1247,7 +1272,13 @@ with T["Mapa e Ranking"]:
                 ordens = (["Melhor situação primeiro", "Pior situação primeiro"] if I.polarity
                           else ["Maiores primeiro", "Menores primeiro"])
                 t1, t2 = st.columns([1.2, 1])
-                ordem = t1.radio("Ordem da tabela", ordens, horizontal=True, key=state("w_mr_ordem", ordens[0], ordens))
+                # muitos empatados no 1º lugar (ex.: 155 municípios sem desmatamento): a tabela abre pelo outro lado,
+                # onde está a informação; a escolha volta ao padrão quando muda o indicador ou o nível
+                padrao_ordem = ordens[1] if int((rk.pos == 1).sum()) > max(10, .05 * len(rk)) else ordens[0]
+                if st.session_state.get("_mr_ordem_de") != (IND, lvl):
+                    st.session_state["w_mr_ordem"] = padrao_ordem
+                    st.session_state["_mr_ordem_de"] = (IND, lvl)
+                ordem = t1.radio("Ordem da tabela", ordens, horizontal=True, key=state("w_mr_ordem", padrao_ordem, ordens))
                 busca = t2.text_input("Buscar na tabela", placeholder="ex.: belem", key=state("w_mr_busca", ""),
                                       help="Só filtra as linhas da tabela, sem diferenciar acentos nem maiúsculas; as "
                                            "posições continuam as do ranking completo.")
@@ -1439,16 +1470,26 @@ with T["Séries Temporais"]:
             st.markdown("---")
             theme.title(f"{sr.label.iloc[0]}: indicadores de {I.axis} no mesmo gráfico",
                         "Primeiro território da seleção · índice: base 100 = primeiro ano com valor diferente de zero · "
-                        "cada linha é um indicador do mesmo eixo do indicador escolhido; clique na legenda para esconder")
+                        "cada linha é um indicador do mesmo eixo; a mais grossa é o indicador escolhido. Clique na "
+                        "legenda para mostrar ou esconder linhas (com muitos indicadores, só 6 aparecem de início)")
             first = sr.tid.iloc[0]
             fig = go.Figure()
-            for i, k in enumerate(do_eixo(I.axis)):
-                colr = theme.COLORWAY[i % len(theme.COLORWAY)]
+            # o indicador escolhido primeiro e em destaque; com muitos no eixo, só 6 aparecem de início e os demais
+            # ficam na legenda (um clique mostra); cor repetida ganha outro traço, para nenhuma linha ficar igual
+            ks_ts = [IND] + [k for k in do_eixo(I.axis) if k != IND]
+            n_vis = 0
+            for k in ks_ts:
                 t = charts.transform(data.series(D, [first], k), "indice")
-                if len(t):
-                    fig.add_trace(go.Scatter(x=t.ano, y=t.y, name=REG[k].label, mode="lines+markers", connectgaps=True,
-                                             line=dict(color=colr, width=2.6), marker=dict(size=7),
-                                             hovertemplate=REG[k].label + " %{x}: <b>%{y:.1f}</b><extra></extra>"))
+                if not len(t):
+                    continue
+                colr = theme.COLORWAY[n_vis % len(theme.COLORWAY)]
+                traco = ["solid", "dash", "dot", "dashdot"][(n_vis // len(theme.COLORWAY)) % 4]
+                fig.add_trace(go.Scatter(x=t.ano, y=t.y, name=REG[k].label, mode="lines+markers", connectgaps=True,
+                                         line=dict(color=colr, width=4 if k == IND else 2.4, dash=traco),
+                                         marker=dict(size=8 if k == IND else 6),
+                                         visible=True if n_vis < 6 else "legendonly",
+                                         hovertemplate=REG[k].label + " %{x}: <b>%{y:.1f}</b><extra></extra>"))
+                n_vis += 1
             fig.update_layout(height=340, yaxis_title="Índice (base 100)", legend_title_text="Indicador:")
             fig.update_xaxes(dtick=1, tickformat="d")
             plot(fig, "ts_multi")
@@ -1512,9 +1553,15 @@ with T["Comparações"]:
                     + (" no mesmo ano" if RECENTE else f" em {YEAR}") + ". Tente outro par de indicadores"
                     + ("" if RECENTE else " ou outro ano") + ".")
         else:
-            pode_log = bool(REG[xk].log and REG[yk].log and (sd.x > 0).all() and (sd.y > 0).all())
+            # log só exige valores positivos; vem ligada quando algum eixo é muito assimétrico (poucos territórios
+            # muito maiores que a maioria, como população), pois aí a escala comum espreme quase todos num canto
+            pode_log = bool((sd.x > 0).all() and (sd.y > 0).all())
+            assim = any(s.max() > 20 * s.median() for s in (sd.x, sd.y) if s.median() > 0)
+            if st.session_state.get("_sc_par") != (xk, yk):  # novo par de indicadores: volta ao padrão
+                st.session_state["w_sc_log"] = pode_log and assim
+                st.session_state["_sc_par"] = (xk, yk)
             lsc = st.checkbox("Escala logarítmica nos dois eixos", disabled=not pode_log,
-                              key=state("w_sc_log", pode_log),
+                              key=state("w_sc_log", pode_log and assim),
                               help="Indicada quando os valores são muito assimétricos (poucos territórios muito "
                                    "maiores que a maioria). Só está disponível se os dois indicadores forem positivos.")
             lsc = lsc and pode_log
@@ -1624,9 +1671,10 @@ with T["Sobre o Painel"]:
         with s2:
             st.markdown("### Disponibilidade dos dados")
             # a base só guarda células com valor: a cobertura é o nº de municípios com dado ÷ total de municípios
-            ks = [k for k in D["indicators"] if eixo == "Todos os eixos" or REG[k].axis == eixo]
-            st.caption(f"Indicadores de: **{eixo.lower() if eixo == 'Todos os eixos' else eixo}** "
-                       "(o eixo escolhido na barra lateral, aba Visão Geral, filtra esta lista).")
+            eixo_sb = escolhe_eixo("w_sb_eixo", "Eixo mostrado na disponibilidade e nas fichas", todos=True)
+            ks = do_eixo(eixo_sb)
+            if eixo_sb != "Todos os eixos":
+                st.caption("Indicadores com dado só por estado aparecem em branco: a cobertura é contada nos municípios.")
             cov = (L[(L.nivel == "Município") & L.ind.isin(ks)]
                    .groupby(["ind", "ano"], observed=True).size().div(D["n_mun"]).mul(100).unstack("ano")
                    .reindex(ks))
