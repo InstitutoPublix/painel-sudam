@@ -342,23 +342,39 @@ def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int |
     return fig
 
 
-def tipico_por_uf(df: pd.DataFrame) -> str:
+def tipico_por_uf(df: pd.DataFrame, ind: Indicator | None = None) -> str:
     """Medida que resume os municípios de cada UF: 'media' quando o indicador só tem 0 e 100 (sim/não por município,
-    em que a média é o % de municípios), 'mediana' (o município do meio) nos demais casos."""
-    return "media" if set(df.valor.dropna().unique()) <= {0.0, 100.0} else "mediana"
+    em que a média é o % de municípios); 'soma' (total da UF) nos somáveis em que a maioria dos municípios tem zero
+    (ex.: garimpo, açaí), pois aí o município do meio vale zero em quase toda UF; 'mediana' nos demais casos."""
+    if set(df.valor.dropna().unique()) <= {0.0, 100.0}:
+        return "media"
+    if ind is not None and ind.additive and (esparso(df) or binario(df)):
+        return "soma"  # 0/1 somável: o total da UF é o nº de municípios com o item
+    return "mediana"
+
+
+def binario(df: pd.DataFrame) -> bool:
+    """Indicador sim/não por município: só 0 e 1, ou só 0 e 100 (% já aplicado)."""
+    v = set(df.valor.dropna().unique())
+    return bool(v) and (v <= {0.0, 1.0} or v <= {0.0, 100.0})
+
+
+def esparso(df: pd.DataFrame) -> bool:
+    """Metade ou mais dos territórios com valor zero (ex.: área de garimpo, produção de açaí)."""
+    return len(df) > 0 and float((df.valor == 0).mean()) >= 0.5
 
 
 def bars_by_uf(df: pd.DataFrame, ind: Indicator, height: int | None = None) -> go.Figure:
     """Barras com o valor do município típico de cada UF (mediana; média nos indicadores sim/não), da maior para a
     menor. Ao passar o mouse: o maior e o menor município da UF e quantos municípios ela tem. df: label, uf, valor."""
-    medida = tipico_por_uf(df)
+    medida = tipico_por_uf(df, ind)
     g = df.groupby("uf").valor
-    r = pd.DataFrame({"v": g.median() if medida == "mediana" else g.mean(), "n": g.size(),
+    r = pd.DataFrame({"v": {"mediana": g.median, "media": g.mean, "soma": g.sum}[medida](), "n": g.size(),
                       "min": g.min(), "max": g.max()})
     r["menor"] = df.loc[g.idxmin()].set_index("uf").label
     r["maior"] = df.loc[g.idxmax()].set_index("uf").label
     r = r.sort_values("v", ascending=False).iloc[::-1]
-    nome = "Município típico (mediana)" if medida == "mediana" else "% dos municípios"
+    nome = {"mediana": "Município típico (mediana)", "media": "% dos municípios", "soma": "Total da UF"}[medida]
     fig = go.Figure(go.Bar(
         x=r.v, y=r.index, orientation="h", marker=dict(color=ACCENT, cornerradius=4),
         text=r.v.map(ind.fmt), textposition="outside", cliponaxis=False,

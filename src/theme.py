@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import random
 
@@ -132,6 +133,26 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi.hi .vl {{ color:{INK}; }}
 .kpi.hi .ic {{ background:{INK}; color:{BG}; }}
 .kpi.lo .vl {{ color:{RED}; }}
+
+/* cartões pequenos com tendência (Visão Geral, eixo a eixo): altura fixa para a grade ficar alinhada */
+.mini {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:14px; padding:12px 14px 8px; height:196px;
+  display:flex; flex-direction:column; margin-bottom:14px; box-shadow:0 2px 8px rgba(4,65,60,.05); }}
+.mini.sel {{ border:2px solid {INK}; box-shadow:0 3px 12px rgba(4,65,60,.16); }}
+.mini .lb {{ font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; color:{MUTED}; font-weight:700;
+  line-height:1.25; min-height:2.5em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; }}
+.mini.sel .lb {{ color:{INK}; }}
+.mini .vl {{ font-size:1.45rem; font-weight:800; color:{TEXT}; line-height:1.2; }}
+.mini .sb {{ font-size:.72rem; color:{MUTED}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.mini .dl {{ font-size:.74rem; min-height:1.2em; }}
+.mini .sp {{ margin-top:auto; }}
+.mini .sp svg {{ display:block; width:100%; height:38px; overflow:visible; }}
+.mini .yr {{ display:flex; justify-content:space-between; font-size:.64rem; color:{MUTED}; gap:6px; }}
+.mini .yr b {{ color:{TEXT}; font-weight:700; }}
+.mini .sp rect.pt {{ fill:transparent; cursor:default; }}
+.mini .sp rect.pt:hover {{ fill:rgba(4,65,60,.10); }}
+.mini .nota {{ margin-top:auto; height:50px; display:flex; align-items:center; justify-content:center;
+  font-size:.7rem; color:{MUTED}; background:rgba(4,65,60,.04); border-radius:8px; text-align:center; padding:0 8px; }}
 .up {{ color:{GREEN}; font-weight:700; }} .down {{ color:{RED}; font-weight:700; }}
 .neutro {{ color:{TEXT}; font-weight:700; }}
 
@@ -324,6 +345,41 @@ def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
 def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "") -> str:
     return (f'<div class="kpi {cls}"><div class="ic">{icon}</div><div><div class="lb">{label}</div>'
             f'<div class="vl">{value}</div><div class="sb">{sub}</div></div></div>')
+
+
+def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valores=None, nota: str = "",
+         sel: bool = False, fmt_valor=str) -> str:
+    """Cartão compacto de um indicador com a tendência desenhada em SVG dentro dele (sem gráfico à parte): todos
+    têm a mesma altura. Com menos de 3 anos não há linha, só a `nota` no mesmo espaço. O primeiro e o último ano
+    aparecem com o valor; passando o mouse sobre a linha, cada ano mostra o seu (`fmt_valor` formata)."""
+    esc = lambda t: html.escape(str(t))  # noqa: E731
+    if anos is not None and len(anos) >= 3:
+        vs = [float(v) for v in valores]
+        lo, hi = min(vs), max(vs)
+        span = max(hi - lo, .02 * max(abs(hi), abs(lo)), 1e-12)  # variação abaixo de 2% não estica na altura toda
+        mid = (hi + lo) / 2
+        lo = mid - span / 2
+        x0, x1 = float(anos[0]), float(anos[-1])
+        pts = [((float(a) - x0) / ((x1 - x0) or 1) * 100, 30 - (v - lo) / span * 26 - 2) for a, v in zip(anos, vs)]
+        linha = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+        area = f"0,32 {linha} 100,32"
+        # uma faixa vertical por ano, que destaca e mostra "ano: valor" ao passar o mouse
+        xs = [x for x, _ in pts]
+        bordas = [0] + [(a + b) / 2 for a, b in zip(xs, xs[1:])] + [100]
+        faixas = "".join(f'<rect class="pt" x="{bordas[i]:.2f}" y="0" width="{bordas[i + 1] - bordas[i]:.2f}" '
+                         f'height="32"><title>{int(a)}: {esc(fmt_valor(v))}</title></rect>'
+                         for i, (a, v) in enumerate(zip(anos, vs)))
+        grafico = (f'<div class="sp"><svg viewBox="0 0 100 32" preserveAspectRatio="none">'
+                   f'<polygon points="{area}" fill="rgba(4,65,60,0.08)"/>'
+                   f'<polyline points="{linha}" fill="none" stroke="{INK}" stroke-width="2" '
+                   f'vector-effect="non-scaling-stroke" stroke-linejoin="round"/>{faixas}</svg>'
+                   f'<div class="yr"><span>{int(x0)}: <b>{esc(fmt_valor(vs[0]))}</b></span>'
+                   f'<span>{int(x1)}: <b>{esc(fmt_valor(vs[-1]))}</b></span></div></div>')
+    else:
+        grafico = f'<div class="nota">{esc(nota)}</div>' if nota else '<div class="nota"></div>'
+    return (f'<div class="mini{" sel" if sel else ""}"><div class="lb" title="{esc(label)}">{esc(label)}</div>'
+            f'<div class="vl">{value}</div><div class="sb" title="{esc(sub)}">{esc(sub)}</div>'
+            f'<div class="dl">{delta or "&nbsp;"}</div>{grafico}</div>')
 
 
 def title(text: str, sub: str = "", fixo: bool = False):

@@ -371,6 +371,11 @@ def escolhe_eixo(key: str, rotulo: str = "Eixo temático", todos: bool = False, 
     """Seletor de eixo para as seções que listam vários indicadores (com mais de 200 indicadores, mostrar todos de
     uma vez fica lento e longo demais). Começa no eixo do indicador escolhido na barra lateral."""
     ops = (["Todos os eixos"] if todos else []) + eixos
+    # acompanha o indicador da barra lateral: quando ele muda, o seletor volta para o eixo dele
+    marca = f"_ind_de_{key}"
+    if st.session_state.get(marca) != IND:
+        st.session_state[key] = REG[IND].axis
+        st.session_state[marca] = IND
     return container.selectbox(rotulo, ops, key=state(key, REG[IND].axis, ops),
                                format_func=lambda e: e if e == "Todos os eixos" else
                                f"{e} ({sum(REG[k].axis == e for k in D['indicators'])})")
@@ -449,10 +454,24 @@ with T["Visão Geral"]:
 
             c[4].markdown(theme.kpi("Maior município", I.fmt(top.valor), f"{top.label} · {posicao(top.valor)}", "▲", "hi"),
                           unsafe_allow_html=True)
-            c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), f"{bot.label} · {posicao(bot.valor)}", "▼", "lo"),
-                          unsafe_allow_html=True)
             n0 = int((muni.valor == 0).sum())
-            if 0 < n0 <= .05 * len(muni):  # zero em muitos municípios é padrão do indicador (ex.: sim/não), não lacuna
+            if charts.binario(muni):  # sim/não por município: o que importa é quantos têm o item
+                n1 = len(muni) - n0
+                c[4].markdown(theme.kpi("Municípios com o item", f"{n1:,}".replace(",", "."),
+                                        f"{fmt.pct(n1 / len(muni) * 100)} dos " + f"{len(muni):,}".replace(",", ".")
+                                        + " municípios filtrados", "▲", "hi"), unsafe_allow_html=True)
+                c[5].markdown(theme.kpi("Municípios sem o item", f"{n0:,}".replace(",", "."),
+                                        f"{fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "▼", "lo"),
+                              unsafe_allow_html=True)
+            elif charts.esparso(muni):  # a maioria tem zero: o "menor" seria um entre milhares empatados
+                c[5].markdown(theme.kpi("Municípios com zero", f"{n0:,}".replace(",", "."),
+                                        f"de {len(muni):,}".replace(",", ".")
+                                        + f" · {fmt.pct(n0 / len(muni) * 100)} dos municípios filtrados", "0", "lo"),
+                              unsafe_allow_html=True)
+            else:
+                c[5].markdown(theme.kpi("Menor município", I.fmt(bot.valor), f"{bot.label} · {posicao(bot.valor)}", "▼", "lo"),
+                              unsafe_allow_html=True)
+            if 0 < n0 <= .05 * len(muni) and not charts.binario(muni):  # zero em muitos municípios é padrão do indicador (ex.: sim/não), não lacuna
                 st.caption(f"⚠ {n0:,} município(s) com valor zero entre os {len(muni):,}".replace(",", ".")
                            + ". Pode ser ausência de registro e não valor real; confira na fonte antes de interpretar.")
         elif SO_UF and len(est_vg):
@@ -516,19 +535,44 @@ with T["Visão Geral"]:
                             f"o filtro atual deixa {len(st_df)}. Para ver os municípios desses estados no mapa, "
                             "use a aba Mapa e Ranking.")
             with b:
-                theme.title(f"Distribuição dos municípios por {charts.low(I.label)}",
-                            f"{YEAR} · {escopo('Município', len(muni))} · cada barra conta os municípios de um "
+                # maioria com zero (ex.: garimpo, açaí): o gráfico mostra só quem tem valor; os zeros viram uma nota
+                zeros = muni.valor == 0
+                so_pos = charts.esparso(muni) and (~zeros).sum() >= 5 and not charts.binario(muni)
+                hist = muni[~zeros] if so_pos else muni
+                theme.title((f"{I.label}: municípios com e sem o item" if charts.binario(muni) else
+                             f"Distribuição dos municípios por {charts.low(I.label)}")
+                            + (" (só os que têm valor acima de zero)" if so_pos else ""),
+                            f"{YEAR} · {escopo('Município', len(hist))} · cada barra conta os municípios de um "
                             "intervalo de valores; tracejado = mediana" + ("" if I.additive or sem_br else " e Brasil"))
-                plot(charts.histogram(muni, I, I.log, None if I.additive or sem_br else ("Brasil", v_br), height=420), "ov_hist")
+                if charts.binario(muni):  # sim/não: duas barras não dizem nada além da contagem
+                    n1 = int((~zeros).sum())
+                    st.markdown(theme.kpi("Têm o item", fmt.pct(n1 / len(muni) * 100),
+                                          f"{n1:,} de {len(muni):,} municípios".replace(",", "."), "✓", "hi")
+                                + theme.kpi("Não têm", fmt.pct((len(muni) - n1) / len(muni) * 100),
+                                            f"{len(muni) - n1:,} municípios".replace(",", "."), "✗", "lo"),
+                                unsafe_allow_html=True)
+                    st.caption("Indicador do tipo sim/não por município: no lugar da distribuição, a proporção de "
+                               "municípios com e sem o item. Veja quais são no Mapa e Ranking.")
+                else:
+                    plot(charts.histogram(hist, I, I.log, None if I.additive or sem_br else ("Brasil", v_br), height=420), "ov_hist")
+                if so_pos:
+                    st.caption(f"{int(zeros.sum()):,} dos {len(muni):,} municípios têm zero e ficaram fora do gráfico."
+                               .replace(",", "."))
             with c3:
-                theme.title(f"5 municípios com maior valor de {charts.low(I.label)}",
-                            f"{YEAR} · entre os {escopo('Município', len(muni))}")
-                t5 = muni.nlargest(5, "valor")
-                plot(charts.hbar(t5, I, 5, height=360), "ov_top5")
-                tot = muni.valor.sum() if I.additive else None
-                if tot:
-                    st.caption(f"Os 5 maiores concentram **{fmt.pct(t5.valor.sum() / tot * 100)}** do total dos "
-                               f"{len(muni):,} municípios filtrados.".replace(",", "."))
+                if charts.binario(muni):  # todos os que têm o item empatam: não há "5 maiores"
+                    theme.title(f"{I.label}: quais municípios têm", f"{YEAR} · entre os {escopo('Município', len(muni))}")
+                    st.info("Indicador sim/não: todos os municípios que têm o item empatam, então não há \"5 maiores\". "
+                            "O mapa da aba Mapa e Ranking mostra quais são, e o gráfico por UF abaixo mostra quantos há "
+                            "em cada estado.")
+                else:
+                    theme.title(f"5 municípios com maior valor de {charts.low(I.label)}",
+                                f"{YEAR} · entre os {escopo('Município', len(muni))}")
+                    t5 = muni.nlargest(5, "valor")
+                    plot(charts.hbar(t5, I, 5, height=360), "ov_top5")
+                    tot = muni.valor.sum() if I.additive else None
+                    if tot:
+                        st.caption(f"Os 5 maiores concentram **{fmt.pct(t5.valor.sum() / tot * 100)}** do total dos "
+                                   f"{fmt.num(len(muni), 0)} municípios filtrados.")
 
         if SO_UF or not muni.empty:
             st.markdown("---")
@@ -587,13 +631,29 @@ with T["Visão Geral"]:
                     else:
                         st.info("O indicador tem um ano só: não há mudança para mostrar.")
                 elif len(muni) > 10 and muni.uf.nunique() > 1:
-                    por_pct = charts.tipico_por_uf(muni) == "media"
-                    theme.title(f"{I.label}: município típico de cada UF" if not por_pct
-                                else f"{I.label}: % dos municípios de cada UF",
-                                f"{YEAR} · " + ("percentual dos municípios da UF com o item" if por_pct else
-                                                "valor do município do meio em cada UF (metade tem mais, metade tem menos)")
+                    medida_uf = charts.tipico_por_uf(muni, I)
+                    theme.title({"mediana": f"{I.label}: município típico de cada UF",
+                                 "media": f"{I.label}: % dos municípios de cada UF",
+                                 "soma": f"{I.label}: total de cada UF"}[medida_uf],
+                                f"{YEAR} · " + {"media": "percentual dos municípios da UF com o item",
+                                                "mediana": "valor do município do meio em cada UF (metade tem mais, "
+                                                           "metade tem menos)",
+                                                "soma": "soma dos municípios filtrados da UF (a maioria dos municípios "
+                                                        "tem zero, então o município do meio não diria nada)"}[medida_uf]
                                 + " · passe o mouse para ver o maior e o menor")
-                    plot(charts.bars_by_uf(muni, I), "ov_uf")
+                    muni_uf, poucos = muni, []
+                    if medida_uf == "mediana":  # UF com 1 ou 2 municípios (o DF tem só Brasília): o "do meio" é a capital
+                        n_uf = muni.groupby("uf").size()
+                        poucos = sorted(n_uf[n_uf < 3].index)
+                        if poucos and len(n_uf) - len(poucos) > 1:
+                            muni_uf = muni[~muni.uf.isin(poucos)]
+                        else:
+                            poucos = []
+                    plot(charts.bars_by_uf(muni_uf, I), "ov_uf")
+                    if poucos:
+                        st.caption(f"{', '.join(poucos)} fica{'m' if len(poucos) > 1 else ''} de fora: com menos de 3 "
+                                   "municípios, o \"município típico\" seria praticamente a capital e distorceria a "
+                                   "comparação (o DF tem um município só, Brasília).")
                 else:  # poucos municípios ou uma só UF: a comparação entre UFs perde o sentido
                     st_df = snap("Estado")
                     theme.title(f"{I.label} por estado, do maior para o menor",
@@ -609,14 +669,21 @@ with T["Visão Geral"]:
         for k in do_eixo(eixo_vg):
             s_al = data.series(D, [AMZ], k).dropna(subset=["valor"])
             (com_al if len(s_al) else sem_al).append((k, s_al))
+        escolhido = ("O cartão com borda é o indicador escolhido na barra lateral." if any(k == IND for k, _ in com_al)
+                     else f"{I.label}, o indicador escolhido, não tem valor para a Amazônia Legal e está na lista abaixo "
+                          "dos cartões." if any(k == IND for k, _ in sem_al) else "")
+        st.caption(f"{escolhido} A linha mostra a evolução quando há três anos ou mais com dado.".strip())
         for col, (k, s_al) in grid(com_al):
             ik = REG[k]
-            with col:
-                last = s_al.iloc[-1]
-                st.markdown(theme.kpi(ik.label, ik.fmt(last.valor), f"{int(last.ano)} · " + ik.unit, ik.icon),
-                            unsafe_allow_html=True)
-                if len(s_al) > 1:
-                    plot(charts.sparkline(s_al.ano, s_al.valor, ik), f"spark_{k}")
+            ult, pri = s_al.iloc[-1], s_al.iloc[0]
+            n = len(s_al)
+            dv = change(ult.valor, pri.valor, ik) if n > 1 else float("nan")
+            delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
+            nota = (f"Só {int(ult.ano)} na base: sem série" if n == 1
+                    else f"Só dois anos com dado ({int(pri.ano)} e {int(ult.ano)})" if n == 2 else "")
+            col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
+                                    s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
+                         unsafe_allow_html=True)
         if sem_al:
             st.caption(f"Sem valor para a Amazônia Legal neste eixo ({len(sem_al)}): "
                        + ", ".join(REG[k].label for k, _ in sem_al)

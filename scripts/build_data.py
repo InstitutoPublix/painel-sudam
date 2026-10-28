@@ -127,7 +127,10 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
     unit = item.get("unidade", ficha["unit"])
     default_fmt = "percentual" if "%" in unit else "moeda" if unit.strip().upper().startswith("R$") else "numero"
     formato = item.get("formato", default_fmt)
-    casas = item.get("casas", {"percentual": 1, "moeda": 0}.get(formato, 0 if rule == "soma" else 2))
+    # somável (participação no total, escala log): regra "soma" ou ficha que manda somar, mesmo quando a Amazônia
+    # Legal fica sem valor (ex.: dado só por estado); `aditivo` no config decide quando a ficha engana
+    somavel = bool(item.get("aditivo", rule == "soma" or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
+    casas = item.get("casas", {"percentual": 1, "moeda": 0}.get(formato, 0 if somavel else 2))
     pol = norm(ficha["polarity"])
     return {
         "label": item.get("rotulo", ficha["name"]),
@@ -135,8 +138,8 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
         "format": formato,
         "decimals": int(casas),
         "scale": float(item.get("escala", 1)),
-        "log": bool(item.get("log", rule == "soma")),
-        "additive": rule == "soma",
+        "log": bool(item.get("log", somavel)),
+        "additive": somavel,
         "polarity": 1 if pol.startswith("maior") else -1 if pol.startswith("menor") else 0,
         "icon": item.get("icone", {"percentual": "%", "moeda": "R$"}.get(formato, "●")),
     }

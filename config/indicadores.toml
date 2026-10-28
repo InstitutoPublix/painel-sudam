@@ -301,6 +301,7 @@ nota_agregacao = "comunidades em mais de um município contam em cada um; a soma
 # aproximação conferida: diferença mediana 1.5% e até 2.6% em 9 de cada 10 estados-ano
 id = "IND-006"
 rotulo = "População quilombola"
+casas = 2
 agregacao = "media_ponderada"
 peso = "IND-001"
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,5%"
@@ -574,6 +575,7 @@ cobertura_minima = 0
 # Amazônia Legal sem valor: precisa das despesas municipais, que a planilha não traz
 id = "IND-177"
 rotulo = "Despesa municipal com Ciência e Tecnologia"
+casas = 2
 agregacao = "publicado"
 nota_agregacao = "precisa das despesas municipais, que a planilha não traz"
 
@@ -709,7 +711,7 @@ peso_coluna = "Percentual de crianças menores de 5 anos com déficit de estatur
 [[indicador]]
 # Amazônia Legal sem valor: precisa do total de internações, que a planilha não traz
 id = "IND-180"
-rotulo = "Internações por saneamento inadequado"
+rotulo = "Internações por saneamento inadequado (% do total)"
 agregacao = "publicado"
 nota_agregacao = "precisa do total de internações, que a planilha não traz"
 
@@ -1177,13 +1179,8 @@ unidade = "R$ (preços correntes)"
 agregacao = "soma"
 cobertura_minima = 0
 
-[[indicador]]
-# aproximação conferida: diferença mediana 0.6% e até 1.8% em 9 de cada 10 estados-ano
-id = "IND-092"
-rotulo = "Poupança corrente municipal"
-agregacao = "media_ponderada"
-peso = "IND-001"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,6%"
+# IND-092 (Poupança corrente municipal) fora do painel até a planilha ser corrigida: há municípios com valores
+# absurdos (ex.: Nova Ubiratã/MT com 2 x 10^18 % em 2021), de divisão por quase zero na fonte.
 
 [[indicador]]
 # Amazônia Legal sem valor: precisa das receitas municipais, que a planilha não traz
