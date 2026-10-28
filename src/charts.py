@@ -252,8 +252,10 @@ def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
     if len(rng) < n_bands(len(df)):
         nota = '<span class="lnote">Valores repetidos agruparam as faixas; por isso há menos de ' \
                f'{n_bands(len(df))}.</span>'
-    return (f'<div class="legend"><b>Faixas de {low(axis_label(ind))}</b> '
-            f'<span class="lnote">(menor → maior · entre parênteses, nº de territórios)</span>{items}{nota}</div>')
+    # título e explicação na primeira linha; todas as faixas juntas na linha de baixo
+    return (f'<div class="legend"><div class="ltit"><b>Faixas de {low(axis_label(ind))}</b> '
+            f'<span class="lnote">(menor → maior · entre parênteses, nº de territórios)</span></div>'
+            f'<div class="litens">{items}</div>{nota}</div>')
 
 
 # --------------------------------------------------------------------------- #
@@ -426,7 +428,7 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
         r = np.corrcoef(fx, fy)[0, 1]
         fig.add_trace(go.Scatter(
             x=10 ** xs if log else xs, y=10 ** (a * xs + b) if log else a * xs + b, mode="lines",
-            name=f"Tendência (r = {fmt.num(r, 2)})", line=dict(color=TEXT, dash="dash", width=1.5), hoverinfo="skip"))
+            name="Tendência média (linha tracejada)", line=dict(color=TEXT, dash="dash", width=1.5), hoverinfo="skip"))
     fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2, title_text="UF:"))
     value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=axis_label(xi))
     value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=axis_label(yi))
@@ -451,6 +453,7 @@ def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.D
             g["y"] = g.valor / g.valor.iloc[0] * 100
         elif mode == "var":
             dy = g.ano.diff()
+            g["dy"] = dy  # anos desde o ponto anterior: > 1 quando há lacuna (o valor é a média por ano do intervalo)
             if ind is not None and ind.delta != "pct":  # proporções e índices: diferença por ano (p.p. ou pontos)
                 g["y"] = (g.valor - g.valor.shift()) * ind.scale / dy
             else:
@@ -508,6 +511,7 @@ def growth_heatmap(sr: pd.DataFrame, ind: Indicator, height: int | None = None) 
     if t.empty:
         return go.Figure()
     p = t.pivot_table(index="label", columns="ano", values="y", sort=False)
+    gap = t.pivot_table(index="label", columns="ano", values="dy", sort=False).reindex_like(p)
     lim = float(np.nanpercentile(np.abs(p.values), 95)) or 1
     if ind.polarity:
         lo, hi = (MELHOR, PIOR) if ind.polarity < 0 else (PIOR, MELHOR)
@@ -515,15 +519,21 @@ def growth_heatmap(sr: pd.DataFrame, ind: Indicator, height: int | None = None) 
         lo, hi = BROWN, BLUE
     un = "% a.a." if ind.delta == "pct" else f"{ind.delta_unit} a.a."
     casas = ind.diff_decimals
+    # "*": depois de anos sem dado, o valor é a média por ano desde o último ano com dado
+    texto = [[("" if np.isnan(v) else fmt.num(v, casas) + ("*" if d > 1 else "")) for v, d in zip(lv, ld)]
+             for lv, ld in zip(p.values, gap.values)]
+    nota = [[(f"média por ano desde {int(a - d)}" if d > 1 else "") for a, d in zip(p.columns, ld)] for ld in gap.values]
     fig = go.Figure(go.Heatmap(
-        z=p.values, x=p.columns, y=p.index, zmin=-lim, zmax=lim,
+        # anos como categorias: cada ano com dado é uma coluna da mesma largura, sem esticar sobre as lacunas
+        z=p.values, x=[str(int(a)) for a in p.columns], y=p.index, zmin=-lim, zmax=lim,
         colorscale=[[0, lo], [.5, "#FBF8EE"], [1, hi]],
-        text=np.vectorize(lambda v: "" if np.isnan(v) else fmt.num(v, casas))(p.values), texttemplate="%{text}",
-        textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:." + str(casas) + "f} " + un + "</b><extra></extra>",
+        text=texto, texttemplate="%{text}", customdata=nota,
+        textfont=dict(size=10), hovertemplate="%{y}<br>%{x}: <b>%{z:." + str(casas) + "f} " + un + "</b> %{customdata}"
+                                              "<extra></extra>",
         colorbar=dict(ticksuffix="%" if ind.delta == "pct" else "", thickness=10, len=0.8, outlinewidth=0,
                       title=dict(text=un, side="right"))))
     fig.update_layout(height=height or max(220, 38 * len(p) + 70), margin=dict(l=0, r=0, t=6, b=6))
-    fig.update_xaxes(dtick=1, tickformat="d", side="top")
+    fig.update_xaxes(type="category", side="top")
     fig.update_yaxes(autorange="reversed")
     return fig
 

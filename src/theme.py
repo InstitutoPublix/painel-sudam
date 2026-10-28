@@ -85,6 +85,31 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .block-container {{ padding-top: 1.1rem; max-width: 1500px; }}
 section[data-testid="stSidebar"] {{ background: {SIDEBAR}; border-right: 1px solid {LINE}; }}
 section[data-testid="stSidebar"] h3 {{ color: {INK}; font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; }}
+/* barra lateral: rótulos fortes e campos claros com borda, para as opções saltarem do fundo */
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ font-weight:700; color:{TEXT}; font-size:.86rem; }}
+/* caixas de seleção, campos de texto e botões em todo o painel: fundo claro e borda, para saltarem do fundo bege */
+:is([data-testid="stSelectbox"], [data-testid="stMultiSelect"]) [role="group"],
+[data-testid="stTextInputRootElement"] {{
+  background:{SURFACE} !important; border:1px solid rgba(4,65,60,.30) !important; border-radius:9px !important; }}
+:is([data-testid="stSelectbox"], [data-testid="stMultiSelect"]) [role="group"]:hover,
+[data-testid="stTextInputRootElement"]:hover, [data-testid="stTextInputRootElement"]:focus-within {{
+  border-color:{INK} !important; }}
+button[data-testid="stBaseButton-secondary"] {{ background:{SURFACE} !important; border:1px solid {INK} !important;
+  color:{INK} !important; border-radius:9px !important; font-weight:600; }}
+button[data-testid="stBaseButton-secondary"]:hover:not(:disabled) {{ background:{INK} !important; color:{BG} !important; }}
+button[data-testid="stBaseButton-secondary"]:hover:not(:disabled) * {{ color:{BG} !important; }}
+button[data-testid="stBaseButton-secondary"]:disabled {{ border-color:rgba(4,65,60,.25) !important;
+  color:rgba(4,65,60,.45) !important; }}
+section[data-testid="stSidebar"] [role="radiogroup"] label p {{ font-size:.86rem; }}
+section[data-testid="stSidebar"] [data-testid="stExpander"] details {{ background:{SURFACE}; border-color:rgba(4,65,60,.28); }}
+.sbtopo {{ margin:2px 0 4px; }}
+.sbtopo .t {{ font-size:.8rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:{INK}; }}
+.sbtopo .aba {{ display:inline-block; margin-top:6px; font-size:.76rem; color:{MUTED}; }}
+.sbtopo .aba b {{ background:{INK}; color:{BG}; padding:2px 9px; border-radius:999px; font-weight:700; margin-left:3px; }}
+.sbinfo {{ background:rgba(255,253,245,.65); border:1px solid {LINE}; border-radius:10px; padding:8px 11px;
+  margin:-4px 0 14px; font-size:.75rem; color:{MUTED}; line-height:1.45; }}
+.sbinfo div + div {{ margin-top:3px; }}
+.sbinfo b {{ color:{TEXT}; font-weight:700; }}
 h1, h2, h3 {{ color: {INK}; }}
 
 /* topo */
@@ -167,8 +192,16 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .mini .sp svg {{ display:block; width:100%; height:38px; overflow:visible; }}
 .mini .yr {{ display:flex; justify-content:space-between; font-size:.64rem; color:{MUTED}; gap:6px; }}
 .mini .yr b {{ color:{TEXT}; font-weight:700; }}
-.mini .sp rect.pt {{ fill:transparent; cursor:default; }}
-.mini .sp rect.pt:hover {{ fill:rgba(4,65,60,.10); }}
+/* passar o mouse na linha: ponto, guia vertical e etiqueta "ano: valor" (HTML sobre o SVG, sem deformar o ponto) */
+.mini .sp {{ position:relative; }}
+.mini .hz-area {{ position:absolute; left:0; right:0; top:0; height:38px; }}
+.mini .hz {{ position:absolute; top:0; bottom:0; }}
+.mini .hz b {{ display:none; position:absolute; top:0; bottom:0; border-left:1px dashed rgba(4,65,60,.45); }}
+.mini .hz i {{ display:none; position:absolute; width:9px; height:9px; border-radius:50%; background:{INK};
+  border:2px solid {SURFACE}; box-shadow:0 0 0 1px {INK}; transform:translate(-50%,-50%); }}
+.mini .hz span {{ display:none; position:absolute; background:{INK}; color:{BG}; font-size:.68rem; font-weight:600;
+  padding:2px 7px; border-radius:6px; white-space:nowrap; z-index:5; box-shadow:0 2px 6px rgba(4,65,60,.25); }}
+.mini .hz:hover b, .mini .hz:hover i, .mini .hz:hover span {{ display:block; }}
 .mini .nota {{ margin-top:auto; height:50px; display:flex; align-items:center; justify-content:center;
   font-size:.7rem; color:{MUTED}; background:rgba(4,65,60,.04); border-radius:8px; text-align:center; padding:0 8px; }}
 .up {{ color:{GREEN}; font-weight:700; }} .down {{ color:{RED}; font-weight:700; }}
@@ -180,20 +213,40 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
   font-size:.7rem; color:{INK}; margin-right:6px; background:rgba(4,65,60,.06); }}
 .note {{ border-left:3px solid {ORANGE}; background:rgba(238,125,34,.08); padding:8px 12px; border-radius:6px;
   color:{TEXT}; font-size:.8rem; margin:6px 0 10px; }}
-.legend {{ display:flex; gap:12px; flex-wrap:wrap; font-size:.72rem; color:{TEXT}; }}
+.legend {{ display:flex; flex-direction:column; gap:5px; font-size:.72rem; color:{TEXT}; }}
+.legend .litens {{ display:flex; gap:6px 14px; flex-wrap:wrap; }}
 .legend em {{ color:{MUTED}; font-style:normal; }}
 .legend .lnote {{ color:{MUTED}; font-size:.68rem; }}
 .legend i {{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px;
   border:1px solid {LINE}; }}
-/* filtros: faixa "aplicados nesta página", grupos da barra lateral e etiqueta de gráfico fixo */
-.fbar {{ display:flex; flex-wrap:wrap; gap:4px 16px; align-items:center; font-size:.76rem; color:{MUTED};
-  padding:8px 14px; background:{SURFACE}; border:1px solid {LINE}; border-radius:10px; margin:6px 0 14px; }}
-.fbar .t {{ font-weight:700; color:{INK}; text-transform:uppercase; letter-spacing:.06em; font-size:.68rem; }}
-.fbar b {{ color:{TEXT}; font-weight:600; }}
-.fbar.leg {{ margin-top:-8px; background:transparent; }}
-.fgroup {{ font-weight:700; color:{INK}; font-size:.74rem; letter-spacing:.08em; text-transform:uppercase;
-  margin:16px 0 0; padding-top:10px; border-top:1px solid {LINE}; }}
-.fhint {{ font-size:.72rem; color:{MUTED}; margin:2px 0 8px; line-height:1.35; }}
+/* filtros: grupos da barra lateral e etiqueta de gráfico fixo */
+
+/* "Como ler": explicação curta e leitura dos dados logo abaixo de um gráfico */
+.ler {{ background:rgba(4,65,60,.05); border-radius:10px; padding:9px 13px; margin:2px 0 12px; font-size:.82rem;
+  color:{TEXT}; line-height:1.55; }}
+.ler .lt {{ font-weight:800; color:{INK}; margin-right:4px; }}
+.ler .dado {{ display:block; margin-top:4px; color:{INK}; }}
+
+/* cartão de contexto no topo de cada aba: filtros aplicados e ficha resumida do indicador */
+.ctx {{ background:{SURFACE}; border:1px solid {LINE}; border-left:4px solid {INK}; border-radius:12px;
+  padding:2px 16px; margin:6px 0 16px; box-shadow:0 2px 8px rgba(4,65,60,.05); }}
+.ctx .lin {{ display:grid; grid-template-columns:150px 1fr; gap:12px; align-items:start; padding:10px 0; }}
+.ctx .lin + .lin {{ border-top:1px dashed {LINE}; }}
+.ctx .t {{ font-size:.68rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:{INK};
+  padding-top:5px; }}
+.ctx .it {{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }}
+.ctx .c {{ background:rgba(4,65,60,.07); border-radius:999px; padding:3px 11px; font-size:.78rem; color:{MUTED}; }}
+.ctx .c b {{ color:{TEXT}; font-weight:700; }}
+.ctx .tx {{ flex-basis:100%; font-size:.78rem; color:{MUTED}; line-height:1.5; }}
+.ctx .tx b {{ color:{TEXT}; font-weight:700; }}
+.ctx .alerta {{ flex-basis:100%; background:#FBEFD9; color:#7A4A12; border-radius:8px; padding:5px 10px;
+  font-size:.77rem; line-height:1.45; }}
+@media (max-width: 760px) {{ .ctx .lin {{ grid-template-columns:1fr; gap:4px; }} }}
+.fgroup {{ display:flex; align-items:center; gap:8px; font-weight:800; color:{INK}; font-size:.78rem;
+  letter-spacing:.08em; text-transform:uppercase; margin:18px 0 0; padding-top:14px; border-top:1px solid rgba(4,65,60,.18); }}
+.fgroup .n {{ flex:0 0 22px; height:22px; border-radius:50%; background:{INK}; color:{BG}; font-size:.72rem;
+  display:flex; align-items:center; justify-content:center; letter-spacing:0; }}
+.fhint {{ font-size:.73rem; color:{MUTED}; margin:4px 0 10px; line-height:1.4; }}
 .tag {{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:.66rem; font-weight:600;
   background:rgba(238,125,34,.12); color:#9A4D0C; margin-left:6px; vertical-align:1px; }}
 .footer {{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
@@ -381,16 +434,24 @@ def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valo
         pts = [((float(a) - x0) / ((x1 - x0) or 1) * 100, 30 - (v - lo) / span * 26 - 2) for a, v in zip(anos, vs)]
         linha = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
         area = f"0,32 {linha} 100,32"
-        # uma faixa vertical por ano, que destaca e mostra "ano: valor" ao passar o mouse
+        # uma zona invisível por ano: ao passar o mouse, mostra o ponto, a guia e a etiqueta "ano: valor"
         xs = [x for x, _ in pts]
         bordas = [0] + [(a + b) / 2 for a, b in zip(xs, xs[1:])] + [100]
-        faixas = "".join(f'<rect class="pt" x="{bordas[i]:.2f}" y="0" width="{bordas[i + 1] - bordas[i]:.2f}" '
-                         f'height="32"><title>{int(a)}: {esc(fmt_valor(v))}</title></rect>'
-                         for i, (a, v) in enumerate(zip(anos, vs)))
+        zonas = []
+        for i, ((x, y), a, v) in enumerate(zip(pts, anos, vs)):
+            esq, larg = bordas[i], bordas[i + 1] - bordas[i]
+            px, py = (x - esq) / larg * 100, y / 32 * 100  # posição do ponto dentro da zona, em %
+            # a etiqueta não sai do cartão: alinhada à esquerda no 1º ano e à direita no último
+            desloc = "0" if i == 0 else "-100%" if i == len(pts) - 1 else "-50%"
+            zonas.append(f'<div class="hz" style="left:{esq:.2f}%;width:{larg:.2f}%">'
+                         f'<b style="left:{px:.1f}%"></b><i style="left:{px:.1f}%;top:{py:.1f}%"></i>'
+                         f'<span style="left:{px:.1f}%;top:{py:.1f}%;transform:translate({desloc},-160%)">'
+                         f'{int(a)}: {esc(fmt_valor(v))}</span></div>')
         grafico = (f'<div class="sp"><svg viewBox="0 0 100 32" preserveAspectRatio="none">'
                    f'<polygon points="{area}" fill="rgba(4,65,60,0.08)"/>'
                    f'<polyline points="{linha}" fill="none" stroke="{INK}" stroke-width="2" '
-                   f'vector-effect="non-scaling-stroke" stroke-linejoin="round"/>{faixas}</svg>'
+                   f'vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>'
+                   f'<div class="hz-area">{"".join(zonas)}</div>'
                    f'<div class="yr"><span>{int(x0)}: <b>{esc(fmt_valor(vs[0]))}</b></span>'
                    f'<span>{int(x1)}: <b>{esc(fmt_valor(vs[-1]))}</b></span></div></div>')
     else:
@@ -398,6 +459,13 @@ def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valo
     return (f'<div class="mini{" sel" if sel else ""}"><div class="lb" title="{esc(label)}">{esc(label)}</div>'
             f'<div class="vl">{value}</div><div class="sb" title="{esc(sub)}">{esc(sub)}</div>'
             f'<div class="dl">{delta or "&nbsp;"}</div>{grafico}</div>')
+
+
+def como_ler(explica: str, leitura: str = ""):
+    """Quadro curto abaixo de um gráfico: como ler (texto fixo do tipo de gráfico) e, se houver, o que os dados
+    mostram agora (frase montada com os valores da seleção)."""
+    extra = f'<span class="dado">👉 {leitura}</span>' if leitura else ""
+    st.markdown(f'<div class="ler"><span class="lt">Como ler:</span>{explica}{extra}</div>', unsafe_allow_html=True)
 
 
 def title(text: str, sub: str = "", fixo: bool = False):
