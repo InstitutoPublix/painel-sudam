@@ -108,6 +108,19 @@ button[data-baseweb="tab"] p {{ font-weight:600; font-size:.88rem; color:{MUTED}
 button[data-baseweb="tab"][aria-selected="true"] p {{ color:{INK}; font-weight:700; }}
 div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 
+/* seções do Perfil do Território: barra de botões, mais visível que abas comuns */
+.secoes-tit {{ font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:{MUTED}; font-weight:700;
+  margin:10px 0 4px; }}
+.st-key-terr_sec [role="tablist"] {{ gap:6px; background:rgba(4,65,60,.07); padding:6px; border-radius:14px;
+  border:none; width:fit-content; max-width:100%; flex-wrap:wrap; margin-bottom:10px; }}
+.st-key-terr_sec [role="tab"] {{ padding:10px 22px; border-radius:10px; background:transparent; cursor:pointer;
+  transition:background .15s; }}
+.st-key-terr_sec [role="tab"] p {{ font-size:1.02rem; font-weight:700; color:{INK}; }}
+.st-key-terr_sec [role="tab"]:hover {{ background:rgba(4,65,60,.12); }}
+.st-key-terr_sec [role="tab"][aria-selected="true"] {{ background:{INK}; box-shadow:0 2px 8px rgba(4,65,60,.25); }}
+.st-key-terr_sec [role="tab"][aria-selected="true"] p {{ color:{BG}; }}
+.st-key-terr_sec .react-aria-SelectionIndicator {{ display:none; }}
+
 /* capa */
 .hero {{ display:grid; grid-template-columns: minmax(240px, 34%) 1fr; margin:14px 0 18px;
   border:1px solid {LINE}; border-radius:20px; overflow:hidden; background:{SURFACE}; }}
@@ -137,6 +150,7 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi.hi .vl {{ color:{INK}; }}
 .kpi.hi .ic {{ background:{INK}; color:{BG}; }}
 .kpi.lo .vl {{ color:{RED}; }}
+.kpi.sel {{ border:2px solid {INK}; box-shadow:0 3px 12px rgba(4,65,60,.16); }}
 
 /* cartões pequenos com tendência (Visão Geral, eixo a eixo): altura fixa para a grade ficar alinhada */
 .mini {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:14px; padding:12px 14px 8px; height:196px;

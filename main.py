@@ -686,33 +686,39 @@ with T["Visão Geral"]:
                     plot(charts.hbar(st_df, I, 15, height=360), "ov_states")
 
         st.markdown("---")
-        theme.title("Indicadores na Amazônia Legal, eixo a eixo",
-                    "Valor no último ano com dado de cada indicador e a evolução desde o primeiro ano", fixo=True)
-        eixo_vg = escolhe_eixo("w_vg_eixo", "Eixo mostrado nos cartões")
-        com_al, sem_al = [], []
-        for k in do_eixo(eixo_vg):
-            s_al = data.series(D, [AMZ], k).dropna(subset=["valor"])
-            (com_al if len(s_al) else sem_al).append((k, s_al))
-        escolhido = ("O cartão com borda é o indicador escolhido na barra lateral." if any(k == IND for k, _ in com_al)
-                     else f"{I.label}, o indicador escolhido, não tem valor para a Amazônia Legal e está na lista abaixo "
-                          "dos cartões." if any(k == IND for k, _ in sem_al) else "")
-        st.caption(f"{escolhido} A linha mostra a evolução quando há três anos ou mais com dado.".strip())
-        for col, (k, s_al) in grid(com_al):
-            ik = REG[k]
-            ult, pri = s_al.iloc[-1], s_al.iloc[0]
-            n = len(s_al)
-            dv = change(ult.valor, pri.valor, ik) if n > 1 else float("nan")
-            delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
-            nota = (f"Só {int(ult.ano)} na base: sem série" if n == 1
-                    else f"Só dois anos com dado ({int(pri.ano)} e {int(ult.ano)})" if n == 2 else "")
-            col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
-                                    s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
-                         unsafe_allow_html=True)
-        if sem_al:
-            st.caption(f"Sem valor para a Amazônia Legal neste eixo ({len(sem_al)}): "
-                       + ", ".join(REG[k].label for k, _ in sem_al)
-                       + ". São indicadores que só existem por estado ou que não podem ser somados a partir dos "
-                         "municípios; veja-os nas abas Mapa e Ranking e Perfil do Território.")
+        theme.title("Indicadores na Amazônia Legal, por eixo temático",
+                    "Clique em um eixo para ver o valor de cada indicador no último ano com dado e a evolução desde o "
+                    "primeiro ano. O eixo do indicador escolhido já vem aberto e o cartão dele tem borda; a linha aparece "
+                    "quando há três anos ou mais com dado.", fixo=True)
+        for n, eixo_nome in enumerate(eixos):
+            ks = do_eixo(eixo_nome)
+            # a chave leva o eixo do indicador escolhido: ao trocar para outro eixo, as caixas voltam ao padrão
+            caixa = st.expander(f"**{eixo_nome}** · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""),
+                                expanded=eixo_nome == I.axis, key=f"vg_ex_{n}_{eixos.index(I.axis)}",
+                                on_change="rerun")
+            with caixa:
+                if not caixa.open:  # só monta as caixas abertas
+                    continue
+                com_al, sem_al = [], []
+                for k in ks:
+                    s_al = data.series(D, [AMZ], k).dropna(subset=["valor"])
+                    (com_al if len(s_al) else sem_al).append((k, s_al))
+                for col, (k, s_al) in grid(com_al):
+                    ik = REG[k]
+                    ult, pri = s_al.iloc[-1], s_al.iloc[0]
+                    n_anos = len(s_al)
+                    dv = change(ult.valor, pri.valor, ik) if n_anos > 1 else float("nan")
+                    delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
+                    nota = (f"Só {int(ult.ano)} na base: sem série" if n_anos == 1
+                            else f"Só dois anos com dado ({int(pri.ano)} e {int(ult.ano)})" if n_anos == 2 else "")
+                    col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
+                                            s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
+                                 unsafe_allow_html=True)
+                if sem_al:
+                    st.caption(f"Sem valor para a Amazônia Legal ({len(sem_al)}): "
+                               + ", ".join(("**" + REG[k].label + "**") if k == IND else REG[k].label for k, _ in sem_al)
+                               + ". Só existem por estado ou não podem ser somados a partir dos municípios; veja-os "
+                                 "nas abas Mapa e Ranking e Perfil do Território.")
 
 # =========================================================================== #
 # 2. TERRITÓRIO: funções de apoio
@@ -916,94 +922,107 @@ with T["Perfil do Território"]:
         # Grandes Regiões) e o mapa dos municípios, de um estado
         secoes = (["Resumo", "Evolução"] + (["Posição"] if plvl in ("Estado", "Município", "Grande Região") else [])
                   + (["Municípios do estado"] if plvl == "Estado" else []) + ["Dados"])
+        st.markdown('<div class="secoes-tit">Seções do perfil · clique para trocar</div>', unsafe_allow_html=True)
         S = dict(zip(secoes, st.tabs(secoes, key="terr_sec", on_change="rerun")))
         for ausente in {"Posição", "Municípios do estado"} - set(secoes):
             S[ausente] = SECAO_AUSENTE
         rank_grp = {"Município": "municípios do Brasil", "Estado": "estados", "Grande Região": "Grandes Regiões"}
 
-        # ---- Resumo: todos os indicadores -------------------------------------------------
+        # ---- Resumo: todos os indicadores, um eixo por caixa -------------------------------
+        def cartoes_resumo(ks: list[str]):
+            """Cartão de cada indicador do eixo: valor do território, posição entre os pares e variação."""
+            for col, k in grid(ks):
+                ik = REG[k]
+                ano = year_for(k)
+                tv = tid_de(k)
+                v = value_of(tv, k, ano)
+                antigo = False
+                if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
+                    sk = data.series(D, [tv], k).dropna(subset=["valor"])
+                    if len(sk):
+                        ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
+                yr0, v0 = first_valid(tv, k, ano)
+                peers = (snap(plvl, k, ano, filt=False, parte=PARTE)
+                         if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
+                rk = ""
+                if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
+                    pos, empate = data.position(peers.valor, v, ik.polarity)
+                    if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
+                        rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
+                    else:
+                        rk = ("=" if empate > 1 else "") + f"{pos}º de {len(peers)} · "
+                ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
+                if PARTE and tv == tid:
+                    ref += " · estado inteiro"
+                if yr0 and yr0 < ano and v0 == 0 and ik.delta == "pct":
+                    sub = f"{rk}{ref} · era zero em {yr0}"
+                elif yr0 and yr0 < ano:
+                    sub = f"{rk}{ref} · {arrow(change(v, v0, ik), ik)} desde {yr0}"
+                elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
+                    sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
+                                             else "sem ano anterior para comparar")
+                else:
+                    sub = ref
+                with col:
+                    st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon, "sel" if k == IND else ""),
+                                unsafe_allow_html=True)
+
+        def tabela_resumo(ks: list[str], n: int):
+            """Os mesmos indicadores ao lado das referências (nível acima, Amazônia Legal, Brasil)."""
+            tab, cores, col_comp, comp_nome = comparativo(tid, plvl, uf_t, refs, D["manifest"]["versao"], PARTE,
+                                                          tuple(ks))
+            st.markdown(f'<div class="secoes-tit">{sel} comparado com {ref_txt}</div>', unsafe_allow_html=True)
+            sty = (tab.style.apply(lambda s: [f"color:{c}; font-weight:700" if c else "" for c in cores],
+                                   subset=[col_comp]) if col_comp else tab)
+            cfg = {"Ano": st.column_config.TextColumn(help="Último ano com dado do indicador para o território."),
+                   "Posição na Amazônia Legal": st.column_config.TextColumn(
+                       help=f"Entre os {len(D['al_ufs'])} estados da Amazônia Legal."),
+                   "Posição no estado": st.column_config.TextColumn(help="Entre os municípios do mesmo estado."),
+                   "Posição no Brasil": st.column_config.TextColumn(help="Entre os territórios do mesmo tipo no Brasil.")}
+            if col_comp:
+                cfg[col_comp] = st.column_config.TextColumn(
+                    help=f"Totais (somas): participação do território no total de {comp_nome}. Taxas e médias: quanto "
+                         f"está acima (+) ou abaixo (−) de {comp_nome}; verde = situação melhor, vermelho = pior, "
+                         "conforme a polaridade do indicador.")
+            st.dataframe(sty, hide_index=True, width="stretch", column_config=cfg,
+                         height=min(420, 35 * (len(tab) + 1) + 3), key=f"pf_tab_{n}")
+            return comp_nome
+
         with S["Resumo"]:
             if S["Resumo"].open:
-                theme.title(f"{sel}: todos os indicadores {ANO_TXT}",
-                            (f"Posição entre os {rank_grp[plvl]} no mesmo ano (1º = melhor situação; nos indicadores "
-                             "sem polaridade, 1º = maior valor; '=' indica empate) e " if plvl in rank_grp else "")
-                            + "variação do primeiro ano com dado até o ano do cartão (p.p. para proporções, pontos "
-                              "para índices), em verde quando melhora e vermelho quando piora"
-                            + (". Se o território não tem dado no último ano do indicador, o cartão mostra o último dado "
-                               "dele, sem posição, pois não seria comparável com os demais." if RECENTE else ""))
-                eixo_pf = escolhe_eixo("w_pf_eixo", "Eixo mostrado nos cartões e na tabela", todos=True)
-                ks_pf = do_eixo(eixo_pf)
-                for eixo_nome in (eixos if eixo_pf == "Todos os eixos" else [eixo_pf]):
-                    ks = [k for k in ks_pf if REG[k].axis == eixo_nome]
-                    with st.expander(f"{eixo_nome} · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""), expanded=True):
-                        for col, k in grid(ks):
-                            ik = REG[k]
-                            ano = year_for(k)
-                            tv = tid_de(k)
-                            v = value_of(tv, k, ano)
-                            antigo = False
-                            if RECENTE and fmt.isna(v):  # sem dado no último ano do indicador: usa o último dado do território
-                                sk = data.series(D, [tv], k).dropna(subset=["valor"])
-                                if len(sk):
-                                    ano, v, antigo = int(sk.ano.iloc[-1]), float(sk.valor.iloc[-1]), True
-                            yr0, v0 = first_valid(tv, k, ano)
-                            peers = (snap(plvl, k, ano, filt=False, parte=PARTE)
-                                     if plvl in ("Município", "Estado", "Grande Região") and not antigo else None)
-                            rk = ""
-                            if peers is not None and len(peers) and tid in set(peers.tid) and not fmt.isna(v):
-                                pos, empate = data.position(peers.valor, v, ik.polarity)
-                                if empate > 1 and empate / len(peers) > 0.01:  # empate que torna a posição pouco informativa
-                                    rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
-                                else:
-                                    rk = ("=" if empate > 1 else "") + f"{pos}º de {len(peers)} · "
-                            ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
-                            if PARTE and tv == tid:
-                                ref += " · estado inteiro"
-                            if yr0 and yr0 < ano and v0 == 0 and ik.delta == "pct":
-                                sub = f"{rk}{ref} · era zero em {yr0}"
-                            elif yr0 and yr0 < ano:
-                                sub = f"{rk}{ref} · {arrow(change(v, v0, ik), ik)} desde {yr0}"
-                            elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
-                                sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
-                                                         else "sem ano anterior para comparar")
-                            else:
-                                sub = ref
-                            with col:
-                                st.markdown(theme.kpi(ik.label, ik.fmt(v), sub, ik.icon), unsafe_allow_html=True)
-
-                if refs:
-                    st.markdown("---")
-                    tab, cores, col_comp, comp_nome = comparativo(tid, plvl, uf_t, refs, D["manifest"]["versao"], PARTE,
-                                                                  tuple(ks_pf))
-                    theme.title(f"{sel} comparado com {ref_txt}",
-                                "Cada indicador no último ano com dado do território, ao lado das referências.", fixo=True)
-                    if col_comp:
-                        sty = tab.style.apply(lambda s: [f"color:{c}; font-weight:700" if c else "" for c in cores],
-                                              subset=[col_comp])
-                    else:
-                        sty = tab
-                    cfg = {"Ano": st.column_config.TextColumn(help="Último ano com dado do indicador para o território."),
-                           "Posição na Amazônia Legal": st.column_config.TextColumn(
-                               help=f"Entre os {len(D['al_ufs'])} estados da Amazônia Legal."),
-                           "Posição no estado": st.column_config.TextColumn(help="Entre os municípios do mesmo estado."),
-                           "Posição no Brasil": st.column_config.TextColumn(help="Entre os territórios do mesmo tipo no Brasil.")}
-                    if col_comp:
-                        cfg[col_comp] = st.column_config.TextColumn(
-                            help=f"Totais (somas): participação do território no total de {comp_nome}. Taxas e médias: quanto "
-                                 f"está acima (+) ou abaixo (−) de {comp_nome}; verde = situação melhor, vermelho = pior, "
-                                 "conforme a polaridade do indicador.")
-                    st.dataframe(sty, hide_index=True, width="stretch", column_config=cfg)
-                    st.caption(f"Última coluna: para totais, participação do território em {comp_nome}; para taxas e médias, "
-                               "diferença em relação a ela (verde = melhor, vermelho = pior, sem cor quando o indicador não "
-                               "tem polaridade). — indica ausência de dado.")
-                    if PARCIAL and plvl in ("Município", "Estado", "Grande Região"):
-                        st.caption(nota_al())  # a coluna "Amazônia Legal" soma só os municípios da região
-                    if plvl == "Estado" and uf_t in PARCIAL:
-                        st.caption("◐ " + nota_parcial("parcela" if PARTE else "inteiro")
-                                   + (" A participação e as comparações usam só essa parte."
-                                      if PARTE else
-                                      " Na participação dos totais, o estado entra só com a parte que está na Amazônia Legal; "
-                                      "nas taxas e médias, a comparação usa o estado inteiro."))
+                theme.title(f"{sel}: todos os indicadores {ANO_TXT}, por eixo temático",
+                            "Clique em um eixo para abrir os indicadores dele: os cartões mostram o valor, "
+                            + (f"a posição entre os {rank_grp[plvl]} no mesmo ano (1º = melhor situação; '=' indica "
+                               "empate) " if plvl in rank_grp else "")
+                            + "e a variação desde o primeiro ano com dado (verde = melhora, vermelho = piora); a tabela "
+                              "logo abaixo compara com as referências. O eixo do indicador escolhido já vem aberto e o "
+                              "cartão dele tem borda.")
+                comp_nome = None
+                for n, eixo_nome in enumerate(eixos):
+                    ks = do_eixo(eixo_nome)
+                    caixa = st.expander(f"**{eixo_nome}** · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""),
+                                        expanded=eixo_nome == I.axis, key=f"pf_ex_{n}_{eixos.index(I.axis)}",
+                                        on_change="rerun")
+                    with caixa:
+                        if caixa.open:  # só monta o conteúdo das caixas abertas: o painel continua leve
+                            cartoes_resumo(ks)
+                            if refs:
+                                comp_nome = tabela_resumo(ks, n)
+                if comp_nome:
+                    st.caption(f"Tabelas: a última coluna mostra, para totais, a participação do território em {comp_nome}; "
+                               "para taxas e médias, a diferença em relação a ela (verde = melhor, vermelho = pior, sem "
+                               "cor quando o indicador não tem polaridade). — indica ausência de dado.")
+                if RECENTE:
+                    st.caption("Se o território não tem dado no último ano do indicador, o cartão mostra o último dado "
+                               "dele, sem posição, pois não seria comparável com os demais.")
+                if PARCIAL and plvl in ("Município", "Estado", "Grande Região"):
+                    st.caption(nota_al())  # a coluna "Amazônia Legal" soma só os municípios da região
+                if plvl == "Estado" and uf_t in PARCIAL:
+                    st.caption("◐ " + nota_parcial("parcela" if PARTE else "inteiro")
+                               + (" A participação e as comparações usam só essa parte."
+                                  if PARTE else
+                                  " Na participação dos totais, o estado entra só com a parte que está na Amazônia Legal; "
+                                  "nas taxas e médias, a comparação usa o estado inteiro."))
 
         # ---- Evolução --------------------------------------------------------------------
         with S["Evolução"]:
