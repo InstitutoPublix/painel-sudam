@@ -29,18 +29,37 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   regra de agregação e peso podem ser ajustados ali.
 - **Ligação coluna → ficha:** pelo nome do indicador (ignorando acentos, caixa e pontuação). Se a coluna tiver outro
   nome, informe `coluna` no config.
+- **Indicadores com várias colunas:** a planilha detalha alguns indicadores em colunas `Nome do indicador — categoria`
+  (ex.: rebanho por tipo, lavoura por produto). Cada entrada do painel usa uma delas com `categoria`, ou soma todas com
+  `somar_categorias = true`. Uma mesma ficha pode gerar várias entradas; cada uma recebe uma `chave` própria
+  (ex.: `IND-185-soja`), e a ficha no Sobre o Painel mostra o ID original e a categoria.
 - **Amazônia Legal:** calculada a partir dos municípios com `Amazônia Legal = SIM`, pela regra da ficha: soma, ou
   média ponderada (razão entre totais) com o `peso` do config. Brasil, Regiões e Estados vêm prontos da planilha.
+  O peso pode ser outro indicador (`peso`) ou uma coluna da planilha que não está no painel (`peso_coluna`).
+- **Conferência da regra:** antes de incluir um indicador, aplique a regra aos municípios de cada estado e compare com
+  a aba Estadual. Quando a planilha não traz o denominador exato, o painel aceita uma aproximação só se a diferença
+  for pequena (mediana até 1,5%) e a registra em `nota_agregacao`, que aparece no painel. Quando nenhuma regra
+  reproduz os estados, use `agregacao = "publicado"`: a Amazônia Legal fica sem valor e `nota_agregacao` diz por quê.
+  Os comentários de cada bloco no `config/indicadores.toml` registram o resultado da conferência.
 - **Indicador só estadual:** a coluna municipal é opcional. Sem ela, o indicador aparece em Brasil, Regiões e
-  Estados (se houver) e o build avisa que não há Município nem Amazônia Legal.
+  Estados (se houver) e o build avisa que não há Município nem Amazônia Legal. Use `agregacao = "publicado"` com
+  uma `nota_agregacao`: somar os estados incluiria o Maranhão inteiro. No painel, a Visão Geral troca os cartões e
+  gráficos de municípios pelos de estados, e o Mapa e Ranking oferece só os níveis que o indicador tem.
+- **Seções com muitos indicadores:** os cartões da Visão Geral, o Resumo do Perfil do Território, a comparação A × B
+  e o gráfico de todos os indicadores em Séries Temporais mostram um eixo por vez (começando no eixo do indicador
+  escolhido), para o painel continuar leve com mais de 200 indicadores.
 - **Cobertura mínima:** em cada ano, a Amazônia Legal só é calculada se pelo menos 90% dos municípios da região
   tiverem dado; abaixo disso o ano fica vazio e o build avisa. Ajuste com `cobertura_minima` (%) no
-  `config/indicadores.toml` ou com `--cobertura-minima` para todos.
+  `config/indicadores.toml` ou com `--cobertura-minima` para todos. Em contagens esparsas (aeroportos, portos,
+  CFEM…), célula vazia quer dizer zero: use `cobertura_minima = 0` depois de conferir que a soma bate com os estados.
 - **Média simples e `fator_municipal`:** para indicadores de existência (sim/não por município), use
   `agregacao = "media_simples"`; a Amazônia Legal vira o % de municípios. Se a aba municipal vem em 0/1 e as demais
   em %, use `fator_municipal = 100` para alinhar as escalas. Confira sempre o peso ou a regra reproduzindo o valor
   estadual da planilha a partir dos municípios.
 - **"Dado já publicado":** indicadores com essa regra na ficha não são agregados; a Amazônia Legal fica vazia.
+- **Observação da planilha:** a coluna `Observação` da `Lista de Indicadores` (quebras de série, anos ausentes) aparece
+  na legenda "Sobre o indicador" de cada aba e na ficha do Sobre o Painel.
+- **Base enxuta:** `dados.parquet` guarda só as células com valor; o painel recompõe os anos vazios nas séries.
 - **Validação:** coluna ausente, ID sem ficha, regra de agregação desconhecida, texto em coluna numérica ou
   território repetido interrompem a geração; nada é gravado.
 - **Atualização no painel:** a cada 10 minutos o painel confere o `manifest.json`; se a versão mudou, recarrega.
@@ -87,7 +106,8 @@ Antes de executar os passos acima:
    use `coluna`, `agregacao` e `peso` quando a associação ou o cálculo não puder ser deduzido da ficha.
 
 Por padrão, executar `python scripts/build_data.py` sem caminho usa o `.xlsx` modificado mais recentemente em
-`data/`. Em rotinas de publicação, prefira sempre informar o arquivo explicitamente para evitar ambiguidades.
+`data/`, ignorando arquivos temporários do Excel e os que têm `ANTIGA` no nome. Em rotinas de publicação, prefira
+sempre informar o arquivo explicitamente para evitar ambiguidades.
 
 ### Estados só em parte na Amazônia Legal
 

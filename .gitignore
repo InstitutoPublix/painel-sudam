@@ -6,6 +6,7 @@ __pycache__/
 # planilha de origem (grande) e bases geradas: vão para o bucket, não para o repositório
 data/*.xlsx
 ~$*.xlsx
+.~lock.*#
 build/
 
 # catálogo de indicadores (controle interno, fora do repositório)

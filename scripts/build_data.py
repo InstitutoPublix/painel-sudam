@@ -54,7 +54,7 @@ FICHA = {
     "Código da Tabela/Série": "table", "Link para a Base de Dados": "link",
     "Limitações Metodológicas": "limits", "Menor Unidade Territorial Disponível": "minTerritory",
     "Cobertura Municipal (%)": "coverage", "Regra de Agregação Territorial": "aggregation",
-    "Variável de Ponderação": "weight", "Comparabilidade Temporal": "temporal",
+    "Variável de Ponderação": "weight", "Comparabilidade Temporal": "temporal", "Observação": "note",
 }
 
 
@@ -93,10 +93,13 @@ def title_name(s: pd.Series) -> pd.Series:
 def load_config(path: Path = CONFIG) -> list[dict]:
     cfg = tomllib.loads(path.read_text(encoding="utf-8"))
     items = cfg.get("indicador", [])
-    ids = [i["id"] for i in items]
-    dup = {i for i in ids if ids.count(i) > 1}
+    for it in items:
+        it.setdefault("chave", it["id"])  # várias entradas podem vir da mesma ficha (uma por categoria)
+    chaves = [i["chave"] for i in items]
+    dup = {i for i in chaves if chaves.count(i) > 1}
     if dup:
-        sys.exit(f"{path.name}: IDs repetidos: {', '.join(sorted(dup))}")
+        sys.exit(f"{path.name}: chaves repetidas: {', '.join(sorted(dup))} (use `chave` para distinguir entradas da "
+                 "mesma ficha)")
     return items
 
 
@@ -142,12 +145,28 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
 # --------------------------------------------------------------------------- #
 # Abas de recorte
 # --------------------------------------------------------------------------- #
-def resolve_columns(header: list[str], wanted: dict[str, str]) -> dict[str, str | None]:
-    """wanted: ID -> nome esperado. Devolve ID -> nome real da coluna (ou None)."""
+CAT = " — "  # separador entre o nome do indicador e a categoria nas colunas das abas de recorte
+
+
+def resolve_columns(header: list[str], wanted: dict[str, str | tuple]) -> dict[str, list[str] | None]:
+    """wanted: chave -> nome esperado da coluna, "nome — *" para somar todas as categorias do indicador, ou uma tupla
+    de nomes para somar só essas colunas. Devolve chave -> colunas reais (ou None)."""
     by_norm: dict[str, str] = {}
     for c in header:
         by_norm.setdefault(norm(c), c)
-    return {i: by_norm.get(norm(name)) for i, name in wanted.items()}
+    out = {}
+    for i, name in wanted.items():
+        if isinstance(name, tuple):
+            cs = [by_norm.get(norm(n)) for n in name]
+            out[i] = cs if all(cs) else None
+        elif name.endswith(CAT + "*"):
+            pre = norm(name[:-len(CAT + "*")])
+            cs = [c for c in header if CAT in c and norm(c.split(CAT, 1)[0]) == pre]
+            out[i] = cs or None
+        else:
+            c = by_norm.get(norm(name))
+            out[i] = [c] if c else None
+    return out
 
 
 def to_numeric(s: pd.Series, label: str, rep: Report) -> pd.Series:
@@ -174,10 +193,10 @@ def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Repo
     for i, c in cols.items():
         if c is None:
             # ausência em um nível é aviso; só vira erro se o indicador não aparecer em nenhuma aba (ver main)
-            rep.warn(f"{i}: coluna '{wanted[i]}' não encontrada na aba '{sheet}' (indicador fica sem dado neste nível; "
+            rep.warn(f"{i}: coluna {wanted[i]!r} não encontrada na aba '{sheet}' (indicador fica sem dado neste nível; "
                      "use `coluna` em config/indicadores.toml se o nome for diferente).")
     found = {i: c for i, c in cols.items() if c}
-    df = book.parse(sheet, usecols=ids + ["Ano"] + list(found.values()))
+    df = book.parse(sheet, usecols=ids + ["Ano"] + sorted({c for cs in found.values() for c in cs}))
     out = pd.DataFrame({"cod": pd.to_numeric(df[ids[0]], errors="coerce"),
                         "ano": pd.to_numeric(df["Ano"], errors="coerce")})
     if out.isna().any().any():
@@ -198,11 +217,13 @@ def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Repo
         out["al"] = flag.eq("SIM")
     else:
         out["nome"] = df[NAME_COL[level]].astype(str).str.strip()
-    for i, c in found.items():
-        out[i] = to_numeric(df[c], f"{i} ({sheet})", rep)
+    vals = {}
+    for i, cs in found.items():
+        v = pd.concat([to_numeric(df[c], f"{i} ({sheet})", rep) for c in cs], axis=1)
+        vals[i] = v.iloc[:, 0] if len(cs) == 1 else v.sum(axis=1, min_count=1)  # soma das categorias
         if level == "Município" and factors and i in factors:
-            out[i] = out[i] * factors[i]  # ex.: 0/1 por município -> 0/100, como nas abas Estadual/Regional/Brasil
-    return out
+            vals[i] = vals[i] * factors[i]  # ex.: 0/1 por município -> 0/100, como nas abas Estadual/Regional/Brasil
+    return pd.concat([out, pd.DataFrame(vals, index=out.index)], axis=1)
 
 
 # --------------------------------------------------------------------------- #
@@ -234,12 +255,13 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     n_al = al.cod.nunique()
     years = sorted(mun.ano.unique())
     out = pd.DataFrame({"ano": years})
+    cols: dict[str, pd.Series] = {}  # montadas à parte e unidas no fim (evita fragmentar o DataFrame)
     for i, (rule, peso) in rules.items():
         if rule == "publicado":
-            out[i] = np.nan
+            cols[i] = pd.Series(np.nan, index=out.index)
             continue
         if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
-            out[i] = np.nan  # sem dado municipal (ou sem o peso): o resumo final avisa que falta a Amazônia Legal
+            cols[i] = pd.Series(np.nan, index=out.index)  # sem dado municipal (ou sem o peso): o resumo final avisa que falta a Amazônia Legal
             continue
         if rule == "soma":
             s = al.groupby("ano")[i].sum(min_count=1)
@@ -267,7 +289,8 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
                      f"{minimo:g}% ({detail}{more}). Ajuste `cobertura_minima` em config/indicadores.toml se o "
                      "valor ainda fizer sentido.")
             s = s.mask(low)
-        out[i] = out.ano.map(s)
+        cols[i] = out.ano.map(s)
+    out = pd.concat([out, pd.DataFrame(cols, index=out.index)], axis=1)
     out["cod"], out["nome"], out["uf"] = 0, "Amazônia Legal", None
     return out
 
@@ -278,7 +301,8 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
 def find_xlsx(arg: str | None) -> Path:
     if arg:
         return Path(arg)
-    files = [p for p in DATA_DIR.glob("*.xlsx") if not p.name.startswith("~$")]
+    # ignora arquivos temporários do Excel e versões guardadas como ANTIGA
+    files = [p for p in DATA_DIR.glob("*.xlsx") if not p.name.startswith(("~$", ".~lock")) and "ANTIGA" not in p.name.upper()]
     if not files:
         sys.exit(f"Nenhum .xlsx encontrado em {DATA_DIR}")
     return max(files, key=lambda p: p.stat().st_mtime)
@@ -304,15 +328,22 @@ def main():
     rules: dict[str, tuple[str, str | None]] = {}
     minimos: dict[str, float] = {}
     fichas: list[dict] = []
+    chaves = {it["chave"] for it in items}
+    pesos_coluna: dict[str, str] = {}  # pesos lidos direto de uma coluna da planilha (`peso_coluna`), sem ficha própria
     for it in items:
-        i = it["id"]
-        if i not in lista.index:
-            rep.error(f"{i}: ID não existe na aba '{LISTA}'.")
+        i, ref = it["chave"], it["id"]
+        if ref not in lista.index:
+            rep.error(f"{i}: ID {ref} não existe na aba '{LISTA}'.")
             continue
-        row = lista.loc[i]
-        ficha = {"id": i, **{k: cell(row.get(c)) for c, k in FICHA.items()}}
+        row = lista.loc[ref]
+        ficha = {"id": i, "ref": ref, **{k: cell(row.get(c)) for c, k in FICHA.items()}}
+        if it.get("categoria") or it.get("categorias"):
+            ficha["category"] = it.get("categoria") or " + ".join(it["categorias"])
         rule = it.get("agregacao") or agg_rule(ficha["aggregation"])
         peso = it.get("peso")
+        if it.get("peso_coluna"):
+            peso = f"{i}#peso"
+            pesos_coluna[peso] = it["peso_coluna"]
         if rule not in ("soma", "media_ponderada", "media_simples", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
@@ -321,19 +352,42 @@ def main():
             rep.error(f"{i}: média ponderada exige `peso` em config/indicadores.toml "
                       f"(a ficha cita: '{ficha['weight']}').")
             continue
-        if peso and peso not in lista.index:
-            rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}'.")
+        if peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna:
+            rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}' nem em config/indicadores.toml.")
             continue
         rules[i] = (rule, peso if rule == "media_ponderada" else None)
         minimos[i] = float(it.get("cobertura_minima", args.cobertura_minima))
         ficha["display"] = display_spec(it, ficha, rule)
         fichas.append(ficha)
 
-    cfg_by_id = {it["id"]: it for it in items}
+    cfg_by_key = {it["chave"]: it for it in items}
     weights = {p for _, p in rules.values() if p}
-    wanted = {i: cfg_by_id.get(i, {}).get("coluna", lista.loc[i, "Indicador"]) for i in [*rules, *sorted(weights - set(rules))]}
 
-    factors = {i["id"]: float(i["fator_municipal"]) for i in items if "fator_municipal" in i}
+    def coluna(i: str) -> str:
+        """Coluna de cada entrada: `coluna` explícita, a `categoria` da ficha ("Nome — Categoria"), todas as
+        categorias somadas (`somar_categorias`) ou o próprio nome do indicador."""
+        if i in pesos_coluna:
+            return pesos_coluna[i]
+        it = cfg_by_key.get(i, {})
+        nome = lista.loc[it.get("id", i), "Indicador"]
+        if "coluna" in it:
+            return it["coluna"]
+        if it.get("categoria"):
+            return f"{nome}{CAT}{it['categoria']}"
+        if it.get("categorias"):  # soma só das categorias listadas
+            return tuple(f"{nome}{CAT}{c}" for c in it["categorias"])
+        return f"{nome}{CAT}*" if it.get("somar_categorias") else nome
+
+    wanted = {i: coluna(i) for i in [*rules, *sorted(weights - set(rules))]}
+
+    def nome_peso(p: str) -> str:
+        if p in pesos_coluna:
+            return pesos_coluna[p].split(CAT)[-1]
+        it = cfg_by_key.get(p)
+        nome = it.get("rotulo") if it else None
+        return f"{nome or lista.loc[p, 'Indicador']} ({p})"
+
+    factors = {i["chave"]: float(i["fator_municipal"]) for i in items if "fator_municipal" in i}
     frames = {lvl: read_level(book, lvl, wanted, rep, factors) for lvl in SHEETS}
     if rep.errors:
         return finish(rep, None)
@@ -389,9 +443,12 @@ def main():
         parts.append(d.melt(id_vars=["nivel", "cod", "nome", "uf", "regiao", "al", "ano"],
                             value_vars=ind_ids, var_name="ind", value_name="valor"))
     long = pd.concat(parts, ignore_index=True)
+    long = long[long.valor.notna()].reset_index(drop=True)  # só as células com valor: a base fica bem menor
     long["al"] = long["al"].astype("boolean")
     long["ano"] = long["ano"].astype("int16")
-    for c in ("nivel", "ind", "uf", "regiao"):
+    # categorias: cada texto é gravado uma vez no parquet (o nome do território se repete em milhões de linhas e,
+    # como texto puro, triplicava a memória do painel ao ler a base)
+    for c in ("nivel", "ind", "uf", "regiao", "nome"):
         long[c] = long[c].astype("category")
 
     # resumo por indicador
@@ -407,11 +464,18 @@ def main():
         rule, peso = rules[i]
         f["aggregationApplied"] = (
             "Soma dos municípios" if rule == "soma"
-            else "Valor publicado pela fonte (sem agregação a partir dos municípios)" if rule == "publicado"
+            else "Sem valor próprio: a fonte publica o indicador pronto em cada nível e a planilha não traz os totais "
+                 "para recalculá-lo a partir dos municípios" if rule == "publicado"
             else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
-            else f"Média ponderada dos municípios por {lista.loc[peso, 'Indicador']} ({peso})")
+            else f"Média ponderada dos municípios por {nome_peso(peso)}")
         if rule != "publicado":
-            f["aggregationApplied"] += f" · exige cobertura mínima de {minimos[i]:g}% dos municípios"
+            f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
+                                        else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
+        nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais
+        if nota and rule == "publicado":
+            f["aggregationApplied"] = f"Não calculada para a Amazônia Legal: {nota}"
+        elif nota:
+            f["aggregationApplied"] += f" · {nota}"
         print(f"  {i}  {f['display']['label'][:45]:45}  anos {yrs[0] if yrs else '—'}–{yrs[-1] if yrs else '—'} "
               f"({len(yrs)})  municípios AL {n_al}  níveis: {len(levels)}/5")
         if not yrs:

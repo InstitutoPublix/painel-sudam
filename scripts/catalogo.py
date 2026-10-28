@@ -57,7 +57,7 @@ def collect(xlsx: Path) -> pd.DataFrame:
     mun = frames["Município"]
     al = mun[mun["Amazônia Legal"].astype(str).str.strip().str.upper() == "SIM"]
     n_al = al.iloc[:, 0].nunique()
-    col_cfg = {i["id"]: i.get("coluna") for i in bd.load_config()}
+    col_cfg = {i["id"]: i["coluna"] for i in bd.load_config() if i.get("coluna")}
 
     rows = []
     for iid, f in lista.iterrows():
@@ -66,6 +66,10 @@ def collect(xlsx: Path) -> pd.DataFrame:
 
         def values(level):
             c = cols[level].get(key)
+            if c is None:  # indicador detalhado em colunas "Nome — categoria": vale qualquer uma das categorias
+                cats = [v for k, v in cols[level].items() if k.startswith(key + " ")]
+                if cats:
+                    return frames[level][cats].apply(pd.to_numeric, errors="coerce").max(axis=1)
             return None if c is None else pd.to_numeric(frames[level][c], errors="coerce")
 
         m, e = values("Município"), values("Estado")

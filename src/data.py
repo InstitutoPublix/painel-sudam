@@ -14,7 +14,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import streamlit as st
 
 from . import fmt
@@ -182,18 +184,33 @@ def load() -> dict:
 def _load(versao: str) -> dict:
     manifest = _manifest()
     fichas = json.loads(_read_bytes("fichas.json"))["indicadores"]
-    long = pd.read_parquet(io.BytesIO(_read_bytes("dados.parquet")))
+    # leitura sem threads e liberando a tabela Arrow durante a conversão: menos pico de memória na carga
+    tabela = pq.read_table(io.BytesIO(_read_bytes("dados.parquet")), use_threads=False)
+    long = tabela.to_pandas(self_destruct=True, split_blocks=True)
+    del tabela
 
     registry = {f["id"]: make_indicator(f) for f in fichas}
-    inds = [f["id"] for f in fichas if f["id"] in set(long.ind.astype(str))]
+    com_dado = {str(i) for i in long.ind.unique()}  # calculado uma vez: a base tem milhões de linhas
+    inds = [f["id"] for f in fichas if f["id"] in com_dado]
 
     long["al"] = long["al"].astype("boolean")
     long["ano"] = long["ano"].astype("int64")
-    long["nome"] = long["nome"].astype(str)
-    long["label"] = long.nome.where(long.nivel.ne("Município"), long.nome + " (" + long.uf.astype(str) + ")")
-    long["tid"] = long["nivel"].astype(str) + ":" + long["cod"].astype(str)
-    for c in ("nivel", "ind", "uf", "regiao", "nome", "label", "tid"):
+    # nome, rótulo e id de cada território: montados uma vez por território (alguns milhares) e ligados às linhas
+    # por código, em vez de concatenar texto em milhões de linhas (o que estourava a memória na carga)
+    for c in ("nivel", "ind", "uf", "regiao"):
         long[c] = long[c].astype("category")
+    chave = long.nivel.cat.codes.astype("int64") * 10**8 + long.cod
+    pos, uniq = pd.factorize(chave)
+    terr = long.iloc[np.unique(pos, return_index=True)[1]][["nivel", "cod", "nome", "uf"]]  # 1ª linha de cada território
+    terr = terr.assign(nome=terr.nome.astype(str), nivel=terr.nivel.astype(str), uf=terr.uf.astype(str))
+    rotulos = {
+        "nome": terr.nome,
+        "label": terr.nome.where(terr.nivel.ne("Município"), terr.nome + " (" + terr.uf + ")"),
+        "tid": terr.nivel + ":" + terr.cod.astype(str),
+    }
+    for c, v in rotulos.items():
+        cats, inv = pd.factorize(v.values)  # rótulos repetidos entre territórios viram uma categoria só
+        long[c] = pd.Categorical.from_codes(cats[pos], categories=inv)
 
     mun = long[long.nivel == "Município"]
     al_ufs = sorted(mun.loc[mun.al.fillna(False).astype(bool), "uf"].astype(str).unique())
@@ -306,10 +323,18 @@ def snapshot(D: dict, level: str, ind: str, year: int, *, al_only=False, ufs=Non
 
 
 def series(D: dict, tids, ind: str) -> pd.DataFrame:
+    """Série de cada território. A base só guarda células com valor; aqui os anos do indicador sem dado no
+    território voltam como vazios (valor NaN), para os gráficos e avisos de lacunas."""
     d = D["long"]
     d = d[d.tid.isin(list(tids)) & (d.ind == ind)]
     d = d.assign(label=d.label.astype(str), tid=d.tid.astype(str), nivel=d.nivel.astype(str))
-    return d[["tid", "nivel", "label", "ano", "valor"]].sort_values(["tid", "ano"]).reset_index(drop=True)
+    d = d[["tid", "nivel", "label", "ano", "valor"]]
+    anos = years_with_data(D, ind)
+    if len(d) and anos:
+        terr = d.drop_duplicates("tid")[["tid", "nivel", "label"]]
+        grade = terr.merge(pd.DataFrame({"ano": anos}), how="cross")
+        d = grade.merge(d[["tid", "ano", "valor"]], on=["tid", "ano"], how="left")
+    return d.sort_values(["tid", "ano"]).reset_index(drop=True)
 
 
 def territories(D: dict, level: str) -> pd.DataFrame:
@@ -334,7 +359,13 @@ def _quantis(values: pd.Series, k: int) -> pd.Series:
 def bands(values: pd.Series, k: int | None = None) -> pd.Series:
     """Faixas por quantis (0 = menores valores … última = maiores). Valores iguais ficam na mesma faixa.
     Se um mesmo valor extremo (ex.: zero) reúne ao menos 1/k dos territórios, ele ganha uma faixa própria e o
-    resto se divide nas demais; senão, valores repetidos reduzem o nº de faixas."""
+    resto se divide nas demais; senão, valores repetidos reduzem o nº de faixas. As faixas saem numeradas sem
+    buracos (0, 1, 2…), para mapa, legenda e tabela usarem as mesmas cores."""
+    b = _bands(values, k)
+    return (b.rank(method="dense").astype(int) - 1) if len(b) else b
+
+
+def _bands(values: pd.Series, k: int | None = None) -> pd.Series:
     k = k or n_bands(len(values))
     top = values.value_counts().index[0]
     if k > 2 and values.nunique() > 2 and (values == top).mean() >= 1 / k and top in (values.min(), values.max()):

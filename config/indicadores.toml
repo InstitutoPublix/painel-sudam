@@ -19,6 +19,12 @@
 #   escala     multiplicador até a unidade exibida (ex.: valores em R$ mil -> 1000)
 #   log        true para usar escala logarítmica em mapas, histogramas e dispersões
 #   icone      texto curto exibido nos cartões
+#   chave      identificador da entrada no painel, quando a mesma ficha gera mais de uma (padrão: o `id`)
+#   categoria  usa a coluna "Nome do indicador — categoria" das abas de recorte (ex.: "Bovino" no IND-075)
+#   somar_categorias  true para somar todas as colunas "Nome do indicador — …" (ex.: empresas de todos os setores)
+#   categorias lista de categorias a somar (ex.: ["Ótimo", "Bom"] para rodovias em estado bom ou ótimo)
+#   peso_coluna  coluna da planilha usada como peso na média ponderada, quando ela não é um indicador do painel
+#   nota_agregacao  texto curto sobre o cálculo da Amazônia Legal (aproximação, ou por que ela fica sem valor)
 
 # --- Indicadores que já estavam no painel ------------------------------------------------------
 
@@ -270,3 +276,1278 @@ rotulo = "Municípios com Conselho de Assistência Social"
 unidade = "% dos municípios"
 agregacao = "media_simples"
 fator_municipal = 100
+
+# --- Lote 5: planilha com todos os indicadores (out/2026) ------------------------------------------------
+# Regra da Amazônia Legal conferida contra a aba Estadual: a regra aplicada aos municípios de cada estado precisa
+# reproduzir o valor estadual publicado. Três situações:
+#   soma conferida          reproduz os totais estaduais (municípios sem dado contam como zero: cobertura_minima = 0)
+#   média ponderada         exata quando a planilha traz o denominador; senão, aproximação com o peso mais próximo
+#                           do conceito (população, matrículas da etapa, vínculos, PIB), aceita só se a diferença
+#                           mediana for ≤ 1,5% e a de 9 em cada 10 estados-ano ≤ 5,5% (anotada em nota_agregacao)
+#   publicado               nenhuma regra reproduz os estados: a Amazônia Legal fica sem valor, com o motivo
+# Indicadores com várias colunas ("Nome — categoria") usam `categoria`, ou `somar_categorias` quando as categorias
+# somam o total. Ficaram de fora IND-152, IND-153 e IND-171 (só municípios; a ficha desaconselha agregar).
+
+# 1. Dinâmica demográfica
+
+[[indicador]]
+# Amazônia Legal sem valor: comunidades em mais de um município contam em cada um; a soma dos municípios passa o total estadual
+id = "IND-005"
+rotulo = "Comunidades quilombolas certificadas"
+agregacao = "publicado"
+nota_agregacao = "comunidades em mais de um município contam em cada um; a soma dos municípios passa o total estadual"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.5% e até 2.6% em 9 de cada 10 estados-ano
+id = "IND-006"
+rotulo = "População quilombola"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,5%"
+
+[[indicador]]
+# Amazônia Legal sem valor: taxa de crescimento: precisa das populações de 2010 e 2022, que a planilha não traz
+id = "IND-009"
+rotulo = "Crescimento populacional anual"
+agregacao = "publicado"
+nota_agregacao = "taxa de crescimento: precisa das populações de 2010 e 2022, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.4% e até 1.0% em 9 de cada 10 estados-ano
+id = "IND-010"
+rotulo = "Razão de dependência"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,4%"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-011"
+rotulo = "Imigrantes internacionais"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-107"
+rotulo = "Moradores em favelas e comunidades urbanas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do total de pessoas quilombolas, que a planilha não traz
+id = "IND-143"
+rotulo = "Quilombolas em territórios delimitados"
+agregacao = "publicado"
+nota_agregacao = "precisa do total de pessoas quilombolas, que a planilha não traz"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do total de pessoas indígenas, que a planilha não traz
+id = "IND-144"
+rotulo = "Indígenas em Terras Indígenas"
+agregacao = "publicado"
+nota_agregacao = "precisa do total de pessoas indígenas, que a planilha não traz"
+
+# 2. Trabalho e renda
+
+[[indicador]]
+# média ponderada exata: reproduz o valor estadual
+id = "IND-018"
+rotulo = "Remuneração média anual dos assalariados"
+categoria = "Total"
+unidade = "R$ por vínculo (ano)"
+agregacao = "media_ponderada"
+peso = "IND-021"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-021"
+rotulo = "Pessoal ocupado assalariado"
+categoria = "Total"
+unidade = "Nº de vínculos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das remunerações e vínculos por sexo, que a planilha não traz
+id = "IND-145"
+rotulo = "Diferença salarial entre homens e mulheres"
+agregacao = "publicado"
+nota_agregacao = "precisa das remunerações e vínculos por sexo, que a planilha não traz"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-149"
+rotulo = "Beneficiários do BPC"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.3% e até 4.0% em 9 de cada 10 estados-ano
+id = "IND-173"
+rotulo = "Empregos formais com ensino superior"
+agregacao = "media_ponderada"
+peso = "IND-021"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,3%"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do PIB e dos vínculos somados; a média dos municípios difere demais
+id = "IND-175"
+rotulo = "Produtividade do trabalho (PIB por vínculo formal)"
+categoria = "por vínculo formal (RAIS)"
+unidade = "R$ por vínculo formal"
+agregacao = "publicado"
+nota_agregacao = "precisa do PIB e dos vínculos somados; a média dos municípios difere demais"
+
+# 3. Educação e CT&I
+
+[[indicador]]
+# Amazônia Legal sem valor: a média dos municípios difere demais do valor estadual publicado
+id = "IND-022"
+rotulo = "IDEB anos iniciais (rede estadual)"
+agregacao = "publicado"
+nota_agregacao = "a média dos municípios difere demais do valor estadual publicado"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.9% e até 4.7% em 9 de cada 10 estados-ano
+id = "IND-023"
+rotulo = "IDEB anos finais (rede estadual)"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Fundamental"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,9%"
+# só há IDEB da rede estadual onde há escola estadual: a falta de dado não é lacuna
+cobertura_minima = 0
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.1% e até 4.0% em 9 de cada 10 estados-ano
+id = "IND-024"
+rotulo = "IDEB ensino médio (rede estadual)"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,1%"
+# só há IDEB da rede estadual onde há escola estadual: a falta de dado não é lacuna
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: a média dos municípios difere demais do valor estadual publicado
+id = "IND-025"
+rotulo = "Distorção idade-série: fundamental rural"
+agregacao = "publicado"
+nota_agregacao = "a média dos municípios difere demais do valor estadual publicado"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.7% e até 3.5% em 9 de cada 10 estados-ano
+id = "IND-026"
+rotulo = "Distorção idade-série: fundamental urbano"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+
+[[indicador]]
+# Amazônia Legal sem valor: a média dos municípios difere demais do valor estadual publicado
+id = "IND-027"
+rotulo = "Distorção idade-série: médio rural"
+agregacao = "publicado"
+nota_agregacao = "a média dos municípios difere demais do valor estadual publicado"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.4% e até 1.9% em 9 de cada 10 estados-ano
+id = "IND-028"
+rotulo = "Distorção idade-série: médio urbano"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,4%"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-029"
+chave = "IND-029-mat"
+rotulo = "Matrículas na educação básica"
+categoria = "Matrículas — Total"
+unidade = "Nº de matrículas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-029"
+chave = "IND-029-est"
+rotulo = "Escolas de educação básica"
+categoria = "Estabelecimentos — Total"
+unidade = "Nº de escolas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-030"
+chave = "IND-030-ies"
+rotulo = "Instituições de ensino superior"
+categoria = "Instituições — Total"
+unidade = "Nº de instituições"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-030"
+chave = "IND-030-mat"
+rotulo = "Matrículas em graduação presencial"
+categoria = "Matrículas de graduação presenciais — Total"
+unidade = "Nº de matrículas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: a ficha pede usar o valor publicado; a média dos municípios difere demais
+id = "IND-110"
+chave = "IND-110-ef"
+rotulo = "Formação docente adequada: fundamental"
+categoria = "Ensino Fundamental (rede pública)"
+agregacao = "publicado"
+nota_agregacao = "a ficha pede usar o valor publicado; a média dos municípios difere demais"
+
+[[indicador]]
+# Amazônia Legal sem valor: a ficha pede usar o valor publicado; a média dos municípios difere demais
+id = "IND-110"
+chave = "IND-110-em"
+rotulo = "Formação docente adequada: médio"
+categoria = "Ensino Médio (rede pública)"
+agregacao = "publicado"
+nota_agregacao = "a ficha pede usar o valor publicado; a média dos municípios difere demais"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-111"
+rotulo = "Bolsas do ProUni"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: a ficha pede usar o valor publicado; a média dos municípios difere demais
+id = "IND-112"
+chave = "IND-112-ef"
+rotulo = "Abandono escolar: fundamental"
+categoria = "Ensino Fundamental, Total"
+agregacao = "publicado"
+nota_agregacao = "a ficha pede usar o valor publicado; a média dos municípios difere demais"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.7% e até 2.9% em 9 de cada 10 estados-ano
+id = "IND-112"
+chave = "IND-112-em"
+rotulo = "Abandono escolar: médio"
+categoria = "Ensino Médio, Total"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.9% e até 2.9% em 9 de cada 10 estados-ano
+id = "IND-174"
+rotulo = "Jovens na educação profissional"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,9%"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-176"
+chave = "IND-176-ept"
+rotulo = "Escolas com educação profissional"
+categoria = "estabelecimentos com educação profissional"
+unidade = "Nº de estabelecimentos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-176"
+chave = "IND-176-cur"
+rotulo = "Cursos de graduação presenciais"
+categoria = "cursos de graduação presenciais"
+unidade = "Nº de cursos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das despesas municipais, que a planilha não traz
+id = "IND-177"
+rotulo = "Despesa municipal com Ciência e Tecnologia"
+agregacao = "publicado"
+nota_agregacao = "precisa das despesas municipais, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.8% e até 2.1% em 9 de cada 10 estados-ano
+id = "IND-178"
+chave = "IND-178-ef"
+rotulo = "Evasão escolar: fundamental"
+categoria = "Ensino Fundamental"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Fundamental"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,8%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.5% e até 1.1% em 9 de cada 10 estados-ano
+id = "IND-178"
+chave = "IND-178-em"
+rotulo = "Evasão escolar: médio"
+categoria = "Ensino Médio"
+agregacao = "media_ponderada"
+peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,5%"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-179"
+rotulo = "Concluintes de graduação presencial"
+categoria = "concluintes de cursos de graduação presenciais"
+unidade = "Nº de concluintes"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-192"
+rotulo = "Despesa municipal em P&D"
+categoria = "prefeituras, Siconfi (subfunções 571 e 572)"
+unidade = "R$ (preços correntes)"
+agregacao = "soma"
+cobertura_minima = 0
+
+# 4. Saúde e qualidade de vida
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.5% e até 2.0% em 9 de cada 10 estados-ano
+id = "IND-036"
+rotulo = "Mortalidade infantil"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,5%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.7% e até 1.6% em 9 de cada 10 estados-ano
+id = "IND-038"
+rotulo = "Cobertura vacinal"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa da população atendida, que a planilha não traz
+id = "IND-043"
+rotulo = "Esgotamento sanitário adequado"
+agregacao = "publicado"
+nota_agregacao = "precisa da população atendida, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.2% e até 0.8% em 9 de cada 10 estados-ano
+id = "IND-044"
+rotulo = "Coleta de lixo domiciliar"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,2%"
+# a fonte cobre cerca de metade dos municípios em todos os anos; a conferência usou esses municípios
+cobertura_minima = 40
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa da população urbana atendida, que a planilha não traz
+id = "IND-045"
+rotulo = "Coleta seletiva"
+agregacao = "publicado"
+nota_agregacao = "precisa da população urbana atendida, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.0% e até 5.3% em 9 de cada 10 estados-ano
+id = "IND-104"
+rotulo = "Vulnerabilidade social (IVS)"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,0%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.4% e até 2.2% em 9 de cada 10 estados-ano
+id = "IND-113"
+rotulo = "Incidência de dengue"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,4%"
+
+[[indicador]]
+# Amazônia Legal sem valor: o valor estadual não é a soma das prefeituras
+id = "IND-117"
+rotulo = "Despesa municipal com saúde"
+categoria = "Despesas liquidadas"
+unidade = "R$ (preços correntes)"
+agregacao = "publicado"
+nota_agregacao = "o valor estadual não é a soma das prefeituras"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.7% e até 2.9% em 9 de cada 10 estados-ano
+id = "IND-119"
+rotulo = "Atendimento urbano de água"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+# 2023 tem 79% dos municípios com dado
+cobertura_minima = 75
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa da massa de resíduos coletada, que a planilha não traz
+id = "IND-120"
+rotulo = "Destinação adequada do lixo"
+agregacao = "publicado"
+nota_agregacao = "precisa da massa de resíduos coletada, que a planilha não traz"
+
+[[indicador]]
+# média ponderada exata: reproduz o valor estadual
+id = "IND-148"
+rotulo = "Déficit de altura em crianças até 5 anos"
+agregacao = "media_ponderada"
+peso_coluna = "Percentual de crianças menores de 5 anos com déficit de estatura para a idade (baixa ou muito baixa estatura) — crianças menores de 5 anos acompanhadas"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do total de internações, que a planilha não traz
+id = "IND-180"
+rotulo = "Internações por saneamento inadequado"
+agregacao = "publicado"
+nota_agregacao = "precisa do total de internações, que a planilha não traz"
+
+# 5. Infraestrutura
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-053"
+rotulo = "Municípios com fibra óptica (backhaul)"
+unidade = "Nº de municípios com backhaul de fibra"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-118"
+rotulo = "Geração solar distribuída"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-134"
+rotulo = "Passageiros em voos"
+categoria = "Total"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-151"
+rotulo = "Carga portuária movimentada"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-182"
+chave = "IND-182-aer"
+rotulo = "Aeroportos com voos regulares"
+categoria = "aeroportos com voos regulares"
+unidade = "Nº de aeroportos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-182"
+chave = "IND-182-dec"
+rotulo = "Decolagens de voos regulares"
+categoria = "decolagens de voos regulares"
+unidade = "Nº de decolagens"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: a soma dos municípios difere do total estadual publicado
+id = "IND-183"
+chave = "IND-183-ren"
+rotulo = "Capacidade de geração renovável"
+categoria = "renovável (kW)"
+unidade = "kW"
+agregacao = "publicado"
+nota_agregacao = "a soma dos municípios difere do total estadual publicado"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa da capacidade total por município, que a planilha não traz somada
+id = "IND-183"
+chave = "IND-183-pct"
+rotulo = "Participação renovável na geração"
+categoria = "participação renovável (%)"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "precisa da capacidade total por município, que a planilha não traz somada"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.1% e até 0.5% em 9 de cada 10 estados-ano
+id = "IND-184"
+chave = "IND-184-qq"
+rotulo = "Cobertura de telefonia móvel"
+categoria = "qualquer tecnologia"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,1%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.2% e até 1.0% em 9 de cada 10 estados-ano
+id = "IND-184"
+chave = "IND-184-4g"
+rotulo = "Cobertura 4G"
+categoria = "4G"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,2%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.8% e até 4.0% em 9 de cada 10 estados-ano
+id = "IND-184"
+chave = "IND-184-5g"
+rotulo = "Cobertura 5G"
+categoria = "5G"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,8%"
+
+# 6. Meio ambiente
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.0% e até 2.9% em 9 de cada 10 estados-ano
+id = "IND-059"
+rotulo = "Segurança hídrica urbana"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,0%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.0% e até 3.4% em 9 de cada 10 estados-ano
+id = "IND-062"
+rotulo = "Área verde por habitante"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,0%"
+
+[[indicador]]
+# média ponderada exata: reproduz o valor estadual
+id = "IND-063"
+rotulo = "Território em áreas protegidas"
+agregacao = "media_ponderada"
+peso = "IND-013"
+
+[[indicador]]
+# 0/1 por município; média simples x 100 reproduz o valor estadual
+id = "IND-065"
+rotulo = "Municípios com mapeamento de áreas de risco"
+unidade = "% dos municípios"
+agregacao = "media_simples"
+fator_municipal = 100
+# 2020 tem 89% dos municípios com dado
+cobertura_minima = 85
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-121"
+rotulo = "Seca severa ou extrema"
+unidade = "Nº de municípios em seca severa ou extrema"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-122"
+rotulo = "Imóveis rurais no CAR"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# média ponderada exata: reproduz o valor estadual
+id = "IND-123"
+rotulo = "Imóveis do CAR com adesão ao PRA"
+agregacao = "media_ponderada"
+peso = "IND-122"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-124"
+rotulo = "Déficit de APP a recompor"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-155"
+rotulo = "Vegetação nativa declarada no CAR"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-156"
+rotulo = "Passivo de Reserva Legal no CAR"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-159"
+rotulo = "Área de garimpo"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-160"
+rotulo = "Pessoas afetadas por desastres"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-191"
+rotulo = "Autos de infração ambiental (IBAMA)"
+agregacao = "soma"
+cobertura_minima = 0
+
+# 7. Estrutura produtiva
+
+[[indicador]]
+# Amazônia Legal sem valor: a média ponderada pelo PIB difere demais do valor estadual publicado
+id = "IND-070"
+rotulo = "Valor adicionado da agropecuária"
+unidade = "% do valor adicionado"
+agregacao = "publicado"
+nota_agregacao = "a média ponderada pelo PIB difere demais do valor estadual publicado"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.3% e até 3.2% em 9 de cada 10 estados-ano
+id = "IND-071"
+rotulo = "Valor adicionado da indústria"
+unidade = "% do valor adicionado"
+agregacao = "media_ponderada"
+peso = "IND-068"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,3%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.2% e até 2.3% em 9 de cada 10 estados-ano
+id = "IND-072"
+rotulo = "Valor adicionado dos serviços"
+unidade = "% do valor adicionado"
+agregacao = "media_ponderada"
+peso = "IND-068"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,2%"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 1.1% e até 2.9% em 9 de cada 10 estados-ano
+id = "IND-073"
+rotulo = "Valor adicionado da administração pública"
+unidade = "% do valor adicionado"
+agregacao = "media_ponderada"
+peso = "IND-068"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,1%"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-075"
+chave = "IND-075-bov"
+rotulo = "Rebanho bovino"
+categoria = "Bovino"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-077"
+rotulo = "Produção da silvicultura"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-082"
+rotulo = "Empresas (CEMPRE)"
+somar_categorias = true
+unidade = "Nº de empresas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-083"
+rotulo = "Pessoal ocupado nas empresas (CEMPRE)"
+somar_categorias = true
+unidade = "Nº de pessoas ocupadas"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: produtores com unidades em mais de um município: a soma dos municípios difere do total estadual
+id = "IND-126"
+rotulo = "Produtores orgânicos certificados"
+agregacao = "publicado"
+nota_agregacao = "produtores com unidades em mais de um município: a soma dos municípios difere do total estadual"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-127"
+rotulo = "Produção da aquicultura"
+categoria = "Valor da produção (R$ mil)"
+unidade = "R$ (preços correntes)"
+escala = 1000
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-128"
+rotulo = "CFEM arrecadada"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-132"
+chave = "IND-132-fam"
+rotulo = "Famílias assentadas"
+categoria = "Famílias assentadas"
+unidade = "Nº de famílias"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-132"
+chave = "IND-132-area"
+rotulo = "Área de assentamentos"
+categoria = "Área (ha)"
+unidade = "ha"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-133"
+chave = "IND-133-est"
+rotulo = "Estabelecimentos da agricultura familiar"
+categoria = "Número de estabelecimentos"
+unidade = "Nº de estabelecimentos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-133"
+chave = "IND-133-area"
+rotulo = "Área da agricultura familiar"
+categoria = "Área (ha)"
+unidade = "ha"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: índice calculado só para municípios
+id = "IND-137"
+rotulo = "Complexidade econômica (ICE-R)"
+categoria = "Método de reflexões"
+agregacao = "publicado"
+nota_agregacao = "índice calculado só para municípios"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-138"
+rotulo = "Organizações da sociedade civil"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-141"
+rotulo = "Mortes no trânsito"
+somar_categorias = true
+unidade = "Nº de óbitos"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-154"
+rotulo = "Área de manejo florestal autorizada"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-163"
+rotulo = "Renúncia fiscal federal"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-165"
+rotulo = "Área irrigada"
+categoria = "Área irrigada atual (irrigada e fertirrigada)"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# Amazônia Legal sem valor: a soma dos municípios difere do total estadual (dados sigilosos nos municípios)
+id = "IND-166"
+rotulo = "Empregos na produção florestal"
+agregacao = "publicado"
+nota_agregacao = "a soma dos municípios difere do total estadual (dados sigilosos nos municípios)"
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-185"
+chave = "IND-185-tot"
+rotulo = "Área plantada das lavouras"
+categoria = "área plantada, Total das lavouras"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-185"
+chave = "IND-185-soja"
+rotulo = "Área plantada de soja"
+categoria = "área plantada, Soja"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-185"
+chave = "IND-185-acai"
+rotulo = "Área colhida de açaí"
+categoria = "área colhida, Açaí"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-186"
+chave = "IND-186-acai"
+rotulo = "Produção extrativa de açaí"
+categoria = "Açaí (fruto) (t)"
+unidade = "t"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-186"
+chave = "IND-186-cast"
+rotulo = "Produção de castanha-do-pará"
+categoria = "Castanha-do-pará (t)"
+unidade = "t"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-186"
+chave = "IND-186-mad"
+rotulo = "Madeira em tora (extração vegetal)"
+categoria = "Madeira em tora (m³)"
+unidade = "m³"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-187"
+rotulo = "CFEM por município de origem"
+categoria = "total"
+agregacao = "soma"
+cobertura_minima = 0
+
+# 8. Governança e finanças
+
+[[indicador]]
+# soma conferida com os totais estaduais
+id = "IND-091"
+rotulo = "Resultado primário municipal"
+unidade = "R$ (preços correntes)"
+agregacao = "soma"
+cobertura_minima = 0
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.6% e até 1.8% em 9 de cada 10 estados-ano
+id = "IND-092"
+rotulo = "Poupança corrente municipal"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,6%"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das receitas municipais, que a planilha não traz
+id = "IND-093"
+rotulo = "Dependência de transferências da União"
+agregacao = "publicado"
+nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das receitas municipais, que a planilha não traz
+id = "IND-094"
+rotulo = "Autonomia fiscal (receita própria)"
+agregacao = "publicado"
+nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.9% e até 2.4% em 9 de cada 10 estados-ano
+id = "IND-095"
+rotulo = "Gasto com pessoal sobre a RCL"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,9%"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das despesas municipais, que a planilha não traz
+id = "IND-096"
+rotulo = "Investimentos na despesa total"
+agregacao = "publicado"
+nota_agregacao = "precisa das despesas municipais, que a planilha não traz"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das receitas municipais, que a planilha não traz
+id = "IND-097"
+rotulo = "Receita de convênios"
+agregacao = "publicado"
+nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do total de vínculos das prefeituras, que a planilha não traz
+id = "IND-099"
+rotulo = "Vínculos permanentes na prefeitura"
+agregacao = "publicado"
+nota_agregacao = "precisa do total de vínculos das prefeituras, que a planilha não traz"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa do total de servidores, que a planilha não traz
+id = "IND-100"
+rotulo = "Servidores municipais com ensino superior"
+agregacao = "publicado"
+nota_agregacao = "precisa do total de servidores, que a planilha não traz"
+
+[[indicador]]
+# média ponderada exata: reproduz o valor estadual
+id = "IND-169"
+rotulo = "Municípios com Plano de Mobilidade Urbana"
+unidade = "% dos municípios obrigados a ter o plano"
+agregacao = "media_ponderada"
+peso_coluna = "Municípios com Plano de Mobilidade Urbana elaborado (%) — município obrigado a ter o plano (1 = sim)"
+fator_municipal = 100
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa das receitas municipais, que a planilha não traz
+id = "IND-170"
+rotulo = "Dependência de transferências estaduais"
+agregacao = "publicado"
+nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.4% e até 1.7% em 9 de cada 10 estados-ano
+id = "IND-188"
+rotulo = "Receita tributária própria por habitante"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,4%"
+
+[[indicador]]
+# Amazônia Legal sem valor: precisa da dotação de investimentos, que a planilha não traz
+id = "IND-189"
+rotulo = "Execução dos investimentos municipais"
+agregacao = "publicado"
+nota_agregacao = "precisa da dotação de investimentos, que a planilha não traz"
+
+# 9. Segurança pública
+
+[[indicador]]
+# aproximação conferida: diferença mediana 0.3% e até 1.0% em 9 de cada 10 estados-ano
+id = "IND-190"
+rotulo = "Mortes violentas intencionais"
+categoria = "Sinesp, sem mortes por intervenção policial"
+agregacao = "media_ponderada"
+peso = "IND-001"
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,3%"
+
+# --- Lote 6: indicadores só por estado, região e Brasil (sem dado municipal) ------------------------------
+# Sem municípios, a Amazônia Legal não pode ser recalculada: somar os estados incluiria o Maranhão inteiro.
+# Por isso todos usam agregacao = "publicado" (Amazônia Legal sem valor, com o motivo na nota). Ficaram de fora
+# IND-088 (vazio em todos os níveis), IND-135 e IND-172 (só Brasil).
+
+[[indicador]]
+id = "IND-008"
+rotulo = "Índice de Gini"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-014"
+rotulo = "Desemprego juvenil (18 a 24 anos)"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-015"
+rotulo = "Taxa de desocupação"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-016"
+rotulo = "Informalidade no trabalho"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-017"
+rotulo = "Renda média domiciliar"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-019"
+rotulo = "Pessoas resgatadas do trabalho escravo"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-020"
+rotulo = "Pessoas em situação de pobreza"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-150"
+chave = "IND-150-pob"
+rotulo = "Taxa de pobreza (US$ 6,85/dia)"
+categoria = "Pobreza (< US$ 6,85 PPC 2017/dia)"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-150"
+chave = "IND-150-ext"
+rotulo = "Taxa de extrema pobreza (US$ 2,15/dia)"
+categoria = "Extrema pobreza (< US$ 2,15 PPC 2017/dia)"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-031"
+rotulo = "Analfabetismo (15 anos ou mais)"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-109"
+rotulo = "Anos de estudo"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-033"
+rotulo = "Alunos de mestrado e doutorado"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-034"
+rotulo = "Docentes do ensino superior com doutorado"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-035"
+chave = "IND-035-capes"
+rotulo = "Bolsas de pós-graduação (CAPES)"
+categoria = "CAPES (mestrado e doutorado, bolsas concedidas)"
+unidade = "Nº de bolsas"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-035"
+chave = "IND-035-cnpq"
+rotulo = "Bolsas de pós-graduação (CNPq)"
+categoria = "CNPq (mestrado e doutorado, bolsas-ano)"
+unidade = "Bolsas-ano"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-078"
+rotulo = "Gasto estadual em C&T"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-161"
+rotulo = "Pedidos de patentes"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-164"
+rotulo = "Empresas no Inova Simples"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-046"
+rotulo = "Déficit habitacional"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-047"
+rotulo = "Inadequação habitacional urbana"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-108"
+rotulo = "Energia elétrica em tempo integral"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-052"
+rotulo = "Acesso à internet"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-142"
+rotulo = "Rodovias em estado bom ou ótimo"
+categorias = ["Ótimo", "Bom"]
+unidade = "% da extensão pesquisada"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-181"
+rotulo = "Carga transportada por ferrovia"
+categoria = "toneladas úteis (TU)"
+unidade = "t (toneladas úteis)"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-087"
+rotulo = "Turistas internacionais"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-054"
+rotulo = "Desmatamento anual (PRODES)"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-058"
+rotulo = "Estratégias de prevenção a desastres"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-131"
+rotulo = "Agrotóxicos comercializados"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-158"
+rotulo = "Visitas a Unidades de Conservação federais"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-079"
+rotulo = "Participação nas exportações"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-080"
+rotulo = "Participação nas importações"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-081"
+rotulo = "Contratações no FNO ABC/Biodiversidade"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-125"
+rotulo = "Indicações Geográficas registradas"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-167"
+chave = "IND-167-valor"
+rotulo = "Crédito rural contratado"
+categoria = "Valor (R$)"
+unidade = "R$"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-167"
+chave = "IND-167-qtd"
+rotulo = "Contratos de crédito rural"
+categoria = "Quantidade de contratos"
+unidade = "Nº de contratos"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-168"
+rotulo = "Municípios em consórcios públicos"
+categoria = "Municípios consorciados (%)"
+unidade = "% dos municípios"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-042"
+rotulo = "Taxa de homicídios"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-090"
+rotulo = "Taxa de feminicídio"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-049"
+rotulo = "Apreensões de drogas"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-050"
+rotulo = "Armas de fogo apreendidas"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+[[indicador]]
+id = "IND-060"
+rotulo = "Conflitos no campo"
+agregacao = "publicado"
+nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
