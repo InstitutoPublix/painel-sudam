@@ -686,30 +686,58 @@ with T["Visão Geral"]:
                 PADROES["w_vg_recortes"] = padrao  # "Voltar ao padrão" volta a Brasil e Amazônia Legal
                 escolha = st.pills("Clique para incluir ou tirar recortes do gráfico", opcoes, selection_mode="multi",
                                    key="w_vg_recortes") if opcoes else []
+                # medida do gráfico (índice ou valor) e rótulos nos pontos
+                c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
+                medidas_vg = ["Índice (base 100)", "Valor"]
+                med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[0], medidas_vg),
+                                     help="Índice: todas as linhas começam em 100, para comparar o ritmo de territórios de "
+                                          "tamanhos diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
+                rot_vg = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_vg_rot", True),
+                                        help="Escreve o valor de cada ponto no gráfico (com muitas linhas, só o primeiro e o "
+                                             "último ano de cada uma). Passar o mouse mostra o valor de qualquer ano.")
+                valor_vg = med_vg == "Valor"
                 quem = ("sem série" if not opcoes else "nenhum recorte escolhido" if not escolha
                         else escolha[0] if len(escolha) == 1 else ", ".join(escolha[:-1]) + " e " + escolha[-1])
                 theme.title(f"Evolução de {charts.low(I.label)}: {quem}",
-                            "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho.",
+                            ("O valor de cada recorte ano a ano (unidade: " + charts.low(I.unit) + ")." if valor_vg else
+                             "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho."),
                             fixo=True)
                 if not escolha:
                     st.info("Escolha ao menos um recorte acima para ver a evolução.")
                 else:
                     sr_v = sr[sr.tid.map(nome_de).isin(escolha)]
-                    plot(charts.lines(sr_v, I, "indice", height=360,
+                    ult_v = sr_v.dropna(subset=["valor"]).groupby("tid").valor.last()
+                    log_vg = bool(valor_vg and len(ult_v) > 1 and (sr_v.valor.dropna() > 0).all()
+                                  and ult_v.max() > 20 * ult_v.min())  # tamanhos muito diferentes: escala logarítmica
+                    plot(charts.lines(sr_v, I, "valor" if valor_vg else "indice", log=log_vg, height=380 if rot_vg else 360,
+                                      rotulos=rot_vg,
                                       # os dois recortes principais em verdes bem distintos; as regiões, em outras cores
                                       cores={"Amazônia Legal": theme.INK, "Brasil": "#6CC24A",
                                              **{n: c for n, c in zip(regs.label, [theme.ORANGE, theme.BLUE, "#D49A12",
                                                                                    theme.BROWN, "#8E9A93"])}},
                                       tracejado=("Brasil",), grossas=("Amazônia Legal", "Brasil")), "ov_line")
-                    tr_v = charts.transform(sr_v, "indice", I).dropna(subset=["y"])
-                    fim_v = tr_v.sort_values("ano").groupby("tid").tail(1)
-                    ini_v = tr_v.sort_values("ano").groupby("tid").ano.first()
-                    frases = [f"{nome_de[r.tid]}: <b>{'+' if r.y >= 100 else '−'}{fmt.num(abs(r.y - 100), 1)}%</b> "
-                              f"de {int(ini_v[r.tid])} a {int(r.ano)}" for r in fim_v.itertuples()
-                              if nome_de[r.tid] in ("Amazônia Legal", "Brasil") or len(fim_v) <= 3]
-                    theme.como_ler("todas as linhas começam em 100; 110 quer dizer 10% a mais que no primeiro ano. A "
-                                   "linha mais inclinada é a que mudou mais, independentemente do tamanho.",
-                                   " · ".join(frases) + "." if frases else "")
+                    if valor_vg:
+                        tr_v = sr_v.dropna(subset=["valor"]).sort_values("ano")
+                        fim_v, ini_v = tr_v.groupby("tid").tail(1), tr_v.groupby("tid").first()
+                        frases = [f"{nome_de[r.tid]}: <b>{I.fmt(r.valor)}</b> em {int(r.ano)} "
+                                  f"(<b>{I.fmt(ini_v.loc[r.tid, 'valor'])}</b> em {int(ini_v.loc[r.tid, 'ano'])})"
+                                  for r in fim_v.itertuples()
+                                  if nome_de[r.tid] in ("Amazônia Legal", "Brasil") or len(fim_v) <= 3]
+                        theme.como_ler(f"cada linha é o valor publicado ano a ano (unidade: {charts.low(I.unit)}); quanto mais "
+                                       "alta, maior o valor."
+                                       + (" A escala é logarítmica porque os tamanhos são muito diferentes: cada faixa do "
+                                          "eixo multiplica o valor." if log_vg else ""),
+                                       " · ".join(frases) + "." if frases else "")
+                    else:
+                        tr_v = charts.transform(sr_v, "indice", I).dropna(subset=["y"])
+                        fim_v = tr_v.sort_values("ano").groupby("tid").tail(1)
+                        ini_v = tr_v.sort_values("ano").groupby("tid").ano.first()
+                        frases = [f"{nome_de[r.tid]}: <b>{'+' if r.y >= 100 else '−'}{fmt.num(abs(r.y - 100), 1)}%</b> "
+                                  f"de {int(ini_v[r.tid])} a {int(r.ano)}" for r in fim_v.itertuples()
+                                  if nome_de[r.tid] in ("Amazônia Legal", "Brasil") or len(fim_v) <= 3]
+                        theme.como_ler("todas as linhas começam em 100; 110 quer dizer 10% a mais que no primeiro ano. A "
+                                       "linha mais inclinada é a que mudou mais, independentemente do tamanho.",
+                                       " · ".join(frases) + "." if frases else "")
             with right:
                 if SO_UF:  # o ranking por estado já está acima: aqui, quanto cada estado mudou
                     d = L[(L.nivel == "Estado") & (L.ind == IND) & (L.ano <= YEAR)].sort_values("ano")
@@ -1143,7 +1171,7 @@ with T["Perfil do Território"]:
                             f"{int(ini_p[r.label])} a {int(r.ano)}" for r in fim_p.itertuples()]
                 theme.como_ler(("todas as linhas começam em 100 no primeiro ano com dado; a mais inclinada é a que mudou "
                                 "mais, independentemente do tamanho." if med.startswith("Índice") else
-                                f"cada linha mostra o valor ano a ano, em {charts.low(I.unit)}; compare a linha do território com as das "
+                                f"cada linha mostra o valor ano a ano (unidade: {charts.low(I.unit)}); compare a linha do território com as das "
                                 "referências.")
                                + {1: " Neste indicador, maior é melhor.", -1: " Neste indicador, menor é melhor."}.get(
                                    I.polarity, ""),
@@ -1600,7 +1628,7 @@ with T["Séries Temporais"]:
             pol = {1: " Neste indicador, maior é melhor.", -1: " Neste indicador, menor é melhor."}.get(I.polarity, "")
             leitura = ""
             if mode == "valor":
-                explica = (f"cada linha mostra o valor ano a ano, em {charts.low(I.unit)}; quanto mais alta, maior."
+                explica = (f"cada linha mostra o valor ano a ano (unidade: {charts.low(I.unit)}); quanto mais alta, maior."
                            + (" Na escala logarítmica, linhas paralelas crescem no mesmo ritmo." if log else "") + pol)
                 if len(fim) > 1:
                     mx, mn = fim.loc[fim.y.idxmax()], fim.loc[fim.y.idxmin()]

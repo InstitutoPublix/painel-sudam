@@ -466,9 +466,12 @@ def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.D
 
 
 def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430,
-          cores: dict[str, str] | None = None, tracejado: tuple = (), grossas: tuple = ()) -> go.Figure:
+          cores: dict[str, str] | None = None, tracejado: tuple = (), grossas: tuple = (),
+          rotulos: bool = False) -> go.Figure:
     """Séries por território. cores: cor por nome de série (substitui a automática); tracejado e grossas: nomes de
-    séries desenhadas com linha tracejada ou mais grossa (para diferenciar séries de cores parecidas)."""
+    séries desenhadas com linha tracejada ou mais grossa (para diferenciar séries de cores parecidas).
+    rotulos: escreve o valor nos pontos; com mais de 8 anos, de dois em dois; com mais de 2 séries ou mais de 12 anos,
+    só nas pontas de cada série. Os rótulos de séries vizinhas ficam um acima e outro abaixo da linha."""
     t = transform(sr, mode, ind)
     fig = go.Figure()
     if t.empty:
@@ -483,11 +486,25 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
                                                "<extra></extra>"))
             continue
         hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
+        extra = {}
+        if rotulos:
+            rot = (g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1))).tolist()
+            n_pt = len(rot)
+            if len(t.label.unique()) > 2 or n_pt > 12:  # muita coisa: só o primeiro e o último ponto
+                rot = [r if i in (0, n_pt - 1) else "" for i, r in enumerate(rot)]
+            elif n_pt > 8:  # rótulos de dois em dois pontos (começando no primeiro e terminando no último), sem encostar
+                manter = set(range(0, n_pt, 2)) | {n_pt - 1}
+                if (n_pt - 1) % 2:
+                    manter.discard(n_pt - 2)  # o penúltimo ficaria colado no último
+                rot = [r if i in manter else "" for i, r in enumerate(rot)]
+            i_serie = list(dict.fromkeys(t.label)).index(lab)
+            extra = dict(text=rot, textposition="top center" if i_serie % 2 == 0 else "bottom center",
+                         textfont=dict(size=11, color=cmap[lab]), cliponaxis=False)
         fig.add_trace(go.Scatter(
-            x=g.ano, y=g.y, name=lab, mode="lines+markers", connectgaps=True,
+            x=g.ano, y=g.y, name=lab, mode="lines+markers+text" if rotulos else "lines+markers", connectgaps=True,
             line=dict(color=cmap[lab], width=3.6 if lab in grossas else 2.6, dash="dash" if lab in tracejado else "solid"),
             marker=dict(size=7, line=dict(width=1, color=SURFACE)),
-            text=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{text}}</b><extra></extra>"))
+            customdata=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{customdata}}</b><extra></extra>", **extra))
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),
                       yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",
