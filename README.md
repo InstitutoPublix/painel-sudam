@@ -36,6 +36,16 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
 - **Amazônia Legal:** calculada a partir dos municípios com `Amazônia Legal = SIM`, pela regra da ficha: soma, ou
   média ponderada (razão entre totais) com o `peso` do config. Brasil, Regiões e Estados vêm prontos da planilha.
   O peso pode ser outro indicador (`peso`) ou uma coluna da planilha que não está no painel (`peso_coluna`).
+- **Peso do Censo (`peso_censo`):** indicadores dos Censos (urbanização, razão de dependência, população indígena e
+  quilombola) vêm na planilha só como taxa de cada município, sem a população que os originou. Para a Amazônia Legal
+  bater com o IBGE (somar os municípios e recalcular a razão, como manda a ficha), o build usa como peso a população dos
+  Censos 2010 e 2022 em `assets/censo_municipios.csv`, que o script `python scripts/censo_ibge.py` baixa do SIDRA
+  (tabelas 9923, 202, 9514 e 200, as mesmas do Roteiro de Extração). Use `peso_censo = "pop_total"` (ou `pop_urbana`,
+  `pop_0_14`, `pop_15_64`, `pop_65_mais`) no bloco do indicador. Se a planilha passar a trazer essa população, o
+  `peso_coluna` substitui o arquivo.
+- **Soma dos estados (`agregacao = "soma_estados"`):** quando o dado municipal é parcial (o IBGE suprime municípios
+  pequenos na amostra, como na migração internacional), a Amazônia Legal é a soma dos estados dela, e o Maranhão entra
+  inteiro. O painel avisa isso na nota do indicador.
 - **Conferência da regra:** antes de incluir um indicador, aplique a regra aos municípios de cada estado e compare com
   a aba Estadual. Quando a planilha não traz o denominador exato, o painel aceita uma aproximação só se a diferença
   for pequena (mediana até 1,5%) e a registra em `nota_agregacao`, que aparece no painel. Quando nenhuma regra

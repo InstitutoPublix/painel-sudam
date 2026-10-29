@@ -244,8 +244,10 @@ def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
     """Uma entrada por faixa existente: intervalo de valores (um só valor quando a faixa é de valores iguais)
     e quantos territórios ela reúne."""
     rng = band_ranges(df.valor)
+    limites = [x for lo, hi, _ in rng for x in (lo, hi)]
+    txt = dict(zip(limites, ind.fmt_col(limites)))  # todos os limites na mesma escala
     def faixa(lo, hi):
-        return ind.fmt(lo) if ind.fmt(lo) == ind.fmt(hi) else f"{ind.fmt(lo)} – {ind.fmt(hi)}"
+        return txt[lo] if txt[lo] == txt[hi] else f"{txt[lo]} – {txt[hi]}"
     items = "".join(f'<span><i style="background:{c}"></i>{faixa(lo, hi)} <em>({n})</em></span>'
                     for c, (lo, hi, n) in zip(band_colors(ind, len(rng)), rng))
     nota = ""
@@ -320,7 +322,7 @@ def hbar(df: pd.DataFrame, ind: Indicator, n: int = 10, highlight: str | None = 
         cols = [color] * len(d)
     fig = go.Figure(go.Bar(
         x=d.valor, y=d.label, orientation="h", marker=dict(color=cols, cornerradius=4),
-        text=d.valor.map(ind.fmt), textposition="outside", cliponaxis=False,
+        text=ind.fmt_col(d.valor), textposition="outside", cliponaxis=False,
         hovertemplate="%{y}<br><b>%{text}</b><extra></extra>"))
     fig.update_layout(height=height or max(240, 30 * len(d) + 40), margin=dict(l=0, r=70, t=6, b=6),
                       yaxis=dict(automargin=True, tickfont=dict(size=11)), xaxis=dict(visible=False))
@@ -330,12 +332,13 @@ def hbar(df: pd.DataFrame, ind: Indicator, n: int = 10, highlight: str | None = 
 def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int | None = None) -> go.Figure:
     """df: label, nivel, valor — barras horizontais coloridas por granularidade."""
     d = df.sort_values("valor")
+    d = d.assign(_t=ind.fmt_col(d.valor))  # rótulos na mesma escala em todas as barras
     fig = go.Figure()
     for nivel, g in d.groupby("nivel", sort=False):
         fig.add_trace(go.Bar(
             x=g.valor, y=g.label, orientation="h", name=nivel, marker=dict(color=LEVEL_COLOR.get(nivel, MUTED),
                                                                           cornerradius=3),
-            text=g.valor.map(ind.fmt), textposition="outside", cliponaxis=False,
+            text=g._t, textposition="outside", cliponaxis=False,
             hovertemplate="%{y} · " + nivel + "<br><b>%{text}</b><extra></extra>"))
     fig.update_layout(height=height or max(360, 22 * len(d) + 80), barmode="overlay",
                       margin=dict(l=0, r=70, t=34, b=6),
@@ -380,7 +383,7 @@ def bars_by_uf(df: pd.DataFrame, ind: Indicator, height: int | None = None) -> g
     nome = {"mediana": "Município típico (mediana)", "media": "% dos municípios", "soma": "Total da UF"}[medida]
     fig = go.Figure(go.Bar(
         x=r.v, y=r.index, orientation="h", marker=dict(color=ACCENT, cornerradius=4),
-        text=r.v.map(ind.fmt), textposition="outside", cliponaxis=False,
+        text=ind.fmt_col(r.v), textposition="outside", cliponaxis=False,
         customdata=np.column_stack([r.n, r["menor"], r["min"].map(ind.fmt), r["maior"], r["max"].map(ind.fmt)]),
         hovertemplate="<b>%{y}</b> · %{customdata[0]} municípios<br>" + nome + ": <b>%{text}</b><br>"
                       "Menor: %{customdata[1]} (%{customdata[2]})<br>Maior: %{customdata[3]} (%{customdata[4]})"
@@ -465,13 +468,27 @@ def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.D
     return pd.concat(out) if out else pd.DataFrame(columns=list(sr.columns) + ["y"])
 
 
+def _ralear(rot: list[str], n_series: int) -> list[str]:
+    """Escolhe quais rótulos de uma série ficam visíveis: todos; só o primeiro e o último com 3 séries ou mais; de dois
+    em dois (terminando no último) com mais de 14 pontos."""
+    n_pt = len(rot)
+    if n_series > 2:
+        return [r if i in (0, n_pt - 1) else "" for i, r in enumerate(rot)]
+    if n_pt > 14:
+        manter = set(range(0, n_pt, 2)) | {n_pt - 1}
+        if (n_pt - 1) % 2:
+            manter.discard(n_pt - 2)
+        return [r if i in manter else "" for i, r in enumerate(rot)]
+    return rot
+
+
 def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430,
           cores: dict[str, str] | None = None, tracejado: tuple = (), grossas: tuple = (),
           rotulos: bool = False) -> go.Figure:
     """Séries por território. cores: cor por nome de série (substitui a automática); tracejado e grossas: nomes de
     séries desenhadas com linha tracejada ou mais grossa (para diferenciar séries de cores parecidas).
-    rotulos: escreve o valor nos pontos; com mais de 8 anos, de dois em dois; com mais de 2 séries ou mais de 12 anos,
-    só nas pontas de cada série. Os rótulos de séries vizinhas ficam um acima e outro abaixo da linha."""
+    rotulos: escreve o valor em todos os pontos; com 3 séries ou mais, só no primeiro e no último de cada uma; com mais
+    de 14 anos, de dois em dois. Os rótulos de séries vizinhas ficam um acima e outro abaixo da linha."""
     t = transform(sr, mode, ind)
     fig = go.Figure()
     if t.empty:
@@ -481,30 +498,49 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
     cmap.update({k: v for k, v in (cores or {}).items() if k in cmap})
     for lab, g in t.groupby("label", sort=False):
         if mode == "var":
+            extra_b = {}
+            if rotulos:
+                # "*": depois de anos sem dado, a variação é a média por ano desde o último ano com dado
+                rot_b = _ralear([ind.fmt_diff(v) + ("*" if d > 1 else "") for v, d in zip(g.y, g.dy)],
+                                len(t.label.unique()))
+                extra_b = dict(text=rot_b, textposition="outside", cliponaxis=False,
+                               textfont=dict(size=10, color=cmap[lab]))
             fig.add_trace(go.Bar(x=g.ano, y=g.y, name=lab, marker_color=cmap[lab], opacity=.9,
                                  hovertemplate=f"{lab}<br>%{{x}}: <b>%{{y:.{ind.diff_decimals}f}} {un}</b>"
-                                               "<extra></extra>"))
+                                               "<extra></extra>", **extra_b))
             continue
         hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
         extra = {}
         if rotulos:
             rot = (g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1))).tolist()
             n_pt = len(rot)
-            if len(t.label.unique()) > 2 or n_pt > 12:  # muita coisa: só o primeiro e o último ponto
-                rot = [r if i in (0, n_pt - 1) else "" for i, r in enumerate(rot)]
-            elif n_pt > 8:  # rótulos de dois em dois pontos (começando no primeiro e terminando no último), sem encostar
-                manter = set(range(0, n_pt, 2)) | {n_pt - 1}
-                if (n_pt - 1) % 2:
-                    manter.discard(n_pt - 2)  # o penúltimo ficaria colado no último
-                rot = [r if i in manter else "" for i, r in enumerate(rot)]
+            rot = _ralear(rot, len(t.label.unique()))
             i_serie = list(dict.fromkeys(t.label)).index(lab)
             extra = dict(text=rot, textposition="top center" if i_serie % 2 == 0 else "bottom center",
-                         textfont=dict(size=11, color=cmap[lab]), cliponaxis=False)
+                         textfont=dict(size=10 if n_pt > 8 else 11, color=cmap[lab]), cliponaxis=False)
+        # anos sem dado no meio da série: a linha principal é cortada ali e o trecho é refeito pontilhado e mais
+        # claro, para ninguém achar que há um ponto faltando por erro
+        xs, ys, cds, lacunas = [], [], [], []
+        ts = extra.get("text")
+        tx = []
+        anos_g, y_g, hv_g = g.ano.tolist(), g.y.tolist(), list(hv)
+        for i, (a, yv) in enumerate(zip(anos_g, y_g)):
+            if i and a - anos_g[i - 1] > 1:
+                lacunas.append((anos_g[i - 1], y_g[i - 1], a, yv))
+                xs.append(anos_g[i - 1] + 1), ys.append(None), cds.append(""), tx.append("")
+            xs.append(a), ys.append(yv), cds.append(hv_g[i]), tx.append(ts[i] if ts is not None else "")
+        if ts is not None:
+            extra["text"] = tx
+        largura = 3.6 if lab in grossas else 2.6
         fig.add_trace(go.Scatter(
-            x=g.ano, y=g.y, name=lab, mode="lines+markers+text" if rotulos else "lines+markers", connectgaps=True,
-            line=dict(color=cmap[lab], width=3.6 if lab in grossas else 2.6, dash="dash" if lab in tracejado else "solid"),
-            marker=dict(size=7, line=dict(width=1, color=SURFACE)),
-            customdata=hv, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{customdata}}</b><extra></extra>", **extra))
+            x=xs, y=ys, name=lab, mode="lines+markers+text" if rotulos else "lines+markers", connectgaps=False,
+            line=dict(color=cmap[lab], width=largura, dash="dash" if lab in tracejado else "solid"),
+            marker=dict(size=7, line=dict(width=1, color=SURFACE)), legendgroup=lab,
+            customdata=cds, hovertemplate=f"{lab}<br>%{{x}}: <b>%{{customdata}}</b><extra></extra>", **extra))
+        for a0, y0, a1, y1 in lacunas:
+            fig.add_trace(go.Scatter(
+                x=[a0, a1], y=[y0, y1], mode="lines", showlegend=False, legendgroup=lab, hoverinfo="skip",
+                line=dict(color=cmap[lab], width=max(largura - 1, 1.6), dash="dot"), opacity=.55))
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),
                       yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",

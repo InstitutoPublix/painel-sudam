@@ -35,6 +35,10 @@ DATA_DIR = ROOT / "data"
 OUT_DIR = ROOT / "build"
 CONFIG = ROOT / "config" / "indicadores.toml"
 GEO_MUN = ROOT / "assets" / "geo" / "mun.json"
+CENSO = ROOT / "assets" / "censo_municipios.csv"  # população dos Censos 2010 e 2022 (scripts/censo_ibge.py)
+CAMPOS_CENSO = {"pop_total": "população do Censo", "pop_urbana": "população urbana do Censo",
+                "pop_0_14": "população de 0 a 14 anos do Censo", "pop_15_64": "população de 15 a 64 anos do Censo",
+                "pop_65_mais": "população de 65 anos ou mais do Censo"}
 
 LISTA = "Lista de Indicadores"
 LISTA_HEADER_ROW = 4  # linhas 0–3 são título e grupos de colunas
@@ -129,7 +133,7 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
     formato = item.get("formato", default_fmt)
     # somável (participação no total, escala log): regra "soma" ou ficha que manda somar, mesmo quando a Amazônia
     # Legal fica sem valor (ex.: dado só por estado); `aditivo` no config decide quando a ficha engana
-    somavel = bool(item.get("aditivo", rule == "soma" or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
+    somavel = bool(item.get("aditivo", rule in ("soma", "soma_estados") or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
     casas = item.get("casas", {"percentual": 1, "moeda": 0}.get(formato, 0 if somavel else 2))
     pol = norm(ficha["polarity"])
     return {
@@ -260,7 +264,7 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     out = pd.DataFrame({"ano": years})
     cols: dict[str, pd.Series] = {}  # montadas à parte e unidas no fim (evita fragmentar o DataFrame)
     for i, (rule, peso) in rules.items():
-        if rule == "publicado":
+        if rule in ("publicado", "soma_estados"):  # soma_estados: preenchida depois, a partir da aba Estadual
             cols[i] = pd.Series(np.nan, index=out.index)
             continue
         if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
@@ -333,6 +337,7 @@ def main():
     fichas: list[dict] = []
     chaves = {it["chave"] for it in items}
     pesos_coluna: dict[str, str] = {}  # pesos lidos direto de uma coluna da planilha (`peso_coluna`), sem ficha própria
+    pesos_censo: dict[str, str] = {}  # pesos que vêm do arquivo do Censo (`peso_censo`): chave -> campo de CAMPOS_CENSO
     for it in items:
         i, ref = it["chave"], it["id"]
         if ref not in lista.index:
@@ -347,7 +352,13 @@ def main():
         if it.get("peso_coluna"):
             peso = f"{i}#peso"
             pesos_coluna[peso] = it["peso_coluna"]
-        if rule not in ("soma", "media_ponderada", "media_simples", "publicado"):
+        if it.get("peso_censo"):
+            if it["peso_censo"] not in CAMPOS_CENSO:
+                rep.error(f"{i}: peso_censo '{it['peso_censo']}' desconhecido (use um de {', '.join(CAMPOS_CENSO)}).")
+                continue
+            peso = f"{i}#censo"
+            pesos_censo[peso] = it["peso_censo"]
+        if rule not in ("soma", "soma_estados", "media_ponderada", "media_simples", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
             continue
@@ -355,7 +366,7 @@ def main():
             rep.error(f"{i}: média ponderada exige `peso` em config/indicadores.toml "
                       f"(a ficha cita: '{ficha['weight']}').")
             continue
-        if peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna:
+        if peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna and peso not in pesos_censo:
             rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}' nem em config/indicadores.toml.")
             continue
         rules[i] = (rule, peso if rule == "media_ponderada" else None)
@@ -364,7 +375,7 @@ def main():
         fichas.append(ficha)
 
     cfg_by_key = {it["chave"]: it for it in items}
-    weights = {p for _, p in rules.values() if p}
+    weights = {p for _, p in rules.values() if p and p not in pesos_censo}  # os do Censo não vêm da planilha
 
     def coluna(i: str) -> str:
         """Coluna de cada entrada: `coluna` explícita, a `categoria` da ficha ("Nome — Categoria"), todas as
@@ -384,6 +395,8 @@ def main():
     wanted = {i: coluna(i) for i in [*rules, *sorted(weights - set(rules))]}
 
     def nome_peso(p: str) -> str:
+        if p in pesos_censo:
+            return CAMPOS_CENSO[pesos_censo[p]] + " (SIDRA/IBGE)"
         if p in pesos_coluna:
             return pesos_coluna[p].split(CAT)[-1]
         it = cfg_by_key.get(p)
@@ -397,6 +410,16 @@ def main():
 
     mun, est, reg, bra = (frames[k] for k in ("Município", "Estado", "Grande Região", "Brasil"))
     ind_ids = list(rules)
+
+    if pesos_censo:  # população do Censo por município e ano (2010 e 2022), usada como peso nas médias ponderadas
+        if not CENSO.exists():
+            rep.error(f"{CENSO.relative_to(ROOT)} não encontrado: rode `python scripts/censo_ibge.py`.")
+            return finish(rep, None)
+        censo = pd.read_csv(CENSO)
+        extra = {k: censo.set_index(["cod", "ano"])[campo] for k, campo in pesos_censo.items()}
+        chave = pd.MultiIndex.from_frame(mun[["cod", "ano"]])
+        mun = pd.concat([mun, pd.DataFrame({k: v.reindex(chave).to_numpy() for k, v in extra.items()}, index=mun.index)],
+                        axis=1)
 
     # municípios fora da malha do IBGE usada nos mapas
     try:
@@ -415,6 +438,13 @@ def main():
     est["al"] = est.uf.isin(al_ufs)
     est["regiao"] = (est.cod // 10).map(REGIONS)
     amz = amazonia_legal(mun, rules, minimos, rep)
+    # soma dos estados: o indicador só é divulgado para parte dos municípios, então o total da Amazônia Legal é a soma dos
+    # estados (ex.: migração internacional). O Maranhão entra inteiro, pois o dado municipal não separa a parte da região.
+    for i, (rule, _) in rules.items():
+        if rule == "soma_estados" and i in est:
+            ea = est[est.al]
+            s_est = ea.groupby("ano")[i].sum(min_count=1).where(ea.groupby("ano")[i].count() == ea.uf.nunique())
+            amz[i] = amz.ano.map(s_est)
 
     # estados só em parte na Amazônia Legal (ex.: Maranhão): valor da parcela do estado na região, calculado a partir
     # dos municípios marcados como Amazônia Legal, com a mesma regra de agregação de cada indicador. Entra como o
@@ -467,11 +497,12 @@ def main():
         rule, peso = rules[i]
         f["aggregationApplied"] = (
             "Soma dos municípios" if rule == "soma"
+            else "Soma dos estados da Amazônia Legal (o Maranhão entra inteiro)" if rule == "soma_estados"
             else "Sem valor próprio: a fonte publica o indicador pronto em cada nível e a planilha não traz os totais "
                  "para recalculá-lo a partir dos municípios" if rule == "publicado"
             else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
             else f"Média ponderada dos municípios por {nome_peso(peso)}")
-        if rule != "publicado":
+        if rule not in ("publicado", "soma_estados"):
             f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
                                         else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
         nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais

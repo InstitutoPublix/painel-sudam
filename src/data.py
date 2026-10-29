@@ -71,6 +71,26 @@ class Indicator:
             return pre + fmt.compact(v)
         return pre + fmt.num(v, self.decimals)
 
+    def fmt_col(self, valores) -> list[str]:
+        """Formata uma coluna ou um conjunto de valores do mesmo indicador com UMA escala só, para a leitura ficar
+        comparável (evita "8,8 mi" ao lado de "887.794"). Até 1 bilhão, números inteiros com separador de milhar;
+        acima disso, uma unidade comum (mi, bi ou tri) escolhida pela mediana."""
+        vs = [float("nan") if fmt.isna(v) else float(v) for v in valores]
+        if self.kind == "percentual":
+            return [self.fmt(v) for v in vs]
+        a = [abs(v * self.scale) for v in vs if not fmt.isna(v)]
+        if not a or max(a) < 1e6:
+            return [self.fmt(v) for v in vs]
+        pre = "R$ " if self.kind == "moeda" else ""
+        if max(a) < 1e9:
+            return ["—" if fmt.isna(v) else pre + fmt.num(v * self.scale, self.decimals) for v in vs]
+        nz = sorted(x for x in a if x > 0)
+        med = nz[len(nz) // 2] if nz else 0
+        un, suf = ((1e12, " tri") if med >= 1e12 else (1e9, " bi") if med >= 1e9 else (1e6, " mi") if med >= 1e6
+                   else (1, ""))
+        return ["—" if fmt.isna(v) else pre + (fmt.num(v * self.scale, self.decimals) if un == 1
+                                              else fmt.num(v * self.scale / un, 1) + suf) for v in vs]
+
     @property
     def polarity_text(self) -> str:
         return {1: "maior é melhor", -1: "menor é melhor"}.get(self.polarity, "")
@@ -277,7 +297,7 @@ AGRUPAMENTOS = {
     "idhm": "Classe do IDHM (2010)",
 }
 # filtros Sim/Não (colunas booleanas)
-AGRUPAMENTOS_SN = {"fronteira": "Cidade de fronteira", "sede_imediata": "Sede de região imediata"}
+AGRUPAMENTOS_SN = {"fronteira": "Município de fronteira", "sede_imediata": "Sede de região imediata"}
 ORDEM_CLASSES = ["Muito baixo", "Baixo", "Médio", "Alto", "Muito alto"]
 
 
