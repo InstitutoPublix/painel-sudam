@@ -236,6 +236,16 @@ def read_level(book: pd.ExcelFile, level: str, wanted: dict[str, str], rep: Repo
 # --------------------------------------------------------------------------- #
 # Amazônia Legal
 # --------------------------------------------------------------------------- #
+def taxa_censo(cods, censo: pd.DataFrame) -> float:
+    """Taxa média geométrica anual de crescimento da população entre os Censos de 2010 e 2022 (12 anos), recalculada a
+    partir dos totais dos municípios `cods`, como manda a ficha: [(pop 2022 ÷ pop 2010)^(1/12) − 1] × 100.
+    Municípios criados depois de 2010 não têm população em 2010 (ela está contada no município de origem), então o total
+    de 2010 soma os que já existiam e o de 2022 soma todos; o conjunto é o mesmo território nos dois anos."""
+    c = censo[censo.cod.isin(set(cods))]
+    p10, p22 = c.loc[c.ano == 2010, "pop_total"].sum(), c.loc[c.ano == 2022, "pop_total"].sum()
+    return float(((p22 / p10) ** (1 / 12) - 1) * 100) if p10 > 0 and p22 > 0 else float("nan")
+
+
 def interpolated(mun: pd.DataFrame, col: str) -> pd.DataFrame:
     """Peso por município × ano, com anos sem dado interpolados (linear) ou repetidos nas pontas."""
     p = mun.pivot(index="cod", columns="ano", values=col).sort_index(axis=1)
@@ -264,7 +274,7 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     out = pd.DataFrame({"ano": years})
     cols: dict[str, pd.Series] = {}  # montadas à parte e unidas no fim (evita fragmentar o DataFrame)
     for i, (rule, peso) in rules.items():
-        if rule in ("publicado", "soma_estados"):  # soma_estados: preenchida depois, a partir da aba Estadual
+        if rule in ("publicado", "soma_estados", "taxa_censo"):  # as duas últimas são preenchidas depois (ver main)
             cols[i] = pd.Series(np.nan, index=out.index)
             continue
         if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
@@ -358,7 +368,7 @@ def main():
                 continue
             peso = f"{i}#censo"
             pesos_censo[peso] = it["peso_censo"]
-        if rule not in ("soma", "soma_estados", "media_ponderada", "media_simples", "publicado"):
+        if rule not in ("soma", "soma_estados", "taxa_censo", "media_ponderada", "media_simples", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
             continue
@@ -411,15 +421,18 @@ def main():
     mun, est, reg, bra = (frames[k] for k in ("Município", "Estado", "Grande Região", "Brasil"))
     ind_ids = list(rules)
 
-    if pesos_censo:  # população do Censo por município e ano (2010 e 2022), usada como peso nas médias ponderadas
+    censo = None
+    if pesos_censo or any(r == "taxa_censo" for r, _ in rules.values()):
+        # população do Censo por município e ano (2010 e 2022): peso das médias ponderadas e base da taxa de crescimento
         if not CENSO.exists():
             rep.error(f"{CENSO.relative_to(ROOT)} não encontrado: rode `python scripts/censo_ibge.py`.")
             return finish(rep, None)
         censo = pd.read_csv(CENSO)
-        extra = {k: censo.set_index(["cod", "ano"])[campo] for k, campo in pesos_censo.items()}
-        chave = pd.MultiIndex.from_frame(mun[["cod", "ano"]])
-        mun = pd.concat([mun, pd.DataFrame({k: v.reindex(chave).to_numpy() for k, v in extra.items()}, index=mun.index)],
-                        axis=1)
+        if pesos_censo:
+            extra = {k: censo.set_index(["cod", "ano"])[campo] for k, campo in pesos_censo.items()}
+            chave = pd.MultiIndex.from_frame(mun[["cod", "ano"]])
+            mun = pd.concat([mun, pd.DataFrame({k: v.reindex(chave).to_numpy() for k, v in extra.items()}, index=mun.index)],
+                            axis=1)
 
     # municípios fora da malha do IBGE usada nos mapas
     try:
@@ -441,6 +454,9 @@ def main():
     # soma dos estados: o indicador só é divulgado para parte dos municípios, então o total da Amazônia Legal é a soma dos
     # estados (ex.: migração internacional). O Maranhão entra inteiro, pois o dado municipal não separa a parte da região.
     for i, (rule, _) in rules.items():
+        if rule == "taxa_censo" and i in mun:  # a taxa fica no mesmo ano em que a planilha a grava (2022)
+            ano_i = int(mun.loc[mun[i].notna(), "ano"].max())
+            amz[i] = amz.ano.map({ano_i: taxa_censo(mun.loc[mun.al, "cod"], censo)})
         if rule == "soma_estados" and i in est:
             ea = est[est.al]
             s_est = ea.groupby("ano")[i].sum(min_count=1).where(ea.groupby("ano")[i].count() == ea.uf.nunique())
@@ -456,6 +472,10 @@ def main():
             continue
         e = est[est.uf == uf].iloc[0]
         p = amazonia_legal(mu, rules, minimos, rep, f"{e.nome} (parte na Amazônia Legal)")
+        for i, (rule, _) in rules.items():  # a taxa de crescimento da parte do estado na região
+            if rule == "taxa_censo" and i in mu:
+                ano_i = int(mun.loc[mun[i].notna(), "ano"].max())
+                p[i] = p.ano.map({ano_i: taxa_censo(mu.loc[mu.al, "cod"], censo)})
         p["cod"], p["nome"], p["uf"], p["regiao"], p["al"] = (int(e.cod), f"{e.nome} (parte na Amazônia Legal)", uf,
                                                            e.regiao, True)
         parciais.append(p)
@@ -498,11 +518,12 @@ def main():
         f["aggregationApplied"] = (
             "Soma dos municípios" if rule == "soma"
             else "Soma dos estados da Amazônia Legal (o Maranhão entra inteiro)" if rule == "soma_estados"
+            else "Taxa recalculada com a população dos Censos 2010 e 2022 somada nos municípios" if rule == "taxa_censo"
             else "Sem valor próprio: a fonte publica o indicador pronto em cada nível e a planilha não traz os totais "
                  "para recalculá-lo a partir dos municípios" if rule == "publicado"
             else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
             else f"Média ponderada dos municípios por {nome_peso(peso)}")
-        if rule not in ("publicado", "soma_estados"):
+        if rule not in ("publicado", "soma_estados", "taxa_censo"):
             f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
                                         else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
         nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais

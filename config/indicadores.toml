@@ -28,6 +28,7 @@
 #   peso_censo   usa a população do Censo (assets/censo_municipios.csv, gerado por scripts/censo_ibge.py) como peso da média
 #                ponderada: "pop_total", "pop_urbana", "pop_0_14", "pop_15_64" ou "pop_65_mais"
 #   agregacao = "soma_estados"  a Amazônia Legal é a soma dos estados dela (quando o dado municipal é parcial)
+#   agregacao = "taxa_censo"    taxa de crescimento 2010–2022 da Amazônia Legal, recalculada com a população dos Censos
 
 # --- Indicadores que já estavam no painel ------------------------------------------------------
 
@@ -145,6 +146,7 @@ rotulo = "Empresas de biotecnologia e saúde"
 # e recalcular a razão, como manda a ficha). Confere com o valor oficial do IBGE (2022: 78,34%).
 id = "IND-003"
 rotulo = "Taxa de urbanização"
+casas = 2  # o IBGE publica o Censo com duas casas (ex.: 78,34%)
 agregacao = "media_ponderada"
 peso_censo = "pop_total"
 nota_agregacao = "calculada com a população do Censo, como manda a ficha; confere com o valor do IBGE"
@@ -153,6 +155,7 @@ nota_agregacao = "calculada com a população do Censo, como manda a ficha; conf
 # Censo: peso = população total do Censo (equivale a somar as pessoas e recalcular a proporção)
 id = "IND-004"
 rotulo = "População indígena"
+casas = 2
 agregacao = "media_ponderada"
 peso_censo = "pop_total"
 nota_agregacao = "calculada com a população do Censo, como manda a ficha"
@@ -317,11 +320,13 @@ peso_censo = "pop_total"
 nota_agregacao = "calculada com a população do Censo, como manda a ficha"
 
 [[indicador]]
-# Amazônia Legal sem valor: taxa de crescimento: precisa das populações de 2010 e 2022, que a planilha não traz
+# Taxa de crescimento: a planilha traz só a taxa de cada município. A Amazônia Legal é recalculada com a população dos
+# Censos (assets/censo_municipios.csv): [(pop 2022 ÷ pop 2010)^(1/12) − 1] × 100, como manda a ficha.
 id = "IND-009"
 rotulo = "Crescimento populacional anual"
-agregacao = "publicado"
-nota_agregacao = "taxa de crescimento: precisa das populações de 2010 e 2022, que a planilha não traz"
+casas = 2  # 0,75% ao ano na Amazônia Legal, 0,52% no Brasil
+agregacao = "taxa_censo"
+nota_agregacao = "recalculada com a população dos Censos 2010 e 2022, como manda a ficha"
 
 [[indicador]]
 # Censo: média das razões municipais ponderada pela população de 15 a 64 anos = (0–14 + 65+) ÷ (15–64) somados nos municípios,
@@ -407,7 +412,7 @@ nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos esta
 # Amazônia Legal sem valor: precisa do PIB e dos vínculos somados; a média dos municípios difere demais
 id = "IND-175"
 rotulo = "Produtividade do trabalho (PIB por vínculo formal)"
-categoria = "por vínculo formal (RAIS)"
+categoria = "por vínculo formal (Relação Anual de Informações Sociais, RAIS)"
 unidade = "R$ por vínculo formal"
 agregacao = "publicado"
 nota_agregacao = "precisa do PIB e dos vínculos somados; a média dos municípios difere demais"
@@ -1281,7 +1286,7 @@ nota_agregacao = "precisa da dotação de investimentos, que a planilha não tra
 # aproximação conferida: diferença mediana 0.3% e até 1.0% em 9 de cada 10 estados-ano
 id = "IND-190"
 rotulo = "Mortes violentas intencionais"
-categoria = "Sinesp, sem mortes por intervenção policial"
+categoria = "Sistema Nacional de Informações de Segurança Pública (Sinesp), sem mortes por intervenção policial"
 agregacao = "media_ponderada"
 peso = "IND-001"
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,3%"
@@ -1337,7 +1342,7 @@ nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o M
 id = "IND-150"
 chave = "IND-150-pob"
 rotulo = "Taxa de pobreza (US$ 6,85/dia)"
-categoria = "Pobreza (< US$ 6,85 PPC 2017/dia)"
+categoria = "Pobreza (menos de US$ 6,85 por dia, em paridade de poder de compra, PPC de 2017)"
 unidade = "%"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
@@ -1346,7 +1351,7 @@ nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o M
 id = "IND-150"
 chave = "IND-150-ext"
 rotulo = "Taxa de extrema pobreza (US$ 2,15/dia)"
-categoria = "Extrema pobreza (< US$ 2,15 PPC 2017/dia)"
+categoria = "Extrema pobreza (menos de US$ 2,15 por dia, em paridade de poder de compra, PPC de 2017)"
 unidade = "%"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
