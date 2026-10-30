@@ -125,6 +125,8 @@ h1, h2, h3 {{ color: {INK}; }}
 .logos span {{ font-weight:800; letter-spacing:.04em; font-size:.95rem; color:{INK}; }}
 .logos small {{ display:block; font-weight:500; font-size:.55rem; letter-spacing:.18em; color:{MUTED}; text-align:center; }}
 .logos .sep {{ width:1px; height:30px; background:{LINE}; }}
+/* assinatura única enviada pelo design: uma imagem larga, que encolhe junto com a janela */
+.logos.assinatura img {{ height:50px; max-width:100%; object-fit:contain; }}
 
 /* abas */
 div[data-baseweb="tab-list"] {{ gap:4px; border-bottom:1px solid {LINE}; }}
@@ -252,6 +254,7 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .footer {{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
   color:{MUTED}; font-size:.72rem; padding:22px 0 6px; border-top:1px solid {LINE}; margin-top:30px; }}
 .footer .logos img {{ height:30px; }} .footer .logos img.pnud {{ height:36px; }} .footer .logos img.publix {{ height:17px; }}
+.footer .logos.assinatura img {{ height:40px; }}
 
 /* widgets */
 div[data-testid="stMetric"] {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:12px; padding:10px 14px; }}
@@ -316,9 +319,17 @@ def _data_uri(stem) -> str | None:
     return None
 
 
+ASSINATURA_ALT = ("Instituto Publix, PNUD, SUDAM, Ministério da Integração e do Desenvolvimento Regional e Governo do Brasil")
+
+
 @st.cache_data(show_spinner=False)
 def logos_html() -> str:
-    """Logos de assets/logos/{pnud,sudam,publix}.(svg|png|webp|jpg); sem arquivo, mostra o nome em texto."""
+    """Assinatura institucional enviada pelo design (assets/logos/assinatura.png, recorte de assina_sudam.png), na ordem
+    Publix, PNUD, SUDAM, Ministério da Integração e do Desenvolvimento Regional e bandeira. Sem esse arquivo, cai nas logos
+    avulsas de assets/logos/{pnud,sudam,publix}.(svg|png|webp|jpg) e, sem elas, no nome em texto."""
+    uri_assinatura = _data_uri(LOGOS / "assinatura")
+    if uri_assinatura:
+        return f'<div class="logos assinatura"><img src="{uri_assinatura}" alt="{ASSINATURA_ALT}"></div>'
     items = []
     for key, name, sub in (("pnud", "PNUD", "BRASIL"), ("sudam", "SUDAM", "AMAZÔNIA"), ("publix", "PUBLIX", "INSTITUTO")):
         uri = _data_uri(LOGOS / key)

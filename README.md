@@ -143,6 +143,6 @@ Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · 
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual
 - `scripts/build_data.py`: planilha → bases do painel · `scripts/upload_gcs.py`: bases → bucket · `scripts/catalogo.py`: catálogo dos indicadores · `config/indicadores.toml`: indicadores ativos
 - `assets/geo/`: malhas do IBGE · `assets/indicators.json`: cores e descrições dos eixos
-- `assets/logos/`: logos do topo e do rodapé (`pnud`, `sudam`, `publix`) e o emblema do projeto (`emblema`), em
+- `assets/logos/`: a assinatura institucional do topo e do rodapé (`assinatura.png`, recorte de `assina_sudam.png`, enviada pelo design: Publix, PNUD, SUDAM, Ministério da Integração e do Desenvolvimento Regional e bandeira); as logos avulsas (`pnud`, `sudam`, `publix`) valem só se esse arquivo não existir. Também o emblema do projeto (`emblema`), em
   `.svg`, `.png`, `.webp` ou `.jpg`, já recortados e leves; os arquivos de origem ficam em `assets/logos/originais/`.
   Sem arquivo, o nome aparece em texto · `assets/brand/ilustracao.*`: arte da capa (opcional; sem ela, usa um mosaico)
