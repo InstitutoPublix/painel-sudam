@@ -416,7 +416,7 @@ def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
         f"""<div class="hero"><div class="art">{left}</div><div class="txt">
         <h1>Diagnóstico Quantitativo da Amazônia Legal</h1>
         <div class="rule"></div>
-        <div class="sub">Superintendência de Desenvolvimento da Amazônia</div>
+        <div class="sub">Superintendência do Desenvolvimento da Amazônia</div>
         <div class="sub2">{n_ufs} estados · {n_mun} municípios · Projeto BRA/21/005 · SUDAM · PNUD · Instituto Publix</div>
         <p>Explore os indicadores por <b>Brasil, Amazônia Legal, Grandes Regiões, Estados e Municípios</b>:
         mapas temáticos, séries históricas, rankings e comparações entre territórios e escalas.</p>
