@@ -56,6 +56,9 @@ def nota_parcial(modo: str = "inteiro") -> str:
     if al_por_estados():  # o total é a soma dos 9 estados, com o Maranhão inteiro
         return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro, que também entra inteiro no total da Amazônia Legal"
                          for u in PARCIAL) + "."
+    if modo != "parcela" and "Amazônia Legal" not in D["meta"].get(globals().get("IND"), {}).get("levels", []):
+        return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; não há valor específico para sua parte na "
+                         "Amazônia Legal nem índice agregado da região para este indicador" for u in PARCIAL) + "."
     texto = {
         "parcela": "{n}: só a parte do estado que está na Amazônia Legal ({a} de {t} municípios)",
         "sem_parcela": "{n}: valor do estado inteiro, pois este indicador não existe só para a parte na Amazônia Legal. "
@@ -69,6 +72,9 @@ def nota_al() -> str:
     """Aviso para as telas que mostram o total da Amazônia Legal: estados só em parte entram só com a parte da região."""
     if not PARCIAL:
         return ""
+    if "Amazônia Legal" not in D["meta"].get(globals().get("IND"), {}).get("levels", []):
+        return ("Amazônia Legal: sem valor agregado para este indicador. Nos recortes estaduais, "
+                + "; ".join(f"{NOME_UF[u]} usa o valor do estado inteiro" for u in PARCIAL) + ".")
     if al_por_estados():
         return "Amazônia Legal: soma dos 9 estados. " + "; ".join(f"{NOME_UF[u]} entra inteiro" for u in PARCIAL) + "."
     return ("Amazônia Legal: considera só os municípios da região. "
@@ -471,6 +477,8 @@ def periodo(sr: pd.DataFrame, chave: str, container=None) -> pd.DataFrame:
     escolha como `value`, porque uma faixa de anos precisa de um `value` em tupla para ser uma faixa."""
     container = container or st
     anos = sorted(int(a) for a in sr.dropna(subset=["valor"]).ano.unique())
+    if len(anos) == 1:
+        container.caption(f"Único ano disponível: {anos[0]}. Não há evolução temporal para comparar.")
     if len(anos) < 3:
         return sr
     padrao = (anos[0], anos[-1])
@@ -754,7 +762,7 @@ with T["Visão Geral"]:
                                    key="w_vg_recortes") if opcoes else []
                 # medida do gráfico (índice ou valor) e rótulos nos pontos
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
-                medidas_vg = ["Índice (base 100)", "Valor"]
+                medidas_vg = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
                 med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[0], medidas_vg),
                                      help="Índice: todas as linhas começam em 100, para comparar o ritmo de territórios de "
                                           "tamanhos diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
@@ -765,7 +773,7 @@ with T["Visão Geral"]:
                 sr = periodo(sr, "w_per_vg")
                 quem = ("sem série" if not opcoes else "nenhum recorte escolhido" if not escolha
                         else escolha[0] if len(escolha) == 1 else ", ".join(escolha[:-1]) + " e " + escolha[-1])
-                theme.title(f"Evolução de {charts.low(I.label)}: {quem}",
+                theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {quem}",
                             ("O valor de cada recorte ano a ano (unidade: " + charts.low(I.unit) + ")." if valor_vg else
                              "Índice: base 100 = primeiro ano com valor diferente de zero. Mostra quem cresceu mais, não o tamanho."),
                             fixo=True)
@@ -941,6 +949,7 @@ def tabela_longa(d: pd.DataFrame) -> pd.DataFrame:
         "nivel": d.nivel.astype(str), "codigo_ibge": d.cod.astype(int), "territorio": d.nome.astype(str),
         "uf": d.uf.astype(str).replace("nan", ""), "ano": d.ano.astype(int), "id_indicador": ind,
         "indicador": ind.map(lambda k: REG[k].label), "unidade": ind.map(lambda k: REG[k].unit),
+        "fonte": ind.map(lambda k: D["meta"][k]["source"]),
         "valor": d.valor * ind.map(lambda k: REG[k].scale).astype(float)})
 
 
@@ -964,6 +973,8 @@ def comparativo(tid: str, plvl: str, uf: str | None, ref_tids: tuple, versao: st
     col_comp = f"{plvl} × {comp_nome}" if comp_tid else ""
     rows, cores = [], []
     for k in inds or D["indicators"]:  # inds: os indicadores do eixo escolhido
+        if plvl not in D["meta"][k]["levels"]:
+            continue
         ik = REG[k]
         na_parcela = parte and k in D["al_parte_ind"]
         s = data.series(D, [f"{PARTE_AL}:{tid.split(':')[1]}" if na_parcela else tid], k).dropna(subset=["valor"])
@@ -1113,11 +1124,17 @@ with T["Perfil do Território"]:
 
         # só as seções que fazem sentido para o tipo de território: posição precisa de pares (estados, municípios,
         # Grandes Regiões) e o mapa dos municípios, de um estado
-        secoes = (["Resumo", "Evolução"] + (["Posição"] if plvl in ("Estado", "Município", "Grande Região") else [])
-                  + (["Municípios do estado"] if plvl == "Estado" else []) + ["Dados"])
+        niveis_ind = D["meta"].get(IND, {}).get("levels", [])
+        tem_dado = plvl in niveis_ind
+        if not tem_dado:
+            st.info(f"{I.label} não tem dados neste nível territorial. Disponível para: {', '.join(niveis_ind)}. "
+                    "O resumo abaixo mostra os indicadores disponíveis para o território escolhido.")
+        secoes = (["Resumo"] + (["Evolução"] if tem_dado else [])
+                  + (["Posição"] if tem_dado and plvl in ("Estado", "Município", "Grande Região") else [])
+                  + (["Municípios do estado"] if plvl == "Estado" and "Município" in niveis_ind else []) + ["Dados"])
         st.markdown('<div class="secoes-tit">Seções do perfil · clique para trocar</div>', unsafe_allow_html=True)
         S = dict(zip(secoes, st.tabs(secoes, key="terr_sec", on_change="rerun")))
-        for ausente in {"Posição", "Municípios do estado"} - set(secoes):
+        for ausente in {"Evolução", "Posição", "Municípios do estado"} - set(secoes):
             S[ausente] = SECAO_AUSENTE
         rank_grp = {"Município": "municípios do Brasil", "Estado": "estados", "Grande Região": "Grandes Regiões"}
 
@@ -1192,7 +1209,9 @@ with T["Perfil do Território"]:
                               "cartão dele tem borda.")
                 comp_nome = None
                 for n, eixo_nome in enumerate(eixos):
-                    ks = do_eixo(eixo_nome)
+                    ks = [k for k in do_eixo(eixo_nome) if plvl in D["meta"][k]["levels"]]
+                    if not ks:
+                        continue
                     caixa = st.expander(f"**{eixo_nome}** · {len(ks)} indicador" + ("es" if len(ks) != 1 else ""),
                                         expanded=eixo_nome == I.axis, key=f"pf_ex_{n}_{eixos.index(I.axis)}",
                                         on_change="rerun")
@@ -1220,12 +1239,12 @@ with T["Perfil do Território"]:
         # ---- Evolução --------------------------------------------------------------------
         with S["Evolução"]:
             if S["Evolução"].open:
-                medidas = ["Índice (base 100)", "Valor"]
+                medidas = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
                 med = c_med.radio("Medida", medidas, horizontal=True,
-                                  key=state("w_tr_med", medidas[0] if I.additive else medidas[1], medidas),
-                                  captions=["Ritmo: todos começam em 100; 110 = 10% a mais.",
-                                            f"{I.unit[:1].upper() + I.unit[1:]}."],
+                                  key=state("w_tr_med", medidas[0] if I.additive else "Valor", medidas),
+                                  captions=(["Ritmo: todos começam em 100; 110 = 10% a mais."] if len(years) > 1 else [])
+                                           + [f"{I.unit[:1].upper() + I.unit[1:]}."],
                                   help="Índice: crescimento relativo, bom para totais de tamanhos diferentes. "
                                        "Valor: o número publicado, bom para taxas e médias.")
                 rot_tr = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_tr_rot", True),
@@ -1244,7 +1263,8 @@ with T["Perfil do Território"]:
                 sr = periodo(sr, "w_per_tr")
                 st.caption(f"Como **{I.label}** mudou ao longo do tempo em {nome_curto}"
                            + (f", comparado com {txt_refs}." if refs_sel else "."))
-                theme.title(f"Evolução de {charts.low(I.label)}: {nome_curto}" + (f", {txt_refs}" if refs_sel else ""),
+                theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {nome_curto}"
+                            + (f", {txt_refs}" if refs_sel else ""),
                             "Todos os anos do período" + ("; base 100 = primeiro ano com valor diferente de zero"
                                                           if med.startswith("Índice") else ""))
                 if PARTE:
@@ -1259,7 +1279,8 @@ with T["Perfil do Território"]:
                 fim_p = tr_p.groupby("label").tail(1)
                 ini_p = tr_p.groupby("label").ano.first()
                 frases_p = [f"{r.label}: <b>{'+' if r.y >= 100 else '−'}{fmt.num(abs(r.y - 100), 1)}%</b> de "
-                            f"{int(ini_p[r.label])} a {int(r.ano)}" for r in fim_p.itertuples()]
+                            f"{int(ini_p[r.label])} a {int(r.ano)}" for r in fim_p.itertuples()
+                            if int(ini_p[r.label]) < int(r.ano)]
                 theme.como_ler(("todas as linhas começam em 100 no primeiro ano com dado; a mais inclinada é a que mudou "
                                 "mais, independentemente do tamanho." if med.startswith("Índice") else
                                 f"cada linha mostra o valor ano a ano (unidade: {charts.low(I.unit)}); compare a linha do território com as das "
@@ -1382,7 +1403,7 @@ with T["Perfil do Território"]:
             if S["Dados"].open:
                 theme.title(f"{sel}: tabela com todos os indicadores, ano a ano")
                 wide = (L[(L.tid == tid)].pivot_table(index="ano", columns="ind", values="valor", observed=True)
-                        .reindex(columns=D["indicators"]))
+                        .reindex(columns=[k for k in D["indicators"] if plvl in D["meta"][k]["levels"]]))
                 if PARTE:  # valores da parcela na região onde existem; os demais indicadores ficam com o estado inteiro
                     wp = L[L.tid == f"{PARTE_AL}:{cod}"].pivot_table(index="ano", columns="ind", values="valor", observed=True)
                     for k in wp.columns:
@@ -1561,10 +1582,10 @@ with T["Mapa e Ranking"]:
                 cfg = {"Posição": st.column_config.NumberColumn(
                            width=58, help=data.rank_rule(I.polarity) + ". Territórios com o mesmo valor dividem a "
                                           "posição."),
-                       "Território": st.column_config.TextColumn(width=190),
+                       "Território": st.column_config.TextColumn(width=135),
                        f"{I.label}": st.column_config.TextColumn("Valor", width=90, help=f"{I.label} · {I.unit}, em {YEAR}"),
                        VAR: st.column_config.TextColumn(
-                           width=110 if len(anos0) == 1 else 90,
+                           width=155 if len(anos0) == 1 else 90,
                            help={"pct": "Variação relativa (%)", "pp": "Diferença em pontos percentuais (p.p.)",
                                  "pts": "Diferença em pontos do índice"}[I.delta]
                                 + f" do primeiro ano com dado até {YEAR}"
@@ -1573,7 +1594,7 @@ with T["Mapa e Ranking"]:
                        "Desde": st.column_config.TextColumn(width=52, help="Ano de partida da variação, que difere "
                                                                            "entre territórios conforme os dados."),
                        "Participação (%)": st.column_config.TextColumn(
-                           "Parte", width=64, help="Parte do total somado de todos os territórios do ranking."),
+                           "Parte (%)", width=84, help="Parte do total somado de todos os territórios do ranking."),
                        "Faixa": st.column_config.TextColumn(
                            width=48, help="1 = faixa dos menores valores … última = maiores valores. Mesmas faixas e "
                                           "cores do mapa.")}
@@ -1605,13 +1626,14 @@ with T["Mapa e Ranking"]:
                 theme.como_ler(f"<b>Posição</b>: {data.rank_rule(I.polarity).lower()}; empatados dividem a posição. "
                                "<b>Variação</b>: quanto o território mudou desde o primeiro ano com dado"
                                + (" (verde = melhorou, vermelho = piorou)" if I.polarity else "")
-                               + (". <b>Parte</b>: fatia do território no total somado de todos do ranking" if I.additive else "")
+                               + (". <b>Parte (%)</b>: fatia do território no total somado de todos do ranking" if I.additive else "")
                                + ". Clique numa linha para ver o perfil completo do território.")
                 nome_var = {"pct": "variacao_pct", "pp": "variacao_pp", "pts": "variacao_pontos"}[I.delta]
                 st.download_button("Baixar ranking (CSV)",
                                    rk[["pos", "label", "uf", "valor", "var", "ano0", "share", "faixa"]]
                                    .rename(columns={"pos": "posicao", "label": "territorio", "var": nome_var,
                                                     "ano0": "variacao_desde", "share": "participacao_pct"})
+                                   .assign(id_indicador=IND, indicador=I.label, fonte=D["meta"][IND]["source"])
                                    .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
                                    f"ranking_{lvl}_{YEAR}.csv", "text/csv")
 
@@ -1656,15 +1678,21 @@ with T["Séries Temporais"]:
         st.markdown("Escolha os territórios (de qualquer nível) e compare como o indicador evoluiu em cada um. "
                     "À esquerda, escolha também **como medir** a evolução.")
         q1, q2 = st.columns([1, 2.2])
+        niveis_ts = D["meta"].get(IND, {}).get("levels", [])
+        ano_unico = len(years) == 1
         with q1:
-            use_br = st.checkbox("Brasil", key=state("w_ts_br", True))
-            use_al = st.checkbox("Amazônia Legal", key=state("w_ts_al", True))
-            medidas = ["Valor", "Índice (base 100)", "Variação anual"]
+            tem_br, tem_al = "Brasil" in niveis_ts, "Amazônia Legal" in niveis_ts
+            use_br = st.checkbox("Brasil", disabled=not tem_br,
+                                 key=state("w_ts_br", tem_br, [True, False] if tem_br else [False]))
+            use_al = st.checkbox("Amazônia Legal", disabled=not tem_al,
+                                 key=state("w_ts_al", tem_al, [True, False] if tem_al else [False]))
+            medidas = ["Valor"] if ano_unico else ["Valor", "Índice (base 100)", "Variação anual"]
             un_var = "%" if I.delta == "pct" else I.delta_unit
-            mode_lbl = st.radio("Medida", medidas, key=state("w_ts_mode", "Índice (base 100)", medidas),
+            mode_lbl = st.radio("Medida", medidas,
+                                key=state("w_ts_mode", "Valor" if ano_unico or not I.additive else "Índice (base 100)", medidas),
                                 captions=[f"{I.unit[:1].upper() + I.unit[1:]}.",
                                           "Ritmo de crescimento: todos começam em 100; 110 = 10% a mais.",
-                                          f"Quanto mudou de um ano para o outro, em {un_var}."],
+                                          f"Quanto mudou de um ano para o outro, em {un_var}."][:len(medidas)],
                                 help="Use **Valor** para ver o tamanho de cada território; **Índice** para comparar o "
                                      "ritmo de territórios de tamanhos muito diferentes (ex.: Brasil e um município); "
                                      "**Variação anual** para achar anos de alta ou queda forte.")
@@ -1676,14 +1704,20 @@ with T["Séries Temporais"]:
             regs = data.territories(D, "Grande Região")
             ests = data.territories(D, "Estado")
             muns = data.territories(D, "Município")
-            r_sel = st.multiselect("Grandes Regiões", regs.label.tolist(), placeholder="Escolha uma ou mais regiões",
-                                   key=state("w_ts_reg", [], regs.label.tolist()))
-            e_sel = st.multiselect("Estados", ests.label.tolist(), placeholder="Escolha um ou mais estados",
-                                   key=state("w_ts_est", [], ests.label.tolist()))
-            m_sel = st.multiselect("Municípios", muns.label.tolist(), placeholder="Digite o nome do município",
+            reg_ops = regs.label.tolist() if "Grande Região" in niveis_ts else []
+            est_ops = ests.label.tolist() if "Estado" in niveis_ts else []
+            mun_ops = muns.label.tolist() if "Município" in niveis_ts else []
+            r_sel = st.multiselect("Grandes Regiões", reg_ops, disabled=not reg_ops,
+                                   placeholder="Escolha uma ou mais regiões" if reg_ops else "Sem dados nesta série",
+                                   key=state("w_ts_reg", [], reg_ops))
+            e_sel = st.multiselect("Estados", est_ops, disabled=not est_ops,
+                                   placeholder="Escolha um ou mais estados" if est_ops else "Sem dados nesta série",
+                                   key=state("w_ts_est", [], est_ops))
+            m_sel = st.multiselect("Municípios", mun_ops, disabled=not mun_ops,
+                                   placeholder="Digite o nome do município" if mun_ops else "Sem dados nesta série",
                                    help="Digite para buscar. Com muitos territórios o gráfico fica difícil de ler: "
                                         "até 8 costuma funcionar bem.",
-                                   key=state("w_ts_mun", [], muns.label.tolist()))
+                                   key=state("w_ts_mun", [], mun_ops))
         if PARCIAL and use_al:
             st.caption(nota_al())
         tids = ([BRASIL] if use_br else []) + ([AMZ] if use_al else [])
@@ -1717,7 +1751,8 @@ with T["Séries Temporais"]:
             titulo = {"valor": charts.axis_label(I), "indice": f"Crescimento de {charts.low(I.label)} (índice)",
                       "var": f"Variação anual de {charts.low(I.label)}"}[mode]
             theme.title(f"{titulo} nos {sr.tid.nunique()} territórios escolhidos",
-                        ("Cada barra é a variação em relação ao ano anterior com dado; anos sem dado ficam sem barra"
+                        (f"Valores de {int(sr.ano.iloc[0])}; único ano disponível nesta série" if ano_unico else
+                         "Cada barra é a variação em relação ao ano anterior com dado; anos sem dado ficam sem barra"
                          if mode == "var" else
                          "Linhas ligam os anos com dado; trechos pontilhados atravessam anos sem dado")
                         + ("; base 100 = primeiro ano com valor diferente de zero" if mode == "indice" else ""))
@@ -1765,63 +1800,64 @@ with T["Séries Temporais"]:
                 st.caption("Anos sem dado nas bases para este indicador: " + ", ".join(map(str, miss)) + ". Os trechos "
                            "pontilhados do gráfico atravessam esses anos.")
 
-            st.markdown("---")
-            h1, h2 = st.columns([1, 1.25])
-            with h1:
-                medida = ("taxa composta (TCMA, % ao ano)" if I.delta == "pct"
-                          else f"diferença média anual ({I.delta_unit} ao ano)")
-                theme.title(f"Variação média por ano de {charts.low(I.label)}",
-                            f"{medida[0].upper() + medida[1:]}, do primeiro ao último ano com dado de cada território; "
-                            "cor = nível do território")
-                rows = []
-                for t, g in sr.dropna(subset=["valor"]).groupby("tid", sort=False):
-                    g = g.sort_values("ano")
-                    rows.append(dict(label=g.label.iloc[0], nivel=g.nivel.iloc[0], tcma=I.rate(
-                        g.valor.iloc[0], g.valor.iloc[-1], int(g.ano.iloc[-1] - g.ano.iloc[0])),
-                        de=int(g.ano.iloc[0]), ate=int(g.ano.iloc[-1])))
-                cg = pd.DataFrame(rows, columns=["label", "nivel", "tcma", "de", "ate"]).dropna(subset=["tcma"])
-                cg = cg.sort_values("tcma")
-                un_a = "% ao ano" if I.delta == "pct" else f"{I.delta_unit} ao ano"
-                rot = [f"{I.fmt_diff(v)} ao ano ({a}–{b})".replace("% ao ano", "% a.a.") for v, a, b in
-                       zip(cg.tcma, cg.de, cg.ate)]
-                fig = go.Figure(go.Bar(
-                    x=cg.tcma, y=cg.label, orientation="h",
-                    marker=dict(color=[theme.LEVEL_COLOR.get(n, theme.ACCENT) for n in cg.nivel], cornerradius=4),
-                    customdata=rot,
-                    hovertemplate="%{y}<br>%{customdata}<extra></extra>"))
-                # rótulos sempre à direita do zero, para não cobrir o nome quando a barra é negativa
-                fig.add_trace(go.Scatter(
-                    x=cg.tcma.clip(lower=0), y=cg.label, mode="text", textposition="middle right", hoverinfo="skip",
-                    text=[" " + r for r in rot],
-                    textfont=dict(size=11), showlegend=False, cliponaxis=False))
-                lo, hi = min(0.0, cg.tcma.min()), max(0.0, cg.tcma.max())
-                fig.update_layout(height=max(260, 34 * len(cg) + 60), margin=dict(r=10), showlegend=False)
-                fig.update_xaxes(ticksuffix="%" if I.delta == "pct" else "", title=un_a,
-                                 range=[lo - (hi - lo or 1) * 0.05 if lo < 0 else 0, hi + (hi - lo or 1) * 0.6])
-                plot(fig, "ts_cagr")
-                if len(cg):
-                    top = cg.iloc[-1]
-                    theme.como_ler(
-                        ("é o crescimento médio por ano, como se o território tivesse crescido no mesmo ritmo todos os "
-                         "anos do período (taxa composta). Ajuda a comparar períodos de tamanhos diferentes."
-                         if I.delta == "pct" else
-                         f"é a mudança média por ano, em {I.delta_unit}, do primeiro ao último ano com dado.")
-                        + " Barra para a direita: aumentou; para a esquerda: diminuiu.",
-                        f"<b>{top.label}</b> teve o maior ritmo: {I.fmt_diff(top.tcma)} por ano ({int(top.de)}–{int(top.ate)}).")
-            with h2:
-                leg = ("verde: melhora · vermelho: piora" if I.polarity
-                       else "azul: cresceu · marrom: caiu (indicador sem polaridade)")
-                theme.title(f"Variação de {charts.low(I.label)} a cada ano, por território",
-                            f"{'% ao ano' if I.delta == 'pct' else I.delta_unit + ' ao ano'} em relação ao ano anterior "
-                            f"com dado · {leg}")
-                plot(charts.growth_heatmap(sr, I), "ts_heat")
-                theme.como_ler("cada linha é um território e cada coluna, um ano. A cor mostra quanto mudou em relação "
-                               "ao ano anterior: " + ("verde quando a situação melhorou e vermelho quando piorou; "
-                                                     if I.polarity else "azul quando aumentou e marrom quando diminuiu; ")
-                               + "quanto mais forte, maior a mudança. Uma coluna inteira da mesma cor indica um ano que "
-                                 "afetou todos os territórios.")
-                if mode != "var" and (charts.transform(sr, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
-                    st.caption("Valores com \\*: depois de anos sem dado, é a média por ano desde o último ano com dado.")
+            if sr.dropna(subset=["valor"]).ano.nunique() > 1:
+                st.markdown("---")
+                h1, h2 = st.columns([1, 1.25])
+                with h1:
+                    medida = ("taxa composta (TCMA, % ao ano)" if I.delta == "pct"
+                              else f"diferença média anual ({I.delta_unit} ao ano)")
+                    theme.title(f"Variação média por ano de {charts.low(I.label)}",
+                                f"{medida[0].upper() + medida[1:]}, do primeiro ao último ano com dado de cada território; "
+                                "cor = nível do território")
+                    rows = []
+                    for t, g in sr.dropna(subset=["valor"]).groupby("tid", sort=False):
+                        g = g.sort_values("ano")
+                        rows.append(dict(label=g.label.iloc[0], nivel=g.nivel.iloc[0], tcma=I.rate(
+                            g.valor.iloc[0], g.valor.iloc[-1], int(g.ano.iloc[-1] - g.ano.iloc[0])),
+                            de=int(g.ano.iloc[0]), ate=int(g.ano.iloc[-1])))
+                    cg = pd.DataFrame(rows, columns=["label", "nivel", "tcma", "de", "ate"]).dropna(subset=["tcma"])
+                    cg = cg.sort_values("tcma")
+                    un_a = "% ao ano" if I.delta == "pct" else f"{I.delta_unit} ao ano"
+                    rot = [f"{I.fmt_diff(v)} ao ano ({a}–{b})".replace("% ao ano", "% a.a.") for v, a, b in
+                           zip(cg.tcma, cg.de, cg.ate)]
+                    fig = go.Figure(go.Bar(
+                        x=cg.tcma, y=cg.label, orientation="h",
+                        marker=dict(color=[theme.LEVEL_COLOR.get(n, theme.ACCENT) for n in cg.nivel], cornerradius=4),
+                        customdata=rot,
+                        hovertemplate="%{y}<br>%{customdata}<extra></extra>"))
+                    # rótulos sempre à direita do zero, para não cobrir o nome quando a barra é negativa
+                    fig.add_trace(go.Scatter(
+                        x=cg.tcma.clip(lower=0), y=cg.label, mode="text", textposition="middle right", hoverinfo="skip",
+                        text=[" " + r for r in rot],
+                        textfont=dict(size=11), showlegend=False, cliponaxis=False))
+                    lo, hi = min(0.0, cg.tcma.min()), max(0.0, cg.tcma.max())
+                    fig.update_layout(height=max(260, 34 * len(cg) + 60), margin=dict(r=10), showlegend=False)
+                    fig.update_xaxes(ticksuffix="%" if I.delta == "pct" else "", title=un_a,
+                                     range=[lo - (hi - lo or 1) * 0.05 if lo < 0 else 0, hi + (hi - lo or 1) * 0.6])
+                    plot(fig, "ts_cagr")
+                    if len(cg):
+                        top = cg.iloc[-1]
+                        theme.como_ler(
+                            ("é o crescimento médio por ano, como se o território tivesse crescido no mesmo ritmo todos os "
+                             "anos do período (taxa composta). Ajuda a comparar períodos de tamanhos diferentes."
+                             if I.delta == "pct" else
+                             f"é a mudança média por ano, em {I.delta_unit}, do primeiro ao último ano com dado.")
+                            + " Barra para a direita: aumentou; para a esquerda: diminuiu.",
+                            f"<b>{top.label}</b> teve o maior ritmo: {I.fmt_diff(top.tcma)} por ano ({int(top.de)}–{int(top.ate)}).")
+                with h2:
+                    leg = ("verde: melhora · vermelho: piora" if I.polarity
+                           else "azul: cresceu · marrom: caiu (indicador sem polaridade)")
+                    theme.title(f"Variação de {charts.low(I.label)} a cada ano, por território",
+                                f"{'% ao ano' if I.delta == 'pct' else I.delta_unit + ' ao ano'} em relação ao ano anterior "
+                                f"com dado · {leg}")
+                    plot(charts.growth_heatmap(sr, I), "ts_heat")
+                    theme.como_ler("cada linha é um território e cada coluna, um ano. A cor mostra quanto mudou em relação "
+                                   "ao ano anterior: " + ("verde quando a situação melhorou e vermelho quando piorou; "
+                                                         if I.polarity else "azul quando aumentou e marrom quando diminuiu; ")
+                                   + "quanto mais forte, maior a mudança. Uma coluna inteira da mesma cor indica um ano que "
+                                     "afetou todos os territórios.")
+                    if mode != "var" and (charts.transform(sr, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
+                        st.caption("Valores com \\*: depois de anos sem dado, é a média por ano desde o último ano com dado.")
 
             st.markdown("---")
             # os outros indicadores do eixo para um dos territórios escolhidos, em cartões com a tendência
@@ -1863,7 +1899,8 @@ with T["Séries Temporais"]:
                 st.dataframe(tab.rename_axis("Território"), width="stretch")
                 st.caption(f"{I.label} · {I.unit}. — indica ano sem dado.")
                 csv = sr.rename(columns={"label": "territorio", "nivel": "nivel", "ano": "ano", "valor": "valor"})
-                st.download_button("Baixar CSV", csv[["territorio", "nivel", "ano", "valor"]]
+                csv = csv.assign(id_indicador=IND, indicador=I.label, fonte=D["meta"][IND]["source"])
+                st.download_button("Baixar CSV", csv[["territorio", "nivel", "ano", "valor", "id_indicador", "indicador", "fonte"]]
                                    .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
                                    f"series_{IND}.csv", "text/csv")
 
@@ -1960,7 +1997,7 @@ with T["Comparações"]:
                        f"pior em <b>{n_pio}</b> em relação a <b>{picks[1][0]}</b>." if n_mel + n_pio else "")
         # medida do gráfico (índice ou valor) e rótulos nos pontos, como na Visão Geral
         f_med, f_rot = st.columns([1.6, 1], vertical_alignment="center")
-        medidas_ff = ["Índice (base 100)", "Valor"]
+        medidas_ff = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
         med_ff = f_med.radio("Medida", medidas_ff, horizontal=True, key=state("w_ff_med", medidas_ff[0], medidas_ff),
                              help="Índice: as duas linhas começam em 100, para comparar o ritmo de territórios de tamanhos "
                                   "diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
@@ -1968,7 +2005,7 @@ with T["Comparações"]:
                                 help="Escreve o valor de cada ponto no gráfico. Passar o mouse mostra o valor de qualquer ano.")
         valor_ff = med_ff == "Valor"
         sr_ff = periodo(data.series(D, [p[1] for p in picks], IND), "w_per_ff")
-        theme.title(f"Evolução de {charts.low(I.label)}: {picks[0][0]} e {picks[1][0]}",
+        theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {picks[0][0]} e {picks[1][0]}",
                     "O indicador escolhido na barra lateral nos dois territórios · "
                     + (f"valor ano a ano (unidade: {charts.low(I.unit)})" if valor_ff else
                        "índice: base 100 = primeiro ano com valor diferente de zero"))

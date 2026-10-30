@@ -114,6 +114,16 @@ def read_lista(book: pd.ExcelFile) -> pd.DataFrame:
     return df.set_index("ID")
 
 
+def make_ficha(item: dict, row: pd.Series) -> dict:
+    """Ficha da entrada no painel, com metadados próprios quando a ficha reúne séries de fontes distintas."""
+    overrides = item.get("ficha", {})
+    unknown = set(overrides) - set(FICHA)
+    if unknown:
+        raise ValueError("campos desconhecidos em `ficha`: " + ", ".join(sorted(unknown)))
+    return {"id": item["chave"], "ref": item["id"],
+            **{k: cell(overrides.get(c, row.get(c))) for c, k in FICHA.items()}}
+
+
 def agg_rule(text: str) -> str | None:
     t = norm(text)
     if t.startswith("soma"):
@@ -354,7 +364,11 @@ def main():
             rep.error(f"{i}: ID {ref} não existe na aba '{LISTA}'.")
             continue
         row = lista.loc[ref]
-        ficha = {"id": i, "ref": ref, **{k: cell(row.get(c)) for c, k in FICHA.items()}}
+        try:
+            ficha = make_ficha(it, row)
+        except ValueError as exc:
+            rep.error(f"{i}: {exc}.")
+            continue
         if it.get("categoria") or it.get("categorias"):
             ficha["category"] = it.get("categoria") or " + ".join(it["categorias"])
         rule = it.get("agregacao") or agg_rule(ficha["aggregation"])

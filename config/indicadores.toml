@@ -21,6 +21,8 @@
 #   icone      texto curto exibido nos cartões
 #   chave      identificador da entrada no painel, quando a mesma ficha gera mais de uma (padrão: o `id`)
 #   categoria  usa a coluna "Nome do indicador — categoria" das abas de recorte (ex.: "Bovino" no IND-075)
+#   ficha      tabela de metadados específicos desta entrada, com os nomes dos campos da "Lista de Indicadores";
+#              permite separar fontes/séries da mesma ficha sem alterar a planilha (ex.: as duas séries de IDHM)
 #   somar_categorias  true para somar todas as colunas "Nome do indicador — …" (ex.: empresas de todos os setores)
 #   categorias lista de categorias a somar (ex.: ["Ótimo", "Bom"] para rodovias em estado bom ou ótimo)
 #   peso_coluna  coluna da planilha usada como peso na média ponderada, quando ela não é um indicador do painel
@@ -250,12 +252,49 @@ fator_municipal = 100
 
 # --- Lote 4 (indicadores de ano único; agregação conferida contra a aba Estadual) ---------------------------
 
-# IDHM: dado já publicado (só 2010); não se agrega a Amazônia Legal a partir dos municípios.
+# IDHM: duas séries da ficha IND-007, separadas conforme o Roteiro de Extração.
+# Não emendar Censo e PNAD Contínua nem calcular um índice da Amazônia Legal por soma ou média.
 [[indicador]]
 id = "IND-007"
-rotulo = "IDHM"
+rotulo = "IDHM — Censo"
 agregacao = "publicado"
 casas = 3
+nota_agregacao = "índice composto não aditivo; usar os valores publicados por território, sem soma ou média dos municípios ou das UFs"
+
+[indicador.ficha]
+"Indicador" = "Índice de Desenvolvimento Humano Municipal (IDHM) — Censo"
+"Fonte dos Dados" = "Atlas do Desenvolvimento Humano no Brasil (PNUD/Ipea/FJP) — Censo Demográfico 2010"
+"Periodicidade" = "Decenal (Censo)"
+"Série Histórica Disponível" = "2010 (único ano carregado no painel)"
+"Ano de Referência mais Recente" = "2010"
+"Código da Tabela/Série" = "Atlas Brasil — IDHM, fonte Censo (código 196)"
+"Menor Unidade Territorial Disponível" = "Município"
+"Cobertura Municipal (%)" = "5.565 municípios com dado em 2010"
+"Comparabilidade Temporal" = "Pontual: apenas 2010 no painel"
+"Limitações Metodológicas" = "Único ano disponível no painel: 2010. Censo e PNAD Contínua utilizam bases distintas; o IDHM do Censo não é diretamente comparável ao Radar IDHM. Não calcular variação entre as duas fontes nem um índice agregado por soma ou média."
+"Observação" = "Censo: municípios, estados e Brasil em 2010. Para estados e Brasil de 2015 a 2024, selecione Radar IDHM — PNAD Contínua. As duas séries não são diretamente comparáveis."
+
+[[indicador]]
+id = "IND-007"
+chave = "IND-007-radar"
+rotulo = "Radar IDHM — PNAD Contínua"
+coluna = "Índice de Desenvolvimento Humano Municipal (IDHM) — Radar IDHM (Pesquisa Nacional por Amostra de Domicílios Contínua, PNAD Contínua)"
+agregacao = "publicado"
+casas = 3
+nota_agregacao = "índice composto não aditivo; usar os valores publicados por território, sem soma ou média dos municípios ou das UFs"
+
+[indicador.ficha]
+"Indicador" = "Radar IDHM — PNAD Contínua"
+"Fonte dos Dados" = "Atlas do Desenvolvimento Humano no Brasil — Radar IDHM (PNAD Contínua; PNUD, FJP e IBGE)"
+"Periodicidade" = "Anual (PNAD Contínua)"
+"Série Histórica Disponível" = "2015 a 2024 (anos carregados no painel)"
+"Ano de Referência mais Recente" = "2024"
+"Código da Tabela/Série" = "Atlas Brasil — IDHM, fonte PNAD / Radar IDHM (código 435)"
+"Menor Unidade Territorial Disponível" = "Estado (UF)"
+"Cobertura Municipal (%)" = "Não se aplica: sem dados municipais"
+"Comparabilidade Temporal" = "Dentro da série Radar IDHM (2015 a 2024)"
+"Limitações Metodológicas" = "Série calculada com a PNAD Contínua, disponível para as 27 UFs e o Brasil, sem valores municipais ou por Grande Região. Não é diretamente comparável ao IDHM do Censo de 2010. Não calcular variação entre as duas fontes nem um índice agregado por soma ou média."
+"Observação" = "Radar IDHM: estados e Brasil, de 2015 a 2024. Para municípios, selecione IDHM — Censo (2010). Censo e PNAD Contínua utilizam bases distintas e não são diretamente comparáveis."
 
 # Soma dos municípios reproduz o total estadual (diferença máx. 0,01%).
 [[indicador]]

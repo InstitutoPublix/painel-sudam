@@ -69,6 +69,10 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
 - **"Dado já publicado":** indicadores com essa regra na ficha não são agregados; a Amazônia Legal fica vazia.
 - **Observação da planilha:** a coluna `Observação` da `Lista de Indicadores` (quebras de série, anos ausentes) aparece
   na legenda "Sobre o indicador" de cada aba e na ficha do Sobre o Painel.
+- **Metadados por série:** quando uma ficha reúne fontes distintas, cada entrada pode usar `[indicador.ficha]`
+  no `config/indicadores.toml`, com os nomes exatos dos campos da `Lista de Indicadores` (por exemplo,
+  `"Fonte dos Dados"`, `"Periodicidade"` e `"Série Histórica Disponível"`). Esses campos substituem apenas os metadados
+  da entrada; o ID da ficha de origem e a planilha são preservados. Campos desconhecidos interrompem o build.
 - **Base enxuta:** `dados.parquet` guarda só as células com valor; o painel recompõe os anos vazios nas séries.
 - **Validação:** coluna ausente, ID sem ficha, regra de agregação desconhecida, texto em coluna numérica ou
   território repetido interrompem a geração; nada é gravado.
@@ -135,6 +139,28 @@ municípios da região deve rodar de novo `scripts/geo_al_parcial.py` (contorno 
 indicadores da planilha: o que já está no painel, o que é candidato e por que cada um está parado. As colunas em
 amarelo (Situação, Pendência, Decisão, Responsável, Observações) são preenchidas à mão e preservadas quando o
 catálogo é gerado de novo; as demais são recalculadas a partir da planilha e do `config/indicadores.toml`.
+
+## IDHM: duas fontes, duas séries
+
+Conforme o Roteiro de Extração da ficha IND-007, o seletor de indicadores oferece:
+
+| Entrada | Chave na base | Anos carregados | Níveis disponíveis |
+| --- | --- | --- | --- |
+| IDHM — Censo | `IND-007` | 2010 | Município, Estado e Brasil |
+| Radar IDHM — PNAD Contínua | `IND-007-radar` | 2015–2024 | Estado e Brasil |
+
+A primeira usa a coluna principal do IDHM; a segunda usa a coluna própria do Radar IDHM, ambas da mesma ficha.
+As fontes não são emendadas: anos, gráficos e variações são consultados pela chave de cada série. O IDHM do Censo
+tem um único ano no painel e não oferece variação anual. O Radar não oferece recorte municipal. Grandes Regiões
+e Amazônia Legal não têm índice próprio em nenhuma das duas séries; não se calcula soma ou média desses índices.
+Para o Maranhão, o valor é sempre o do estado inteiro, inclusive na abrangência Amazônia Legal, com aviso.
+
+Os metadados de cada entrada identificam sua fonte, periodicidade e cobertura. Os CSVs de ranking e séries também
+identificam o indicador e a fonte. A separação preserva os valores municipais de 2010 usados na caracterização
+dos municípios (classe do IDHM).
+
+Após gerar a base, execute `.venv/bin/python -m unittest discover -s tests -v` para conferir a separação das fontes,
+os recortes e a troca entre séries no painel. Os testes de interface usam a base local, sem acessar o bucket.
 
 ## Abas
 Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.
