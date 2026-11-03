@@ -441,9 +441,10 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
 # --------------------------------------------------------------------------- #
 # séries temporais
 # --------------------------------------------------------------------------- #
-def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.DataFrame:
+def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None, ref: pd.Series | None = None) -> pd.DataFrame:
     """mode: 'valor' | 'indice' (base 100 no 1º ano com valor diferente de zero) | 'var' (% a.a. entre pontos
-    disponíveis; trechos que partem de zero ficam sem valor)."""
+    disponíveis; trechos que partem de zero ficam sem valor) | 'rel' (valor do território ÷ valor da referência no mesmo
+    ano × 100; `ref` é a série da referência, indexada por ano: com o Brasil, 100 = igual ao Brasil)."""
     out = []
     for tid, g in sr.groupby("tid", sort=False):
         g = g.dropna(subset=["valor"]).sort_values("ano").copy()
@@ -462,6 +463,15 @@ def transform(sr: pd.DataFrame, mode: str, ind: Indicator | None = None) -> pd.D
             else:
                 g["y"] = ((g.valor / g.valor.shift()) ** (1 / dy) - 1) * 100
             g = g[np.isfinite(g.y)]
+        elif mode == "rel":
+            if ref is None:
+                continue
+            base = g.ano.map(ref)
+            g = g.assign(base=base)
+            g = g[g.base.notna() & (g.base > 0)]  # só os anos em que a referência tem valor
+            if g.empty:
+                continue
+            g["y"] = g.valor / g.base * 100
         else:
             g["y"] = g.valor
         out.append(g)
@@ -484,12 +494,13 @@ def _ralear(rot: list[str], n_series: int) -> list[str]:
 
 def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = False, height: int = 430,
           cores: dict[str, str] | None = None, tracejado: tuple = (), grossas: tuple = (),
-          rotulos: bool = False) -> go.Figure:
+          rotulos: bool = False, ref: pd.Series | None = None) -> go.Figure:
     """Séries por território. cores: cor por nome de série (substitui a automática); tracejado e grossas: nomes de
     séries desenhadas com linha tracejada ou mais grossa (para diferenciar séries de cores parecidas).
     rotulos: escreve o valor em todos os pontos; com 3 séries ou mais, só no primeiro e no último de cada uma; com mais
-    de 14 anos, de dois em dois. Os rótulos de séries vizinhas ficam um acima e outro abaixo da linha."""
-    t = transform(sr, mode, ind)
+    de 14 anos, de dois em dois. Os rótulos de séries vizinhas ficam um acima e outro abaixo da linha.
+    ref: série do Brasil por ano, para o modo 'rel' (em relação ao Brasil; nos indicadores somáveis é a participação, em %)."""
+    t = transform(sr, mode, ind, ref)
     fig = go.Figure()
     if t.empty:
         return fig
@@ -509,10 +520,12 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
                                  hovertemplate=f"{lab}<br>%{{x}}: <b>%{{y:.{ind.diff_decimals}f}} {un}</b>"
                                                "<extra></extra>", **extra_b))
             continue
-        hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + " (base 100)"
+        sufixo_y = {"indice": " (base 100)", "rel": "% do Brasil" if ind.additive else " (Brasil = 100)"}.get(mode, "")
+        txt_y = lambda v: fmt.num(v, 1) + ("%" if mode == "rel" and ind.additive else "")  # noqa: E731
+        hv = g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1)) + sufixo_y
         extra = {}
         if rotulos:
-            rot = (g.valor.map(ind.fmt) if mode == "valor" else g.y.map(lambda v: fmt.num(v, 1))).tolist()
+            rot = (g.valor.map(ind.fmt) if mode == "valor" else g.y.map(txt_y)).tolist()
             n_pt = len(rot)
             rot = _ralear(rot, len(t.label.unique()))
             i_serie = list(dict.fromkeys(t.label)).index(lab)
@@ -544,13 +557,16 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
     fig.update_layout(height=height, hovermode="x unified" if mode != "var" else "closest",
                       barmode="group", legend=dict(orientation="h", y=-0.15, title_text="Território:"),
                       yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",
+                                   "rel": "Participação no total do Brasil (%)" if ind.additive else "Em relação ao Brasil (Brasil = 100)",
                                    "var": f"Variação ({un})"}[mode])
     fig.update_xaxes(dtick=1, tickformat="d")
     if mode == "valor":
         value_axis(fig, ind, t.y.min(), t.y.max(), "y", log and t.y.min() > 0)
-    elif mode == "indice":
+    elif mode == "indice" or (mode == "rel" and not ind.additive):
         fig.add_hline(y=100, line=dict(color="rgba(31,46,40,.35)", dash="dot"))
         fig.update_yaxes(ticksuffix="")
+    elif mode == "rel":  # participação no Brasil, em %
+        fig.update_yaxes(ticksuffix="%")
     else:
         fig.update_yaxes(ticksuffix="%" if ind.delta == "pct" else "")
         fig.add_hline(y=0, line=dict(color="rgba(31,46,40,.35)"))
