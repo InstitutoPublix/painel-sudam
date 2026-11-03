@@ -762,8 +762,8 @@ with T["Visão Geral"]:
                                    key="w_vg_recortes") if opcoes else []
                 # medida do gráfico (índice ou valor) e rótulos nos pontos
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
-                medidas_vg = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
-                med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[0], medidas_vg),
+                medidas_vg = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
+                med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[-1], medidas_vg),
                                      help="Índice: todas as linhas começam em 100, para comparar o ritmo de territórios de "
                                           "tamanhos diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
                 rot_vg = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_vg_rot", True),
@@ -1240,12 +1240,12 @@ with T["Perfil do Território"]:
         # ---- Evolução --------------------------------------------------------------------
         with S["Evolução"]:
             if S["Evolução"].open:
-                medidas = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
+                medidas = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
                 med = c_med.radio("Medida", medidas, horizontal=True,
-                                  key=state("w_tr_med", medidas[0] if I.additive else "Valor", medidas),
-                                  captions=(["Ritmo: todos começam em 100; 110 = 10% a mais."] if len(years) > 1 else [])
-                                           + [f"{I.unit[:1].upper() + I.unit[1:]}."],
+                                  key=state("w_tr_med", medidas[-1] if I.additive else "Valor", medidas),
+                                  captions=[f"{I.unit[:1].upper() + I.unit[1:]}."]
+                                          + (["Ritmo: todos começam em 100; 110 = 10% a mais."] if len(years) > 1 else []),
                                   help="Índice: crescimento relativo, bom para totais de tamanhos diferentes. "
                                        "Valor: o número publicado, bom para taxas e médias.")
                 rot_tr = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_tr_rot", True),
@@ -1699,7 +1699,7 @@ with T["Séries Temporais"]:
         REL_LBL = "Participação no Brasil (%)" if I.additive else "Em relação ao Brasil (Brasil = 100)"
 
         st.markdown('<div class="secoes-tit">1 · Quais territórios</div>', unsafe_allow_html=True)
-        q0, q1, q2, q3 = st.columns([0.75, 0.95, 1.4, 1.0], gap="medium")  # estados é o campo que mais recebe escolhas
+        q0, q1, q2, q3 = st.columns(4, gap="medium")  # quatro campos do mesmo tamanho
         with q0:
             use_br = st.checkbox("Brasil", disabled=not tem_br,
                                  key=state("w_ts_br", tem_br, [True, False] if tem_br else [False]))
@@ -1727,32 +1727,30 @@ with T["Séries Temporais"]:
                                    key=state("w_ts_mun", [], mun_ops))
 
         st.markdown('<div class="secoes-tit">2 · Como mostrar</div>', unsafe_allow_html=True)
-        c_med, c_opc = st.columns([1.25, 1.35], gap="large")
-        with c_med:
-            medidas = ["Valor"] if ano_unico else ["Valor", "Índice (base 100)", "Variação anual"]
-            if tem_ref:
-                medidas.append(REL_LBL)
-            un_var = "%" if I.delta == "pct" else I.delta_unit
-            legendas = {"Valor": f"{I.unit[:1].upper() + I.unit[1:]}.",
-                        "Índice (base 100)": "Ritmo de crescimento: todos começam em 100; 110 = 10% a mais.",
-                        "Variação anual": f"Quanto mudou de um ano para o outro, em {un_var}.",
-                        REL_LBL: ("Que parte do total do Brasil o território tem, em %." if I.additive else
-                                  "Compara com o Brasil no mesmo ano: 120 = 20% acima do Brasil.")}
-            mode_lbl = st.radio("Medida", medidas,
-                                key=state("w_ts_mode", "Valor" if ano_unico or not I.additive else "Índice (base 100)", medidas),
-                                captions=[legendas[m] for m in medidas],
-                                help="Use **Valor** para ver o tamanho de cada território; **Índice** para comparar o "
-                                     "ritmo de territórios de tamanhos muito diferentes (ex.: Brasil e um município); "
-                                     "**Variação anual** para achar anos de alta ou queda forte"
-                                     + ("; **em relação ao Brasil**, para ver se o território se aproxima ou se afasta da "
-                                        "média nacional." if tem_ref else "."))
-            mode = {"Valor": "valor", "Índice (base 100)": "indice", "Variação anual": "var", REL_LBL: "rel"}[mode_lbl]
-        with c_opc:
-            slot_per = st.container()  # período e escala são preenchidos depois, quando já há dados escolhidos
-            rot_ts = st.checkbox("Mostrar valores nos pontos", key=state("w_ts_rot", True),
-                                 help="Escreve o valor de cada ponto (ou barra) no gráfico. Com 3 territórios ou mais, só o "
-                                      "primeiro e o último ano de cada um; passar o mouse mostra o valor de qualquer ano.")
-            slot_log = st.container()
+        medidas = ["Valor"] if ano_unico else ["Valor", "Índice (base 100)", "Variação anual"]
+        if tem_ref:
+            medidas.append(REL_LBL)
+        un_var = "%" if I.delta == "pct" else I.delta_unit
+        legendas = {"Valor": f"{I.unit[:1].upper() + I.unit[1:]}.",
+                    "Índice (base 100)": "Ritmo de crescimento: todos começam em 100; 110 = 10% a mais.",
+                    "Variação anual": f"Quanto mudou de um ano para o outro, em {un_var}.",
+                    REL_LBL: ("Que parte do total do Brasil o território tem, em %." if I.additive else
+                              "Compara com o Brasil no mesmo ano: 120 = 20% acima do Brasil.")}
+        mode_lbl = st.radio("Medida", medidas, horizontal=True,
+                            key=state("w_ts_mode", "Valor" if ano_unico or not I.additive else "Índice (base 100)", medidas),
+                            help="Use **Valor** para ver o tamanho de cada território; **Índice** para comparar o "
+                                 "ritmo de territórios de tamanhos muito diferentes (ex.: Brasil e um município); "
+                                 "**Variação anual** para achar anos de alta ou queda forte"
+                                 + ("; **em relação ao Brasil**, para ver se o território se aproxima ou se afasta da "
+                                    "média nacional." if tem_ref else "."))
+        st.caption(legendas[mode_lbl])
+        c_per, c_rot, c_log = st.columns([2, 1, 1], gap="medium", vertical_alignment="bottom")
+        slot_per = c_per.container()  # período e escala são preenchidos depois, quando já há dados escolhidos
+        rot_ts = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_ts_rot", True),
+                                help="Escreve o valor de cada ponto (ou barra) no gráfico. Com 3 territórios ou mais, só o "
+                                     "primeiro e o último ano de cada um; passar o mouse mostra o valor de qualquer ano.")
+        slot_log = c_log.container()
+        mode = {"Valor": "valor", "Índice (base 100)": "indice", "Variação anual": "var", REL_LBL: "rel"}[mode_lbl]
         if PARCIAL and use_al:
             st.caption(nota_al())
         tids = ([BRASIL] if use_br else []) + ([AMZ] if use_al else [])
@@ -2053,8 +2051,8 @@ with T["Comparações"]:
                        f"pior em <b>{n_pio}</b> em relação a <b>{picks[1][0]}</b>." if n_mel + n_pio else "")
         # medida do gráfico (índice ou valor) e rótulos nos pontos, como na Visão Geral
         f_med, f_rot = st.columns([1.6, 1], vertical_alignment="center")
-        medidas_ff = ["Valor"] if len(years) == 1 else ["Índice (base 100)", "Valor"]
-        med_ff = f_med.radio("Medida", medidas_ff, horizontal=True, key=state("w_ff_med", medidas_ff[0], medidas_ff),
+        medidas_ff = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
+        med_ff = f_med.radio("Medida", medidas_ff, horizontal=True, key=state("w_ff_med", medidas_ff[-1], medidas_ff),
                              help="Índice: as duas linhas começam em 100, para comparar o ritmo de territórios de tamanhos "
                                   "diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
         rot_ff = f_rot.checkbox("Mostrar valores nos pontos", key=state("w_ff_rot", True),
