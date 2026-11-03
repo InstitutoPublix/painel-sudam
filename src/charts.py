@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from . import fmt
 from .data import ASSETS, Indicator, band_ranges, bands, n_bands
 from .theme import (ACCENT, BG, BLUE, BROWN, COLORWAY, LEVEL_COLOR, MELHOR, MUTED, ORANGE, PIOR, RED, SEQ, SEQ_CONT,
-                    SEQ_CONT_PIOR, SEQ_PIOR, SURFACE, TEXT, text_on)
+                    SURFACE, TEXT, text_on)
 
 
 # --------------------------------------------------------------------------- #
@@ -66,9 +66,9 @@ def axis_label(ind: Indicator) -> str:
 
 
 def seq(ind: Indicator) -> list[str]:
-    """Faixas do menor ao maior valor: sempre mais escuro = valor maior. Verde quando maior é melhor (ou sem
-    polaridade); tons quentes quando menor é melhor, para o valor alto ser lido como situação ruim."""
-    return SEQ_PIOR if ind.polarity < 0 else SEQ
+    """Faixas do menor ao maior valor: sempre mais escuro = valor maior, na mesma paleta verde para todos os
+    indicadores (a polaridade aparece na legenda e nas cores de melhor/pior das tabelas, não no mapa)."""
+    return SEQ
 
 
 def band_colors(ind: Indicator, m: int) -> list[str]:
@@ -78,7 +78,7 @@ def band_colors(ind: Indicator, m: int) -> list[str]:
 
 
 def seq_cont(ind: Indicator) -> list:
-    return SEQ_CONT_PIOR if ind.polarity < 0 else SEQ_CONT
+    return SEQ_CONT
 
 
 def continuous_colors(values: pd.Series, ind: Indicator) -> list[str]:

@@ -441,7 +441,7 @@ def extremos_txt(df: pd.DataFrame, ik=None, nome: str = "") -> str:
     return f"Maior valor{nome}: <b>{mx.label}</b> ({v_mx}); menor: <b>{mn.label}</b> ({v_mn})."
 
 
-COR_TXT = {1: "", -1: " Aqui os tons quentes indicam que valor alto é situação ruim.", 0: ""}
+COR_TXT = {1: "", -1: " Aqui, valor mais alto é situação pior: o verde mais escuro indica o pior resultado.", 0: ""}
 
 
 class _SecaoAusente:
