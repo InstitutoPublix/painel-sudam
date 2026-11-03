@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import textwrap
 from dataclasses import replace
 
 import numpy as np
@@ -148,8 +149,10 @@ def _centro(feature: dict) -> tuple[float, float]:
 
 def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas",
                zoom: float = 3.2, center=(-9.0, -54.0), height: int = 560, rotulos: bool = True,
-               destaque_al: bool = False, al_parcial: tuple = ()) -> go.Figure:
-    """df: cod, label, valor (e uf, al). mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir).
+               destaque_al: bool = False, al_parcial: tuple = (),
+               brasil=(-12.5, -42.5), legenda: bool | float = False) -> go.Figure:
+    """df: cod, label, valor (e uf, al). `brasil`: onde escrever o nome do país. `legenda`: desenha as faixas num cartão (True, ou um fator de escala < 1 para mapas pequenos)
+    dentro do mapa (sai em prints e exportações) em vez de deixá-las para o HTML abaixo do gráfico. mode: 'faixas' (quantis) ou 'continua' (log se o indicador pedir).
     rotulos: siglas das UFs sobre o mapa de estados (quando há poucos estados ou o mapa é grande).
     destaque_al: contorno mais forte nos territórios da Amazônia Legal, quando o mapa traz também os de fora.
     al_parcial: UFs só em parte na Amazônia Legal; ficam sem o contorno forte, pois o estado inteiro não pertence a ela.
@@ -235,17 +238,109 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
             fig.add_trace(go.Scattermap(
                 lat=[centros[j][0] for j in idx], lon=[centros[j][1] for j in idx], mode="text", showlegend=False,
                 hoverinfo="skip", text=[str(df.uf.iloc[ok[j]]) for j in idx], textfont=dict(size=11, color=cor)))
-    # sem mapa-múndi ao fundo: só o Brasil sobre cor lisa, com o nome do país escrito em português
+    # o fundo "carto-positron-nolabels" mostra os países vizinhos sem nomes (os do fundo padrão vêm em inglês, BRAZIL):
+    # os nomes são escritos aqui em português, o do Brasil maior, em negrito e mais escuro que os demais
+    fig.add_trace(go.Scattermap(
+        lat=[la for _, la, _ in _PAISES], lon=[lo for _, _, lo in _PAISES], mode="text", showlegend=False,
+        hoverinfo="skip", text=[n for n, _, _ in _PAISES], textfont=dict(size=11, color="#7b858d")))
     if level != "Grande Região":  # no mapa de regiões o país inteiro está colorido e o nome só atrapalharia
-        fig.add_trace(go.Scattermap(lat=[-12.5], lon=[-42.5], mode="text", showlegend=False, hoverinfo="skip",
-                                    text=["BRASIL"], textfont=dict(size=17, color="#5b6670")))
-    fig.update_layout(map=dict(style=_FUNDO, zoom=zoom, center=dict(lat=center[0], lon=center[1])),
+        # texto cinza discreto, no estilo do rótulo do fundo antigo, com contorno branco (oito cópias brancas deslocadas ~1 px por baixo): lê-se sobre qualquer cor
+        d = 0.05
+        for dy, dx in ((d, 0), (-d, 0), (0, d), (0, -d), (d, d), (d, -d), (-d, d), (-d, -d)):
+            fig.add_trace(go.Scattermap(lat=[brasil[0] + dy], lon=[brasil[1] + dx], mode="text", showlegend=False,
+                                        hoverinfo="skip", text=["BRASIL"],
+                                        textfont=dict(size=13, color="#ffffff", family="Open Sans Bold")))
+        fig.add_trace(go.Scattermap(lat=[brasil[0]], lon=[brasil[1]], mode="text", showlegend=False, hoverinfo="skip",
+                                    text=["BRASIL"], textfont=dict(size=13, color="#6b7780", family="Open Sans Bold")))
+    if legenda and mode == "faixas":
+        anots, formas = _cartao_faixas(df, ind, level, 1.0 if legenda is True else float(legenda))
+        for s in formas:
+            fig.add_shape(**s)
+        for a in anots:
+            fig.add_annotation(**a)
+    fig.update_layout(map=dict(style="carto-positron-nolabels", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig
 
 
-_FUNDO = {"version": 8, "sources": {}, "glyphs": "https://basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
-           "layers": [{"id": "fundo", "type": "background", "paint": {"background-color": "#eef1f3"}}]}
+_PAISES = [("VENEZUELA", 7.0, -65.5), ("GUIANA", 7.0, -58.8), ("SURINAME", 5.9, -55.9),
+           ("GUIANA FRANCESA", 4.7, -53.1), ("COLÔMBIA", 3.0, -72.5), ("PERU", -9.5, -74.5), ("BOLÍVIA", -16.5, -64.5),
+           ("PARAGUAI", -23.3, -58.4), ("ARGENTINA", -30.0, -61.0), ("URUGUAI", -32.8, -56.0)]
+
+
+def _cartao_faixas(df: pd.DataFrame, ind: Indicator, level: str, k: float = 1.0) -> tuple[list[dict], list[dict]]:
+    """Legenda em cartão branco no canto inferior esquerdo do mapa: título, unidade, régua 'Menor … Maior', uma linha por
+    faixa (quadrado de cor, intervalo e nº de territórios entre parênteses) e a explicação do parêntese.
+    Cada elemento é uma anotação posicionada em pixels a partir do canto do mapa: o cartão é uma anotação com largura e
+    altura fixas, e os textos e quadrados de cor ficam por cima, linha a linha."""
+    rng = band_ranges(df.valor)
+    cores = band_colors(ind, len(rng))
+    limites = [x for lo, hi, _ in rng for x in (lo, hi)]
+    txt = dict(zip(limites, ind.fmt_col(limites)))  # todos os limites na mesma escala
+    plural = {"Estado": "estados", "Município": "municípios", "Grande Região": "regiões"}.get(level, "territórios")
+    nota = f"( ) número de {plural}" + (f"; faixas reduzidas a {len(rng)} por valores repetidos"
+                                         if len(rng) < n_bands(len(df)) else "")
+    tit = textwrap.wrap(ind.label, round(34 / k)) or [""]
+    uni = textwrap.wrap(ind.unit, round(44 / k)) or [""]
+    nota_l = textwrap.wrap(nota, round(44 / k))
+    # linhas (altura em px; `k` reduz o cartão todo em mapas pequenos, conteúdo): título, unidade, régua, faixas, nota
+    linhas = ([(round(20 * k), "tit", t) for t in tit] + [(round(16 * k), "uni", u) for u in uni] + [(round(26 * k), "regua", None)]
+              + [(round(22 * k), "faixa", (cor, lo, hi, n)) for cor, (lo, hi, n) in zip(cores, rng)]
+              + [(round(17 * k), "nota", t) for t in nota_l])
+    pad, marg = round(12 * k), 10
+    # largura pelo texto mais comprido (aprox. 8 px por letra do título, 7,4 nas faixas, 6 nas notas), entre 210 e 300 px
+    def _fx(lo, hi, n):
+        return f"{txt[lo]} – {txt[hi]} ({n})"
+    mais_larga = max([8.2 * max(map(len, tit)) + 5, 6.2 * max(map(len, uni)), 6.2 * max(map(len, nota_l or [""])), 190]
+                     + [7.6 * len(_fx(lo, hi, n)) + 28 for lo, hi, n in rng])
+    larg = int(min(300 * k, max(210 * k, mais_larga * k + 2 * pad)))
+    alt = sum(h for h, _, _ in linhas) + 2 * pad
+    anots = []
+    # fundo de cantos arredondados: um retângulo largo, um alto e quatro círculos, todos em pixels (a anotação sozinha
+    # não arredonda); o mesmo conjunto 1 px maior, em cinza, por baixo, faz a borda
+    def _fundo(cor, ext, raio):
+        x0, y0, x1, y1 = marg - ext, marg - ext, marg + larg + ext, marg + alt + ext
+        base = dict(xref="paper", yref="paper", xanchor=0, yanchor=0, xsizemode="pixel", ysizemode="pixel",
+                    fillcolor=cor, line=dict(width=0), layer="above")
+        return [dict(base, type="rect", x0=x0 + raio, x1=x1 - raio, y0=y0, y1=y1),
+                dict(base, type="rect", x0=x0, x1=x1, y0=y0 + raio, y1=y1 - raio)] + [
+            dict(base, type="circle", x0=xa, x1=xa + 2 * raio, y0=ya, y1=ya + 2 * raio)
+            for xa in (x0, x1 - 2 * raio) for ya in (y0, y1 - 2 * raio)]
+    raio = 9
+    formas = _fundo("#d5dbd8", 1, raio + 1) + _fundo("#ffffff", 0, raio)
+
+    def peca(x, y_centro, **kw):  # x e y em pixels dentro do cartão (y medido de cima para baixo)
+        d = dict(xref="paper", yref="paper", x=0, y=0, xanchor="left", yanchor="middle", showarrow=False,
+                 xshift=marg + pad + x, yshift=marg + alt - y_centro, align="left")
+        d.update(kw)
+        return d
+
+    def quadrado(x, y_centro, cor):
+        return peca(x, y_centro, text=" ", width=round(15 * k), height=round(15 * k), bgcolor=cor, bordercolor="rgba(0,0,0,0.12)",
+                    borderwidth=1)
+
+    y = pad
+    for h, tipo, v in linhas:
+        yc = y + h / 2
+        if tipo == "tit":
+            anots.append(peca(0, yc, text=f"<b>{v}</b>", font=dict(size=round(15 * k), color=TEXT)))
+        elif tipo == "uni":
+            anots.append(peca(0, yc, text=v, font=dict(size=round(12 * k), color=MUTED)))
+        elif tipo == "regua":
+            anots.append(peca(0, yc, text="Menor", font=dict(size=round(12 * k), color=MUTED)))
+            x0 = round(46 * k)
+            anots += [quadrado(x0 + round(16 * k) * i, yc, cor) for i, cor in enumerate(cores)]
+            anots.append(peca(x0 + round(16 * k) * len(cores) + 8, yc, text="Maior", font=dict(size=round(12 * k), color=MUTED)))
+        elif tipo == "faixa":
+            cor, lo, hi, n = v
+            faixa = txt[lo] if txt[lo] == txt[hi] else f"{txt[lo]} – {txt[hi]}"
+            anots.append(quadrado(0, yc, cor))
+            anots.append(peca(round(24 * k), yc, text=f'{faixa} <span style="color:{MUTED}">({n})</span>',
+                              font=dict(size=round(14 * k), color=TEXT)))
+        else:
+            anots.append(peca(0, yc, text=f"<i>{v}</i>", font=dict(size=round(11.5 * k), color=MUTED)))
+        y += h
+    return anots, formas
 
 
 def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
