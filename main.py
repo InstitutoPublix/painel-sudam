@@ -511,8 +511,8 @@ def so_estadual(ind: str) -> bool:
 
 def map_view(level: str):
     if AL_ONLY:
-        return dict(zoom=3.0 if level == "Estado" else 3.2, center=(-6.5, -55.0))
-    return dict(zoom=2.7, center=(-14.5, -52.0))
+        return dict(zoom=3.4, center=(-6.5, -59.0))  # a Amazônia Legal vai de -74° a -44° de longitude
+    return dict(zoom=3.1, center=(-14.2, -54.0))  # Brasil inteiro, de -74° a -34°
 
 
 # =========================================================================== #
