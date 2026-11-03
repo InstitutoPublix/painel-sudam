@@ -236,8 +236,9 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
                 lat=[centros[j][0] for j in idx], lon=[centros[j][1] for j in idx], mode="text", showlegend=False,
                 hoverinfo="skip", text=[str(df.uf.iloc[ok[j]]) for j in idx], textfont=dict(size=11, color=cor)))
     # sem mapa-múndi ao fundo: só o Brasil sobre cor lisa, com o nome do país escrito em português
-    fig.add_trace(go.Scattermap(lat=[-12.5], lon=[-42.5], mode="text", showlegend=False, hoverinfo="skip",
-                                text=["BRASIL"], textfont=dict(size=17, color="#5b6670")))
+    if level != "Grande Região":  # no mapa de regiões o país inteiro está colorido e o nome só atrapalharia
+        fig.add_trace(go.Scattermap(lat=[-12.5], lon=[-42.5], mode="text", showlegend=False, hoverinfo="skip",
+                                    text=["BRASIL"], textfont=dict(size=17, color="#5b6670")))
     fig.update_layout(map=dict(style=_FUNDO, zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig

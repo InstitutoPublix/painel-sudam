@@ -509,10 +509,16 @@ def so_estadual(ind: str) -> bool:
     return "Município" not in D["meta"].get(ind, {}).get("levels", ["Município"])
 
 
-def map_view(level: str):
-    if AL_ONLY:
-        return dict(zoom=3.4, center=(-6.5, -59.0))  # a Amazônia Legal vai de -74° a -44° de longitude
-    return dict(zoom=3.1, center=(-14.2, -54.0))  # Brasil inteiro, de -74° a -34°
+def map_view(level: str, height: int = 640, width: int = 650):
+    """Centro e zoom que enquadram o recorte inteiro no quadro do mapa (altura e largura em pixels, aproximadas):
+    a Amazônia Legal (de -74° a -44° de longitude) ou o Brasil todo (de -74° a -34°)."""
+    graus_px = 1.5125  # pixels por grau de latitude/longitude em zoom 0 (vezes 2^zoom)
+    if AL_ONLY and level != "Grande Região":  # as Grandes Regiões cobrem o país todo: enquadram o Brasil inteiro
+        lon, lat, centro, teto = 31, 24, (-6.5, -59.0), 3.4
+    else:
+        lon, lat, centro, teto = 41, 40, (-14.2, -54.0), 3.4
+    zoom = min(teto, np.log2(.95 * width / (lon * graus_px)), np.log2(.95 * height / (lat * graus_px)))
+    return dict(zoom=round(float(zoom), 2), center=centro)
 
 
 # =========================================================================== #
@@ -646,8 +652,8 @@ with T["Visão Geral"]:
                     theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(est_vg))} · "
                                 "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                     if len(est_vg) >= 5:
-                        plot(charts.choropleth(est_vg, I, "Estado", **map_view("Estado"), height=420,
-                                               al_parcial=tuple(PARCIAL)), "ov_map")
+                        plot(charts.choropleth(est_vg, I, "Estado", **map_view("Estado", 420, 560), height=420,
+                                               al_parcial=tuple(PARCIAL) if AL_ONLY else ()), "ov_map")
                         st.markdown(charts.legend_html(est_vg, I), unsafe_allow_html=True)
                     else:
                         st.info("O mapa divide os estados em faixas e precisa de pelo menos 5 estados.")
@@ -670,8 +676,8 @@ with T["Visão Geral"]:
                 theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(st_df))} · "
                             "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                 if len(st_df) >= 5:
-                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado"), height=370,
-                                           al_parcial=tuple(PARCIAL)), "ov_map")
+                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado", 370, 480), height=370,
+                                           al_parcial=tuple(PARCIAL) if AL_ONLY else ()), "ov_map")
                     st.markdown(charts.legend_html(st_df, I), unsafe_allow_html=True)
                     if PARCIAL:
                         st.caption("◐ " + nota_parcial(modo_parcial(AL_ONLY, IND)))
@@ -889,8 +895,8 @@ with T["Visão Geral"]:
         st.markdown("---")
         theme.title("Indicadores na Amazônia Legal, por eixo temático",
                     "Clique em um eixo para ver o valor de cada indicador no último ano com dado e a evolução desde o "
-                    "primeiro ano. O eixo do indicador escolhido já vem aberto e o cartão dele tem borda; a linha aparece "
-                    "quando há três anos ou mais com dado.", fixo=True)
+                    "primeiro ano. O eixo do indicador escolhido já vem aberto e o cartão dele tem borda; com três anos ou "
+                    "mais com dado o cartão mostra a linha, com dois mostra duas barras.", fixo=True)
         for n, eixo_nome in enumerate(eixos):
             ks = do_eixo(eixo_nome)
             # a chave leva o eixo do indicador escolhido: ao trocar para outro eixo, as caixas voltam ao padrão
@@ -910,8 +916,8 @@ with T["Visão Geral"]:
                     n_anos = len(s_al)
                     dv = change(ult.valor, pri.valor, ik) if n_anos > 1 else float("nan")
                     delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
-                    nota = (f"Só {int(ult.ano)} na base: sem série" if n_anos == 1
-                            else f"Só dois anos com dado ({int(pri.ano)} e {int(ult.ano)})" if n_anos == 2 else "")
+                    nota = (f"Único ano com dado: {int(ult.ano)}" if n_anos == 1
+                            else f"Dois anos com dado: {int(pri.ano)} e {int(ult.ano)}" if n_anos == 2 else "")
                     col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
                                             s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
                                  unsafe_allow_html=True)
@@ -1660,7 +1666,7 @@ with T["Mapa e Ranking"]:
                                      else f" · {nomes}: estado inteiro; o contorno forte marca só a parte na região")
                     theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}{destaque}")
                     plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
-                                           **map_view(lvl), height=640 if lvl != "Grande Região" else 560, destaque_al=marca_al,
+                                           **map_view(lvl, 640 if lvl != "Grande Região" else 560), height=640 if lvl != "Grande Região" else 560, destaque_al=marca_al,
                                            al_parcial=tuple(PARCIAL)), "map_main")
                     if mode_lbl.startswith("Faixas"):
                         st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)

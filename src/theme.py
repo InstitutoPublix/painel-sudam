@@ -190,6 +190,8 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .mini .sp svg {{ display:block; width:100%; height:38px; overflow:visible; }}
 .mini .yr {{ display:flex; justify-content:space-between; font-size:.64rem; color:{MUTED}; gap:6px; }}
 .mini .yr b {{ color:{TEXT}; font-weight:700; }}
+.mini .yr.c span {{ flex:1; text-align:center; font-weight:600; }}
+.mini .bv {{ position:absolute; transform:translate(-50%,-115%); font-size:.7rem; font-weight:700; color:{TEXT}; white-space:nowrap; }}
 /* passar o mouse na linha: ponto, guia vertical e etiqueta "ano: valor" (HTML sobre o SVG, sem deformar o ponto) */
 .mini .sp {{ position:relative; }}
 .mini .hz-area {{ position:absolute; left:0; right:0; top:0; height:38px; }}
@@ -428,7 +430,7 @@ def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "")
 def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valores=None, nota: str = "",
          sel: bool = False, fmt_valor=str) -> str:
     """Cartão compacto de um indicador com a tendência desenhada em SVG dentro dele (sem gráfico à parte): todos
-    têm a mesma altura. Com menos de 3 anos não há linha, só a `nota` no mesmo espaço. O primeiro e o último ano
+    têm a mesma altura. Com 2 anos são duas barras; com 1 só a `nota` no mesmo espaço. O primeiro e o último ano
     aparecem com o valor; passando o mouse sobre a linha, cada ano mostra o seu (`fmt_valor` formata)."""
     esc = lambda t: html.escape(str(t))  # noqa: E731
     if anos is not None and len(anos) >= 3:
@@ -461,6 +463,21 @@ def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valo
                    f'<div class="hz-area">{"".join(zonas)}</div>'
                    f'<div class="yr"><span>{int(x0)}: <b>{esc(fmt_valor(vs[0]))}</b></span>'
                    f'<span>{int(x1)}: <b>{esc(fmt_valor(vs[-1]))}</b></span></div></div>')
+    elif anos is not None and len(anos) == 2 and min(float(v) for v in valores) >= 0 and max(float(v) for v in valores) > 0:
+        # só dois anos: duas barras a partir do zero (a altura é proporcional ao valor), uma por ano
+        vs = [float(v) for v in valores]
+        topo = max(vs)
+        barras, rotulos = [], []
+        for i, (a, v) in enumerate(zip(anos, vs)):
+            h = max(v / topo * 19, 1.2)  # as barras ocupam 19 das 32 unidades; o resto é espaço para o valor em cima
+            barras.append(f'<rect x="{10 + 50 * i}" y="{30 - h:.2f}" width="30" height="{h:.2f}" rx="1.5" '
+                          f'fill="{INK if i else "rgba(4,65,60,0.38)"}"/>')
+            rotulos.append(f'<div class="bv" style="left:{25 + 50 * i}%;top:{(30 - h) / 32 * 100:.1f}%">'
+                           f'{esc(fmt_valor(v))}</div>')
+        grafico = (f'<div class="sp"><svg viewBox="0 0 100 32" preserveAspectRatio="none">{"".join(barras)}'
+                   f'<line x1="0" y1="30.5" x2="100" y2="30.5" stroke="rgba(4,65,60,0.25)" stroke-width="1" '
+                   f'vector-effect="non-scaling-stroke"/></svg><div class="hz-area">{"".join(rotulos)}</div>'
+                   f'<div class="yr c"><span>{int(anos[0])}</span><span>{int(anos[1])}</span></div></div>')
     else:
         grafico = f'<div class="nota">{esc(nota)}</div>' if nota else '<div class="nota"></div>'
     return (f'<div class="mini{" sel" if sel else ""}"><div class="lb" title="{esc(label)}">{esc(label)}</div>'
