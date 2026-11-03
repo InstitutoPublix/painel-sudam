@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from . import fmt
 from .data import ASSETS, Indicator, band_ranges, bands, n_bands
 from .theme import (ACCENT, BG, BLUE, BROWN, COLORWAY, LEVEL_COLOR, MELHOR, MUTED, ORANGE, PIOR, RED, SEQ, SEQ_CONT,
-                    SEQ_CONT_PIOR, SEQ_PIOR, SURFACE, TEXT, text_on)
+                    SURFACE, TEXT, text_on)
 
 
 # --------------------------------------------------------------------------- #
@@ -66,9 +66,9 @@ def axis_label(ind: Indicator) -> str:
 
 
 def seq(ind: Indicator) -> list[str]:
-    """Faixas do menor ao maior valor: sempre mais escuro = valor maior. Verde quando maior é melhor (ou sem
-    polaridade); tons quentes quando menor é melhor, para o valor alto ser lido como situação ruim."""
-    return SEQ_PIOR if ind.polarity < 0 else SEQ
+    """Faixas do menor ao maior valor: sempre mais escuro = valor maior, na mesma paleta verde para todos os
+    indicadores (a polaridade aparece na legenda e nas cores de melhor/pior das tabelas, não no mapa)."""
+    return SEQ
 
 
 def band_colors(ind: Indicator, m: int) -> list[str]:
@@ -78,7 +78,7 @@ def band_colors(ind: Indicator, m: int) -> list[str]:
 
 
 def seq_cont(ind: Indicator) -> list:
-    return SEQ_CONT_PIOR if ind.polarity < 0 else SEQ_CONT
+    return SEQ_CONT
 
 
 def continuous_colors(values: pd.Series, ind: Indicator) -> list[str]:
@@ -235,9 +235,17 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
             fig.add_trace(go.Scattermap(
                 lat=[centros[j][0] for j in idx], lon=[centros[j][1] for j in idx], mode="text", showlegend=False,
                 hoverinfo="skip", text=[str(df.uf.iloc[ok[j]]) for j in idx], textfont=dict(size=11, color=cor)))
-    fig.update_layout(map=dict(style="carto-positron", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
+    # sem mapa-múndi ao fundo: só o Brasil sobre cor lisa, com o nome do país escrito em português
+    if level != "Grande Região":  # no mapa de regiões o país inteiro está colorido e o nome só atrapalharia
+        fig.add_trace(go.Scattermap(lat=[-12.5], lon=[-42.5], mode="text", showlegend=False, hoverinfo="skip",
+                                    text=["BRASIL"], textfont=dict(size=17, color="#5b6670")))
+    fig.update_layout(map=dict(style=_FUNDO, zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig
+
+
+_FUNDO = {"version": 8, "sources": {}, "glyphs": "https://basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+           "layers": [{"id": "fundo", "type": "background", "paint": {"background-color": "#eef1f3"}}]}
 
 
 def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
