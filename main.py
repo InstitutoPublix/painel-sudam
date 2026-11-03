@@ -514,11 +514,12 @@ def map_view(level: str, height: int = 640, width: int = 650):
     a Amazônia Legal (de -74° a -44° de longitude) ou o Brasil todo (de -74° a -34°)."""
     graus_px = 1.5125  # pixels por grau de latitude/longitude em zoom 0 (vezes 2^zoom)
     if AL_ONLY and level != "Grande Região":  # as Grandes Regiões cobrem o país todo: enquadram o Brasil inteiro
-        lon, lat, centro, teto = 31, 24, (-6.5, -59.0), 3.4
+        lon, lat, centro, teto, nome = 31, 24, (-8.0, -59.0), 3.4, (-12.5, -42.5)
     else:
-        lon, lat, centro, teto = 41, 40, (-14.2, -54.0), 3.4
+        # a latitude pesa mais (projeção Mercator); o nome fica no meio do país, com contorno branco
+        lon, lat, centro, teto, nome = 41, 42, (-15.3, -54.0), 3.4, (-17.8, -50.5)
     zoom = min(teto, np.log2(.95 * width / (lon * graus_px)), np.log2(.95 * height / (lat * graus_px)))
-    return dict(zoom=round(float(zoom), 2), center=centro)
+    return dict(zoom=round(float(zoom), 2), center=centro, brasil=nome)
 
 
 # =========================================================================== #
@@ -652,9 +653,8 @@ with T["Visão Geral"]:
                     theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(est_vg))} · "
                                 "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                     if len(est_vg) >= 5:
-                        plot(charts.choropleth(est_vg, I, "Estado", **map_view("Estado", 420, 560), height=420,
-                                               al_parcial=tuple(PARCIAL) if AL_ONLY else ()), "ov_map")
-                        st.markdown(charts.legend_html(est_vg, I), unsafe_allow_html=True)
+                        plot(charts.choropleth(est_vg, I, "Estado", **map_view("Estado", 440, 520), height=440,
+                                               al_parcial=tuple(PARCIAL) if AL_ONLY else (), legenda=0.82), "ov_map")
                     else:
                         st.info("O mapa divide os estados em faixas e precisa de pelo menos 5 estados.")
                 with b:
@@ -676,9 +676,8 @@ with T["Visão Geral"]:
                 theme.title(f"{I.label} por estado", f"{YEAR} · {escopo('Estado', len(st_df))} · "
                             "cor = faixa do estado (grupos de tamanho parecido, do menor ao maior valor)")
                 if len(st_df) >= 5:
-                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado", 370, 480), height=370,
-                                           al_parcial=tuple(PARCIAL) if AL_ONLY else ()), "ov_map")
-                    st.markdown(charts.legend_html(st_df, I), unsafe_allow_html=True)
+                    plot(charts.choropleth(st_df, I, "Estado", **map_view("Estado", 440, 430), height=440,
+                                           al_parcial=tuple(PARCIAL) if AL_ONLY else (), legenda=0.78), "ov_map")
                     if PARCIAL:
                         st.caption("◐ " + nota_parcial(modo_parcial(AL_ONLY, IND)))
                     theme.como_ler("estados da mesma cor estão na mesma faixa de valores; quanto mais escura, maior o "
@@ -1667,9 +1666,7 @@ with T["Mapa e Ranking"]:
                     theme.title(f"{I.label} por {lvl.lower()}", f"{YEAR} · {escopo(lvl, len(rk))}{destaque}")
                     plot(charts.choropleth(rk, I, lvl, "faixas" if mode_lbl.startswith("Faixas") else "continua",
                                            **map_view(lvl, 640 if lvl != "Grande Região" else 560), height=640 if lvl != "Grande Região" else 560, destaque_al=marca_al,
-                                           al_parcial=tuple(PARCIAL)), "map_main")
-                    if mode_lbl.startswith("Faixas"):
-                        st.markdown(charts.legend_html(rk, I), unsafe_allow_html=True)
+                                           al_parcial=tuple(PARCIAL), legenda=True), "map_main")
                     plural_lv = {"Município": "municípios", "Estado": "estados", "Grande Região": "regiões"}[lvl]
                     explica = (f"os {plural_lv} são divididos em grupos de tamanho parecido, do menor ao maior valor; "
                                "mais escuro = valor maior. Serve para ver quem está no topo ou no fim."
