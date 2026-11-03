@@ -235,18 +235,16 @@ def choropleth(df: pd.DataFrame, ind: Indicator, level: str, mode: str = "faixas
             fig.add_trace(go.Scattermap(
                 lat=[centros[j][0] for j in idx], lon=[centros[j][1] for j in idx], mode="text", showlegend=False,
                 hoverinfo="skip", text=[str(df.uf.iloc[ok[j]]) for j in idx], textfont=dict(size=11, color=cor)))
-    # o fundo "carto-positron" escreve os países em inglês (BRAZIL); sem rótulos, escrevemos os nomes em português
-    fig.add_trace(go.Scattermap(
-        lat=[la for _, la, _ in _PAISES], lon=[lo for _, _, lo in _PAISES], mode="text", showlegend=False,
-        hoverinfo="skip", text=[n for n, _, _ in _PAISES], textfont=dict(size=11, color="#8a9199")))
-    fig.update_layout(map=dict(style="carto-positron-nolabels", zoom=zoom, center=dict(lat=center[0], lon=center[1])),
+    # sem mapa-múndi ao fundo: só o Brasil sobre cor lisa, com o nome do país escrito em português
+    fig.add_trace(go.Scattermap(lat=[-12.5], lon=[-42.5], mode="text", showlegend=False, hoverinfo="skip",
+                                text=["BRASIL"], textfont=dict(size=17, color="#5b6670")))
+    fig.update_layout(map=dict(style=_FUNDO, zoom=zoom, center=dict(lat=center[0], lon=center[1])),
                       margin=dict(l=0, r=0, t=0, b=0), height=height)
     return fig
 
 
-_PAISES = [("BRASIL", -13.5, -43.5), ("VENEZUELA", 7.0, -65.5), ("GUIANA", 5.0, -58.9), ("SURINAME", 4.0, -55.8),
-           ("GUIANA FRANCESA", 3.9, -53.2), ("COLÔMBIA", 3.0, -72.5), ("PERU", -9.5, -74.5), ("BOLÍVIA", -16.5, -64.5),
-           ("PARAGUAI", -23.3, -58.4), ("ARGENTINA", -30.0, -61.0), ("URUGUAI", -32.8, -56.0), ("EQUADOR", -1.5, -78.3)]
+_FUNDO = {"version": 8, "sources": {}, "glyphs": "https://basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+           "layers": [{"id": "fundo", "type": "background", "paint": {"background-color": "#eef1f3"}}]}
 
 
 def legend_html(df: pd.DataFrame, ind: Indicator) -> str:
