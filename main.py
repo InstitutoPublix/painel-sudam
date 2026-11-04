@@ -1734,10 +1734,8 @@ with T["Séries Temporais"]:
         REL_LBL = "Participação no Brasil (%)" if I.additive else "Em relação ao Brasil (Brasil = 100)"
 
         st.markdown('<div class="secoes-tit">1 · Quais territórios</div>', unsafe_allow_html=True)
-        # duas linhas com a mesma divisão (1/3 e 2/3), para os campos começarem alinhados: em cima, regiões e estados
-        # dividem os 2/3; embaixo, os 2/3 são do campo de municípios
-        q0, q12 = st.columns([1, 2], gap="medium")
-        q1, q2 = q12.columns(2, gap="medium")
+        # linha 1: três campos; linha 2: três campos (mesma divisão, tudo alinhado); linha 3: o campo de municípios
+        q0, q1, q2 = st.columns(3, gap="medium")
         with q0:
             use_br = st.checkbox("Brasil", disabled=not tem_br,
                                  key=state("w_ts_br", tem_br, [True, False] if tem_br else [False]))
@@ -1757,27 +1755,54 @@ with T["Séries Temporais"]:
             e_sel = st.multiselect("Estados", est_ops, disabled=not est_ops,
                                    placeholder="Escolha os estados" if est_ops else "Sem dados nesta série",
                                    key=state("w_ts_est", [], est_ops))
-        # municípios em linha própria: primeiro o grupo (encurta a lista, não muda o gráfico), depois os municípios
+
+        # municípios: três filtros que só encurtam a lista de escolha (abrangência, critério e valores) e, abaixo, o
+        # campo de municípios, que é o que vai para o gráfico. Um critério por vez, com a contagem de cada opção, para
+        # a lista nunca ficar vazia por combinações.
         carac = D["carac"]
-        no_al = muns.cod.astype(int).map(carac.al).fillna(False).astype(bool) if carac is not None else None
-        grupos_mun = {"al": ("Amazônia Legal", no_al)}
+        cods = muns.cod.astype(int)
+        criterios = {"Sem filtro": None}  # rótulo -> (série por município, ordem dos valores ou None, é Sim/Não)
         if carac is not None:
-            sn = lambda c: muns.cod.astype(int).map(carac[c]).fillna(False).astype(bool)  # noqa: E731
-            grupos_mun |= {"fronteira": ("De fronteira na Amazônia Legal", no_al & sn("fronteira")),
-                           "sede": ("Sedes de região imediata na Amazônia Legal", no_al & sn("sede_imediata"))}
-        grupos_mun = {k: v for k, v in grupos_mun.items() if v[1] is not None}
-        grupos_mun["brasil"] = ("Todo o Brasil", pd.Series(True, index=muns.index))
-        m0, m1 = st.columns([1, 2], gap="medium")
-        g = m0.selectbox("Grupo de municípios", list(grupos_mun), disabled=not tem_mun,
-                         format_func=lambda k: f"{grupos_mun[k][0]} ({int(grupos_mun[k][1].sum()):,})".replace(",", "."),
-                         help="Define de quais municípios é a lista ao lado. Só encurta a lista: o gráfico mostra "
-                              "os municípios que você escolher nela.",
-                         key=state("w_ts_grupo", next(iter(grupos_mun)), list(grupos_mun)))
-        escolhidos = set(st.session_state.get("w_ts_mun", []))  # o que já foi escolhido fica, mesmo fora do grupo
-        mun_ops = muns[grupos_mun[g][1] | muns.label.isin(escolhidos)].label.tolist() if tem_mun else []
-        m_sel = m1.multiselect("Municípios", mun_ops, disabled=not mun_ops,
-                               placeholder=(f"Digite o nome · {int(grupos_mun[g][1].sum()):,} na lista ({grupos_mun[g][0]})"
-                                            .replace(",", ".") if mun_ops else "Sem dados nesta série"),
+            sn = lambda c: cods.map(carac[c]).fillna(False).astype(bool)  # noqa: E731
+            criterios |= {"Município de fronteira": (sn("fronteira"), None, True),
+                          "Sede de região imediata": (sn("sede_imediata"), None, True)}
+        criterios["UF"] = (muns.uf, None, False)
+        if D["porte"] is not None:
+            criterios["Porte (habitantes)"] = (cods.map(D["porte"]), [p[0] for p in PORTES], False)
+        if carac is not None:
+            criterios |= {"Tipologia PNDR": (cods.map(carac.pndr), None, False),
+                          "Classe do IDHM (2010)": (cods.map(carac.idhm), ORDEM_CLASSES, False),
+                          "Região Geográfica Intermediária": (cods.map(carac.rg_intermediaria), None, False),
+                          "Região Geográfica Imediata": (cods.map(carac.rg_imediata), None, False)}
+        f0, f1, f2 = st.columns(3, gap="medium")
+        rec_m = f0.radio("Abrangência dos municípios", list(RECORTES), format_func=RECORTES.get, horizontal=True,
+                         disabled=not tem_mun, key=state("w_ts_rec", "Amazônia Legal", list(RECORTES)),
+                         help="De onde vêm os municípios da lista. Só encurta a lista: o gráfico mostra os que você "
+                              "escolher nela.")
+        base = (cods.map(carac.al).fillna(False).astype(bool)
+                if rec_m == "Amazônia Legal" and carac is not None else pd.Series(True, index=muns.index))
+        crit = f1.selectbox("Filtrar a lista por", list(criterios), disabled=not tem_mun,
+                            key=state("w_ts_crit", "Sem filtro", list(criterios)),
+                            help="Mostra na lista só os municípios de um grupo: fronteira, estado, porte, tipologia "
+                                 "PNDR, IDHM, região geográfica…")
+        lista = base
+        if crit != "Sem filtro":
+            serie, ordem, bool_ = criterios[crit]
+            if bool_:
+                lista = base & serie
+                f2.caption(f"{int(lista.sum()):,} municípios nesta abrangência.".replace(",", "."))
+            else:
+                cont = serie[base].value_counts()
+                pool = [v for v in (ordem or sorted(cont.index)) if v in cont.index]
+                vals = f2.multiselect("Valores", pool, placeholder="Todos", key=state(f"w_ts_val_{crit}", [], pool),
+                                      format_func=lambda v: f"{v} ({int(cont[v]):,})".replace(",", "."))
+                lista = base & serie.isin(vals) if vals else base
+        escolhidos = set(st.session_state.get("w_ts_mun", []))  # o que já foi escolhido fica, mesmo fora da lista
+        mun_ops = muns[lista | muns.label.isin(escolhidos)].label.tolist() if tem_mun else []
+        m_sel = st.multiselect("Municípios", mun_ops, disabled=not mun_ops,
+                               placeholder=(f"Digite o nome · {int(lista.sum()):,} município"
+                                            f"{'s' * (int(lista.sum()) != 1)} na lista".replace(",", ".")
+                                            if mun_ops else "Sem dados nesta série"),
                                help="Digite para buscar; para os de um estado, digite a sigla entre parênteses, "
                                     "ex.: (PA). Com muitos territórios o gráfico fica difícil de ler: até 8 costuma "
                                     "funcionar bem.",
