@@ -1,6 +1,7 @@
 """Identidade visual clara (creme + verde institucional) do projeto de apoio ao PRDA."""
 from __future__ import annotations
 
+import re
 import base64
 import html
 import json
@@ -168,6 +169,9 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi .ic {{ flex:0 0 40px; height:40px; border-radius:10px; background:rgba(4,65,60,.08); color:{INK};
   display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.7rem; text-align:center; }}
 .kpi .lb {{ font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:{MUTED}; font-weight:600; }}
+.kpi > div:last-child {{ min-width:0; }}
+.kpi .nw {{ white-space:nowrap; }}
+.kpi .un {{ font-size:.6em; font-weight:700; }}
 .kpi .vl {{ font-size:1.55rem; font-weight:800; color:{TEXT}; line-height:1.15; }}
 .kpi .sb {{ font-size:.74rem; color:{MUTED}; }}
 .kpi.hi .vl {{ color:{INK}; }}
@@ -423,6 +427,7 @@ def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
 
 
 def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "") -> str:
+    value = re.sub("\u00a0([^\\s<]{4,})", "\u00a0<span class=\"un\">\\1</span>", value)  # unidade longa (pontos): menor, cabe ao lado do número
     return (f'<div class="kpi {cls}"><div class="ic">{icon}</div><div><div class="lb">{label}</div>'
             f'<div class="vl">{value}</div><div class="sb">{sub}</div></div></div>')
 

@@ -11,3 +11,7 @@ build/
 
 # catálogo de indicadores (controle interno, fora do repositório)
 catalogo/
+
+
+docs/
+tests/
