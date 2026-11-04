@@ -1734,7 +1734,10 @@ with T["Séries Temporais"]:
         REL_LBL = "Participação no Brasil (%)" if I.additive else "Em relação ao Brasil (Brasil = 100)"
 
         st.markdown('<div class="secoes-tit">1 · Quais territórios</div>', unsafe_allow_html=True)
-        q0, q1, q2, q3 = st.columns(4, gap="medium")  # quatro campos do mesmo tamanho
+        # duas linhas com a mesma divisão (1/3 e 2/3), para os campos começarem alinhados: em cima, regiões e estados
+        # dividem os 2/3; embaixo, os 2/3 são do campo de municípios
+        q0, q12 = st.columns([1, 2], gap="medium")
+        q1, q2 = q12.columns(2, gap="medium")
         with q0:
             use_br = st.checkbox("Brasil", disabled=not tem_br,
                                  key=state("w_ts_br", tem_br, [True, False] if tem_br else [False]))
@@ -1745,7 +1748,7 @@ with T["Séries Temporais"]:
         muns = data.territories(D, "Município")
         reg_ops = regs.label.tolist() if "Grande Região" in niveis_ts else []
         est_ops = ests.label.tolist() if "Estado" in niveis_ts else []
-        mun_ops = muns.label.tolist() if "Município" in niveis_ts else []
+        tem_mun = "Município" in niveis_ts
         with q1:
             r_sel = st.multiselect("Grandes Regiões", reg_ops, disabled=not reg_ops,
                                    placeholder="Escolha as regiões" if reg_ops else "Sem dados nesta série",
@@ -1754,14 +1757,33 @@ with T["Séries Temporais"]:
             e_sel = st.multiselect("Estados", est_ops, disabled=not est_ops,
                                    placeholder="Escolha os estados" if est_ops else "Sem dados nesta série",
                                    key=state("w_ts_est", [], est_ops))
-        with q3:
-            m_sel = st.multiselect("Municípios", mun_ops, disabled=not mun_ops,
-                                   placeholder="Digite o nome do município" if mun_ops else "Sem dados nesta série",
-                                   help="Digite para buscar. Com muitos territórios o gráfico fica difícil de ler: "
-                                        "até 8 costuma funcionar bem.",
-                                   key=state("w_ts_mun", [], mun_ops))
+        # municípios em linha própria: primeiro o grupo (encurta a lista, não muda o gráfico), depois os municípios
+        carac = D["carac"]
+        no_al = muns.cod.astype(int).map(carac.al).fillna(False).astype(bool) if carac is not None else None
+        grupos_mun = {"al": ("Amazônia Legal", no_al)}
+        if carac is not None:
+            sn = lambda c: muns.cod.astype(int).map(carac[c]).fillna(False).astype(bool)  # noqa: E731
+            grupos_mun |= {"fronteira": ("De fronteira na Amazônia Legal", no_al & sn("fronteira")),
+                           "sede": ("Sedes de região imediata na Amazônia Legal", no_al & sn("sede_imediata"))}
+        grupos_mun = {k: v for k, v in grupos_mun.items() if v[1] is not None}
+        grupos_mun["brasil"] = ("Todo o Brasil", pd.Series(True, index=muns.index))
+        m0, m1 = st.columns([1, 2], gap="medium")
+        g = m0.selectbox("Grupo de municípios", list(grupos_mun), disabled=not tem_mun,
+                         format_func=lambda k: f"{grupos_mun[k][0]} ({int(grupos_mun[k][1].sum()):,})".replace(",", "."),
+                         help="Define de quais municípios é a lista ao lado. Só encurta a lista: o gráfico mostra "
+                              "os municípios que você escolher nela.",
+                         key=state("w_ts_grupo", next(iter(grupos_mun)), list(grupos_mun)))
+        escolhidos = set(st.session_state.get("w_ts_mun", []))  # o que já foi escolhido fica, mesmo fora do grupo
+        mun_ops = muns[grupos_mun[g][1] | muns.label.isin(escolhidos)].label.tolist() if tem_mun else []
+        m_sel = m1.multiselect("Municípios", mun_ops, disabled=not mun_ops,
+                               placeholder=(f"Digite o nome · {int(grupos_mun[g][1].sum()):,} na lista ({grupos_mun[g][0]})"
+                                            .replace(",", ".") if mun_ops else "Sem dados nesta série"),
+                               help="Digite para buscar; para os de um estado, digite a sigla entre parênteses, "
+                                    "ex.: (PA). Com muitos territórios o gráfico fica difícil de ler: até 8 costuma "
+                                    "funcionar bem.",
+                               key=state("w_ts_mun", [], mun_ops))
 
-        st.markdown('<div class="secoes-tit">2 · Como mostrar</div>', unsafe_allow_html=True)
+        st.markdown('<div class="secoes-tit" style="margin-top:18px">2 · Como mostrar</div>', unsafe_allow_html=True)
         medidas = ["Valor"] if ano_unico else ["Valor", "Índice (base 100)", "Variação anual"]
         if tem_ref:
             medidas.append(REL_LBL)
