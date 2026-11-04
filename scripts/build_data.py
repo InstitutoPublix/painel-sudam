@@ -273,19 +273,35 @@ def years_text(years) -> str:
 
 
 def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], minimos: dict[str, float],
-                   rep: Report, rotulo: str = "Amazônia Legal") -> pd.DataFrame:
+                   rep: Report, rotulo: str = "Amazônia Legal", razoes: dict[str, tuple[str, float]] | None = None) -> pd.DataFrame:
     """Agrega os municípios da Amazônia Legal presentes em `mun`. Em cada ano, só publica o valor se a cobertura
     (municípios com dado ÷ municípios da Amazônia Legal em `mun`) alcançar o mínimo do indicador; abaixo disso
     fica vazio. Passando só os municípios de um estado, calcula a parcela desse estado na região (`rotulo` nomeia
-    o recorte nos avisos)."""
+    o recorte nos avisos).
+    razoes: para a regra "razao_totais", chave -> (indicador do numerador, fator): total do numerador nos municípios da
+    região dividido pelo total do peso (com os anos sem dado interpolados) × fator."""
     al = mun[mun.al]
     n_al = al.cod.nunique()
     years = sorted(mun.ano.unique())
     out = pd.DataFrame({"ano": years})
     cols: dict[str, pd.Series] = {}  # montadas à parte e unidas no fim (evita fragmentar o DataFrame)
     for i, (rule, peso) in rules.items():
-        if rule in ("publicado", "soma_estados", "taxa_censo"):  # as duas últimas são preenchidas depois (ver main)
+        if rule in ("publicado", "soma_estados", "taxa_censo", "soma_com_sem_municipio"):  # preenchidas depois (ver main)
             cols[i] = pd.Series(np.nan, index=out.index)
+            continue
+        if rule == "razao_totais":
+            num, fator = (razoes or {})[i]
+            if num not in al or peso not in al or al[num].notna().sum() == 0:
+                cols[i] = pd.Series(np.nan, index=out.index)
+                continue
+            s_num = al.groupby("ano")[num].sum(min_count=1)
+            w = interpolated(al, peso)
+            s_peso = w.sum(min_count=1).reindex(s_num.index)
+            filled = sorted(int(y) for y in w.columns if al.pivot(index="cod", columns="ano", values=peso)[y].isna().any()
+                            and w[y].notna().any())
+            if filled:
+                rep.warn(f"{i}: peso {peso} interpolado para calcular a {rotulo} em {years_text(filled)}.")
+            cols[i] = out.ano.map((s_num / s_peso.where(s_peso > 0) * fator))
             continue
         if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
             cols[i] = pd.Series(np.nan, index=out.index)  # sem dado municipal (ou sem o peso): o resumo final avisa que falta a Amazônia Legal
@@ -358,6 +374,7 @@ def main():
     chaves = {it["chave"] for it in items}
     pesos_coluna: dict[str, str] = {}  # pesos lidos direto de uma coluna da planilha (`peso_coluna`), sem ficha própria
     pesos_censo: dict[str, str] = {}  # pesos que vêm do arquivo do Censo (`peso_censo`): chave -> campo de CAMPOS_CENSO
+    razoes: dict[str, tuple[str, float]] = {}  # razao_totais: chave -> (indicador do numerador, fator)
     for it in items:
         i, ref = it["chave"], it["id"]
         if ref not in lista.index:
@@ -382,7 +399,8 @@ def main():
                 continue
             peso = f"{i}#censo"
             pesos_censo[peso] = it["peso_censo"]
-        if rule not in ("soma", "soma_estados", "taxa_censo", "media_ponderada", "media_simples", "publicado"):
+        if rule not in ("soma", "soma_estados", "soma_com_sem_municipio", "taxa_censo", "media_ponderada", "media_simples",
+                        "razao_totais", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
             continue
@@ -390,16 +408,22 @@ def main():
             rep.error(f"{i}: média ponderada exige `peso` em config/indicadores.toml "
                       f"(a ficha cita: '{ficha['weight']}').")
             continue
+        if rule == "razao_totais":
+            if not (it.get("numerador") and peso):
+                rep.error(f"{i}: razao_totais exige `numerador` (chave de outro indicador) e `peso` (o denominador).")
+                continue
+            razoes[i] = (it["numerador"], float(it.get("fator", 1)))
         if peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna and peso not in pesos_censo:
             rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}' nem em config/indicadores.toml.")
             continue
-        rules[i] = (rule, peso if rule == "media_ponderada" else None)
+        rules[i] = (rule, peso if rule in ("media_ponderada", "razao_totais") else None)
         minimos[i] = float(it.get("cobertura_minima", args.cobertura_minima))
         ficha["display"] = display_spec(it, ficha, rule)
         fichas.append(ficha)
 
     cfg_by_key = {it["chave"]: it for it in items}
     weights = {p for _, p in rules.values() if p and p not in pesos_censo}  # os do Censo não vêm da planilha
+    weights |= {num for num, _ in razoes.values()}  # numeradores das razões também precisam ser lidos
 
     def coluna(i: str) -> str:
         """Coluna de cada entrada: `coluna` explícita, a `categoria` da ficha ("Nome — Categoria"), todas as
@@ -464,7 +488,8 @@ def main():
     est["uf"] = est.cod.map(code2uf)
     est["al"] = est.uf.isin(al_ufs)
     est["regiao"] = (est.cod // 10).map(REGIONS)
-    amz = amazonia_legal(mun, rules, minimos, rep)
+    amz = amazonia_legal(mun, rules, minimos, rep, razoes=razoes)
+    bra0 = bra.copy()  # valores do Recorte Brasil antes de qualquer ajuste (`al_de` lê daqui)
     # soma dos estados: o indicador só é divulgado para parte dos municípios, então o total da Amazônia Legal é a soma dos
     # estados (ex.: migração internacional). O Maranhão entra inteiro, pois o dado municipal não separa a parte da região.
     for i, (rule, _) in rules.items():
@@ -473,8 +498,27 @@ def main():
             amz[i] = amz.ano.map({ano_i: taxa_censo(mun.loc[mun.al, "cod"], censo)})
         if rule == "soma_estados" and i in est:
             ea = est[est.al]
-            s_est = ea.groupby("ano")[i].sum(min_count=1).where(ea.groupby("ano")[i].count() == ea.uf.nunique())
-            amz[i] = amz.ano.map(s_est)
+            s_est = ea.groupby("ano")[i].sum(min_count=1)
+            if not cfg_by_key.get(i, {}).get("ausente_zero"):  # padrão: só soma se os 9 estados têm dado no ano
+                s_est = s_est.where(ea.groupby("ano")[i].count() == ea.uf.nunique())
+            amz[i] = amz.ano.map(s_est)  # com `ausente_zero`, estado sem valor (sem produção) conta como zero
+        if rule == "soma_com_sem_municipio" and i in est and i in mun:
+            # soma dos municípios da região mais o que as UFs da região registram sem município identificado (total da UF
+            # menos a soma dos seus municípios); o Maranhão entra inteiro nessa segunda parcela, como manda a ficha
+            mun_uf = mun.groupby(["uf", "ano"])[i].sum(min_count=1)
+            ea = est[est.al].set_index(["uf", "ano"])[i]
+            sem = (ea - mun_uf.reindex(ea.index).fillna(0)).clip(lower=0).groupby("ano").sum(min_count=1)
+            s_mun = mun[mun.al].groupby("ano")[i].sum(min_count=1)
+            tot = pd.concat([s_mun, sem], axis=1).sum(axis=1, min_count=1)
+            amz[i] = amz.ano.map(tot)
+        if cfg_by_key.get(i, {}).get("al_de"):  # a Amazônia Legal vem de uma coluna do Recorte Brasil (ex.: rotas regionais)
+            src = cfg_by_key[i]["al_de"]
+            if src in bra0:
+                amz[i] = amz.ano.map(bra0.set_index("ano")[src])
+
+    for i in rules:
+        if cfg_by_key.get(i, {}).get("sem_brasil"):
+            bra[i] = np.nan  # a coluna do Recorte Brasil já é o valor da Amazônia Legal, não do país
 
     # estados só em parte na Amazônia Legal (ex.: Maranhão): valor da parcela do estado na região, calculado a partir
     # dos municípios marcados como Amazônia Legal, com a mesma regra de agregação de cada indicador. Entra como o
@@ -485,7 +529,7 @@ def main():
         if mu.al.all():
             continue
         e = est[est.uf == uf].iloc[0]
-        p = amazonia_legal(mu, rules, minimos, rep, f"{e.nome} (parte na Amazônia Legal)")
+        p = amazonia_legal(mu, rules, minimos, rep, f"{e.nome} (parte na Amazônia Legal)", razoes)
         for i, (rule, _) in rules.items():  # a taxa de crescimento da parte do estado na região
             if rule == "taxa_censo" and i in mu:
                 ano_i = int(mun.loc[mun[i].notna(), "ano"].max())
@@ -532,16 +576,23 @@ def main():
         f["aggregationApplied"] = (
             "Soma dos municípios" if rule == "soma"
             else "Soma dos estados da Amazônia Legal (o Maranhão entra inteiro)" if rule == "soma_estados"
+            else "Soma dos municípios da região mais os registros das UFs sem município identificado (o Maranhão entra inteiro "
+                 "nessa parcela)" if rule == "soma_com_sem_municipio"
+            else f"Razão entre totais: soma de {nome_peso(razoes[i][0])} nos municípios ÷ soma de {nome_peso(peso)}"
+                 + (f" × {razoes[i][1]:g}" if razoes[i][1] != 1 else "") if rule == "razao_totais"
             else "Taxa recalculada com a população dos Censos 2010 e 2022 somada nos municípios" if rule == "taxa_censo"
             else "Sem valor próprio: a fonte publica o indicador pronto em cada nível e a planilha não traz os totais "
                  "para recalculá-lo a partir dos municípios" if rule == "publicado"
             else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
             else f"Média ponderada dos municípios por {nome_peso(peso)}")
-        if rule not in ("publicado", "soma_estados", "taxa_censo"):
+        al_de = cfg_by_key.get(i, {}).get("al_de")
+        if al_de:
+            f["aggregationApplied"] = "Valor do Recorte Brasil para as rotas com as duas pontas na Amazônia Legal, como manda a ficha"
+        if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "taxa_censo"):
             f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
                                         else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
         nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais
-        if nota and rule == "publicado":
+        if nota and rule == "publicado" and not al_de:
             f["aggregationApplied"] = f"Não calculada para a Amazônia Legal: {nota}"
         elif nota:
             f["aggregationApplied"] += f" · {nota}"
@@ -550,7 +601,9 @@ def main():
         if not yrs:
             rep.error(f"{i}: nenhum valor encontrado na planilha.")
         else:
-            expected = set(SHEETS) | ({"Amazônia Legal"} if rule != "publicado" else set())
+            expected = set(SHEETS) | ({"Amazônia Legal"} if rule != "publicado" or al_de else set())
+            if cfg_by_key.get(i, {}).get("sem_brasil"):
+                expected -= {"Brasil"}
             if expected - set(levels):
                 rep.warn(f"{i}: sem dado em {', '.join(sorted(expected - set(levels)))}.")
 

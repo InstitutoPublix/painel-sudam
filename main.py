@@ -48,6 +48,15 @@ def al_por_estados(ind: str | None = None) -> bool:
     return bool(i) and i in D["registry"] and D["registry"][i].agg_note.startswith("Soma dos estados")
 
 
+def al_metodo() -> str:
+    """Método de cálculo da Amazônia Legal quando ele não é a soma dos municípios nem dos estados: 'recorte_brasil'
+    (valor da coluna do Recorte Brasil) ou 'com_sem_municipio' (municípios mais o que as UFs registram sem município)."""
+    i = globals().get("IND")
+    nota = D["registry"][i].agg_note if i and i in D["registry"] else ""
+    return ("recorte_brasil" if nota.startswith("Valor do Recorte Brasil")
+            else "com_sem_municipio" if nota.startswith("Soma dos municípios da região mais") else "")
+
+
 def nota_parcial(modo: str = "inteiro") -> str:
     """Aviso sobre estados que fazem parte da Amazônia Legal só em parte (hoje, o Maranhão). Sempre diz qual valor
     está sendo usado: o da parte que fica na região ou o do estado inteiro."""
@@ -56,6 +65,13 @@ def nota_parcial(modo: str = "inteiro") -> str:
     if al_por_estados():  # o total é a soma dos 9 estados, com o Maranhão inteiro
         return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro, que também entra inteiro no total da Amazônia Legal"
                          for u in PARCIAL) + "."
+    if al_metodo() == "recorte_brasil":
+        return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; o total da Amazônia Legal vem das rotas com as duas "
+                         "pontas na região, não da soma dos estados" for u in PARCIAL) + "."
+    if al_metodo() == "com_sem_municipio" and modo != "parcela":
+        return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; no total da Amazônia Legal entram só os seus {a} de {t} "
+                         "municípios da região, mais os registros do estado sem município identificado"
+                         for u, (a, t) in PARCIAL.items()) + "."
     if modo != "parcela" and "Amazônia Legal" not in D["meta"].get(globals().get("IND"), {}).get("levels", []):
         return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; não há valor específico para sua parte na "
                          "Amazônia Legal nem índice agregado da região para este indicador" for u in PARCIAL) + "."
@@ -77,6 +93,12 @@ def nota_al() -> str:
                 + "; ".join(f"{NOME_UF[u]} usa o valor do estado inteiro" for u in PARCIAL) + ".")
     if al_por_estados():
         return "Amazônia Legal: soma dos 9 estados. " + "; ".join(f"{NOME_UF[u]} entra inteiro" for u in PARCIAL) + "."
+    if al_metodo() == "recorte_brasil":
+        return "Amazônia Legal: rotas com as duas pontas na região (valor do Recorte Brasil), não a soma dos estados."
+    if al_metodo() == "com_sem_municipio":
+        return ("Amazônia Legal: municípios da região mais os registros das UFs sem município identificado. "
+                + "; ".join(f"{NOME_UF[u]} entra com {a} de {t} municípios e, na parcela sem município, inteiro"
+                            for u, (a, t) in PARCIAL.items()) + ".")
     return ("Amazônia Legal: considera só os municípios da região. "
             + "; ".join(f"{NOME_UF[u]} entra com {a} de {t} municípios" for u, (a, t) in PARCIAL.items()) + ".")
 BRASIL, AMZ = "Brasil:1", "Amazônia Legal:0"
@@ -538,9 +560,9 @@ def map_view(level: str, height: int = 640, width: int = 650):
 # =========================================================================== #
 with T["Visão Geral"]:
     if T["Visão Geral"].open:
-        barra_filtros()
         theme.hero(tuple(sorted({str(c) for c in L[(L.nivel == "Estado") & L.al.fillna(False).astype(bool)].cod.unique()})),
                    D["n_mun_al"], len(D["al_ufs"]))
+        barra_filtros()
 
         v_br, v_al = value_of(BRASIL), value_of(AMZ)
         y0, b0 = first_valid(AMZ)
@@ -858,8 +880,10 @@ with T["Visão Geral"]:
                                        + (" (verde = melhorou, vermelho = piorou)." if I.polarity else "."),
                                        f"{melhoraram} de {int(tab['var'].notna().sum())} estados melhoraram no período."
                                        if I.polarity else "")
-                    else:
+                    elif len(tab):
                         st.info("O indicador tem um ano só: não há mudança para mostrar.")
+                    else:
+                        st.info("Este indicador não tem dado por estado: a série é só do Brasil.")
                 elif len(muni) > 10 and muni.uf.nunique() > 1:
                     medida_uf = charts.tipico_por_uf(muni, I)
                     theme.title({"mediana": f"{I.label}: município típico de cada UF",

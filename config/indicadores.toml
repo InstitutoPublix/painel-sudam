@@ -1604,3 +1604,287 @@ id = "IND-060"
 rotulo = "Conflitos no campo"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+
+# --- Base de novembro: IND-193 a IND-203 -------------------------------------------------------
+# 194, 195, 199, 200, 201 e 202 existem só por UF; 193, 196, 197, 198 e 203 também por município.
+# A Amazônia Legal segue a coluna "Se Não, Como Calcular a Amazônia Legal?" da Lista de Indicadores de cada ID.
+
+[[indicador]]
+id = "IND-193"
+rotulo = "Administração pública na massa de rendimentos do trabalho"
+categoria = "emprego formal, RAIS (todas as esferas)"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "é uma participação na massa de rendimentos; a planilha não traz a massa de cada município para calcular a Amazônia Legal"
+
+[[indicador]]
+id = "IND-193"
+chave = "IND-193-federal"
+rotulo = "Administração pública federal: massa de rendimentos"
+categoria = "emprego formal, RAIS, esfera federal"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "a planilha traz o dado só como percentual, sem a remuneração total de cada município; a Amazônia Legal não é calculada"
+
+[[indicador]]
+id = "IND-193"
+chave = "IND-193-estadual"
+rotulo = "Administração pública estadual: massa de rendimentos"
+categoria = "emprego formal, RAIS, esfera estadual"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "a planilha traz o dado só como percentual, sem a remuneração total de cada município; a Amazônia Legal não é calculada"
+
+[[indicador]]
+id = "IND-193"
+chave = "IND-193-municipal"
+rotulo = "Administração pública municipal: massa de rendimentos"
+categoria = "emprego formal, RAIS, esfera municipal"
+unidade = "%"
+agregacao = "publicado"
+nota_agregacao = "a planilha traz o dado só como percentual, sem a remuneração total de cada município; a Amazônia Legal não é calculada"
+
+[[indicador]]
+id = "IND-194"
+rotulo = "ICTs que preencheram o FORMICT"
+unidade = "Nº de instituições"
+agregacao = "soma_estados"
+nota_agregacao = "soma dos 9 estados; o Maranhão entra inteiro, porque o dado não separa a parte da região"
+
+[[indicador]]
+id = "IND-195"
+chave = "IND-195-acum"
+rotulo = "Tecnologias sociais certificadas (acumulado)"
+categoria = "acumulado desde 2001"
+unidade = "Nº de tecnologias sociais"
+agregacao = "soma_estados"
+nota_agregacao = "soma dos 9 estados; o Maranhão entra inteiro, porque o dado não separa a parte da região"
+
+[[indicador]]
+id = "IND-195"
+chave = "IND-195-edicao"
+rotulo = "Tecnologias sociais certificadas na edição"
+categoria = "certificadas na edição"
+unidade = "Nº de tecnologias sociais"
+agregacao = "soma_estados"
+nota_agregacao = "soma dos 9 estados; o Maranhão entra inteiro, porque o dado não separa a parte da região"
+
+[[indicador]]
+id = "IND-196"
+chave = "IND-196-depositos"
+rotulo = "Pedidos de patente de residentes"
+categoria = "depósitos"
+unidade = "Nº de pedidos"
+agregacao = "soma_com_sem_municipio"
+nota_agregacao = "soma dos municípios mais o que as UFs registram sem município identificado, como manda a ficha; o Maranhão entra inteiro na segunda parcela"
+
+[[indicador]]
+id = "IND-196"
+chave = "IND-196-concessoes"
+rotulo = "Patentes concedidas a residentes"
+categoria = "concessões"
+unidade = "Nº de concessões"
+agregacao = "soma_com_sem_municipio"
+nota_agregacao = "soma dos municípios mais o que as UFs registram sem município identificado, como manda a ficha; o Maranhão entra inteiro na segunda parcela"
+
+[[indicador]]
+id = "IND-197"
+chave = "IND-197-casos"
+rotulo = "Casos autóctones de malária"
+categoria = "casos autóctones"
+unidade = "Nº de casos"
+agregacao = "soma"
+cobertura_minima = 0
+nota_agregacao = "soma dos municípios; município sem caso fica vazio na planilha e conta como zero"
+
+[[indicador]]
+id = "IND-197"
+chave = "IND-197-ipa"
+rotulo = "Incidência Parasitária Anual (IPA) de malária"
+categoria = "IPA (por mil habitantes)"
+unidade = "Casos por mil habitantes"
+agregacao = "razao_totais"
+numerador = "IND-197-casos"
+peso = "IND-001"
+fator = 1000
+nota_agregacao = "casos dos municípios ÷ população dos municípios × 1.000, como manda a ficha"
+
+[[indicador]]
+id = "IND-198"
+chave = "IND-198-rotas"
+rotulo = "Rotas aéreas regulares"
+categoria = "rotas regulares"
+unidade = "Nº de rotas"
+casas = 0
+agregacao = "publicado"
+al_de = "IND-198-regionais"
+nota_agregacao = "na Amazônia Legal, as rotas com as duas pontas na região (coluna do Recorte Brasil); somar os estados contaria a mesma rota duas vezes"
+
+[[indicador]]
+id = "IND-198"
+chave = "IND-198-regionais"
+rotulo = "Rotas aéreas regionais da Amazônia Legal"
+categoria = "rotas regionais da Amazônia Legal (duas pontas na Amazônia Legal)"
+unidade = "Nº de rotas"
+casas = 0
+agregacao = "publicado"
+al_de = "IND-198-regionais"
+sem_brasil = true
+nota_agregacao = "rotas com as duas pontas na Amazônia Legal (coluna do Recorte Brasil); somar os estados contaria a mesma rota duas vezes"
+
+[[indicador]]
+id = "IND-198"
+chave = "IND-198-rotas52"
+rotulo = "Rotas aéreas regulares (52 decolagens ou mais no ano)"
+categoria = "rotas regulares, com pelo menos 52 decolagens no ano"
+unidade = "Nº de rotas"
+casas = 0
+agregacao = "publicado"
+al_de = "IND-198-regionais52"
+nota_agregacao = "na Amazônia Legal, as rotas com as duas pontas na região (coluna do Recorte Brasil); somar os estados contaria a mesma rota duas vezes"
+
+[[indicador]]
+id = "IND-198"
+chave = "IND-198-regionais52"
+rotulo = "Rotas aéreas regionais da Amazônia Legal (52 decolagens ou mais no ano)"
+categoria = "rotas regionais da Amazônia Legal (duas pontas na Amazônia Legal), com pelo menos 52 decolagens no ano"
+unidade = "Nº de rotas"
+casas = 0
+agregacao = "publicado"
+al_de = "IND-198-regionais52"
+sem_brasil = true
+nota_agregacao = "rotas com as duas pontas na Amazônia Legal (coluna do Recorte Brasil); somar os estados contaria a mesma rota duas vezes"
+
+[[indicador]]
+id = "IND-199"
+rotulo = "Hidrovias com transporte de carga"
+categoria = "hidrovias com transporte de carga (nº)"
+unidade = "Nº de hidrovias"
+casas = 0
+agregacao = "publicado"
+nota_agregacao = "uma hidrovia pode cruzar mais de um estado; somar os estados contaria a mesma hidrovia duas vezes"
+
+[[indicador]]
+# a ficha manda deixar a tonelagem só no Brasil
+id = "IND-199"
+chave = "IND-199-carga"
+rotulo = "Carga transportada por hidrovias"
+categoria = "carga transportada nas hidrovias (t)"
+unidade = "t"
+agregacao = "publicado"
+nota_agregacao = "a ficha traz as toneladas só para o Brasil"
+
+[[indicador]]
+id = "IND-200"
+rotulo = "Malha ferroviária federal concedida"
+categoria = "por UF, retrato de março de 2026"
+unidade = "km"
+agregacao = "soma_estados"
+ausente_zero = true
+nota_agregacao = "soma dos estados da Amazônia Legal, como manda a ficha; estado sem ferrovia concedida conta como zero e o Maranhão entra inteiro"
+
+[[indicador]]
+# série anual do Brasil (Declaração de Rede da ANTT); por UF só há o retrato de março de 2026 (IND-200)
+id = "IND-200"
+chave = "IND-200-total"
+rotulo = "Malha ferroviária federal concedida: total das concessionárias (série anual)"
+categoria = "total das concessionárias"
+unidade = "km"
+agregacao = "publicado"
+nota_agregacao = "a série anual existe só para o Brasil"
+
+[[indicador]]
+# série anual do Brasil (Declaração de Rede da ANTT); por UF só há o retrato de março de 2026 (IND-200)
+id = "IND-200"
+chave = "IND-200-nortesul"
+rotulo = "Malha ferroviária: Ferrovia Norte-Sul, Tramo Norte (série anual)"
+categoria = "Ferrovia Norte-Sul, Tramo Norte"
+unidade = "km"
+agregacao = "publicado"
+nota_agregacao = "a série anual existe só para o Brasil"
+
+[[indicador]]
+# série anual do Brasil (Declaração de Rede da ANTT); por UF só há o retrato de março de 2026 (IND-200)
+id = "IND-200"
+chave = "IND-200-rumonorte"
+rotulo = "Malha ferroviária: Rumo Malha Norte (série anual)"
+categoria = "Rumo Malha Norte"
+unidade = "km"
+agregacao = "publicado"
+nota_agregacao = "a série anual existe só para o Brasil"
+
+[[indicador]]
+# série anual do Brasil (Declaração de Rede da ANTT); por UF só há o retrato de março de 2026 (IND-200)
+id = "IND-200"
+chave = "IND-200-rumocentral"
+rotulo = "Malha ferroviária: Rumo Malha Central (série anual)"
+categoria = "Rumo Malha Central"
+unidade = "km"
+agregacao = "publicado"
+nota_agregacao = "a série anual existe só para o Brasil"
+
+[[indicador]]
+# série anual do Brasil (Declaração de Rede da ANTT); por UF só há o retrato de março de 2026 (IND-200)
+id = "IND-200"
+chave = "IND-200-carajas"
+rotulo = "Malha ferroviária: Estrada de Ferro Carajás (série anual)"
+categoria = "Estrada de Ferro Carajás"
+unidade = "km"
+agregacao = "publicado"
+nota_agregacao = "a série anual existe só para o Brasil"
+
+[[indicador]]
+id = "IND-201"
+rotulo = "Produção de petróleo"
+categoria = "total"
+unidade = "m³"
+agregacao = "soma_estados"
+ausente_zero = true
+nota_agregacao = "soma dos estados da Amazônia Legal com produção, como manda a ficha; estado sem produção conta como zero e o Maranhão entra inteiro"
+
+[[indicador]]
+id = "IND-201"
+chave = "IND-201-terra"
+rotulo = "Produção de petróleo em terra"
+categoria = "em terra"
+unidade = "m³"
+agregacao = "soma_estados"
+ausente_zero = true
+nota_agregacao = "soma dos estados da Amazônia Legal com produção, como manda a ficha; estado sem produção conta como zero e o Maranhão entra inteiro"
+
+[[indicador]]
+id = "IND-201"
+chave = "IND-201-mar"
+rotulo = "Produção de petróleo em mar"
+categoria = "em mar"
+unidade = "m³"
+agregacao = "soma_estados"
+ausente_zero = true
+nota_agregacao = "soma dos estados da Amazônia Legal com produção, como manda a ficha; estado sem produção conta como zero e o Maranhão entra inteiro"
+
+[[indicador]]
+id = "IND-202"
+chave = "IND-202-total"
+rotulo = "Valor da produção mineral"
+categoria = "total"
+unidade = "R$ (preços correntes)"
+agregacao = "soma_estados"
+nota_agregacao = "soma dos 9 estados; o Maranhão entra inteiro, porque o dado não separa a parte da região"
+
+[[indicador]]
+id = "IND-202"
+chave = "IND-202-estrategicos"
+rotulo = "Valor da produção de minerais estratégicos"
+categoria = "minerais estratégicos (Grupos I e II)"
+unidade = "R$ (preços correntes)"
+agregacao = "soma_estados"
+ausente_zero = true
+nota_agregacao = "soma dos estados da Amazônia Legal, como manda a ficha; estado sem produção conta como zero e o Maranhão entra inteiro"
+
+[[indicador]]
+id = "IND-203"
+rotulo = "Ingressantes de graduação com FIES"
+unidade = "Nº de ingressantes"
+agregacao = "soma"
+cobertura_minima = 0
+nota_agregacao = "soma dos municípios; município sem ingressante com FIES conta como zero"
