@@ -4,6 +4,7 @@ primaryColor = "#04413C"
 backgroundColor = "#FAF5E1"
 secondaryBackgroundColor = "#F1EACF"
 textColor = "#1C2B27"
+font = "Montserrat:https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap"
 
 [server]
 headless = true

@@ -610,6 +610,8 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
     un = "% a.a." if ind.delta == "pct" else f"{ind.delta_unit} ao ano"
     cmap = _colors(list(t.drop_duplicates("label")[["label", "nivel"]].itertuples(index=False, name=None)))
     cmap.update({k: v for k, v in (cores or {}).items() if k in cmap})
+    # só 2 anos com dado: o eixo mostra apenas eles e a linha é contínua (nada pontilhado sugerindo anos intermediários)
+    dois_anos = mode != "var" and t.ano.nunique() == 2
     for lab, g in t.groupby("label", sort=False):
         if mode == "var":
             extra_b = {}
@@ -641,7 +643,7 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
         tx = []
         anos_g, y_g, hv_g = g.ano.tolist(), g.y.tolist(), list(hv)
         for i, (a, yv) in enumerate(zip(anos_g, y_g)):
-            if i and a - anos_g[i - 1] > 1:
+            if i and a - anos_g[i - 1] > 1 and not dois_anos:
                 lacunas.append((anos_g[i - 1], y_g[i - 1], a, yv))
                 xs.append(anos_g[i - 1] + 1), ys.append(None), cds.append(""), tx.append("")
             xs.append(a), ys.append(yv), cds.append(hv_g[i]), tx.append(ts[i] if ts is not None else "")
@@ -662,7 +664,12 @@ def lines(sr: pd.DataFrame, ind: Indicator, mode: str = "valor", log: bool = Fal
                       yaxis_title={"valor": ind.unit, "indice": "Índice (base 100)",
                                    "rel": "Participação no total do Brasil (%)" if ind.additive else "Em relação ao Brasil (Brasil = 100)",
                                    "var": f"Variação ({un})"}[mode])
-    fig.update_xaxes(dtick=1, tickformat="d")
+    if dois_anos:
+        a0, a1 = (int(x) for x in sorted(t.ano.unique()))
+        folga = (a1 - a0) * .06
+        fig.update_xaxes(tickmode="array", tickvals=[a0, a1], tickformat="d", range=[a0 - folga, a1 + folga])
+    else:
+        fig.update_xaxes(dtick=1, tickformat="d")
     if mode == "valor":
         value_axis(fig, ind, t.y.min(), t.y.max(), "y", log and t.y.min() > 0)
     elif mode == "indice" or (mode == "rel" and not ind.additive):

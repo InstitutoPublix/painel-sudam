@@ -1,6 +1,7 @@
 """Identidade visual clara (creme + verde institucional) do projeto de apoio ao PRDA."""
 from __future__ import annotations
 
+import re
 import base64
 import html
 import json
@@ -77,7 +78,10 @@ CSS = f"""
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
 html, body, [class*="css"], .stApp {{ font-family: {FONT}; }}
 .stApp {{ background: {BG}; color: {TEXT}; }}
+/* a barra fixa do topo é transparente e cobre o alto da página ao rolar: só os botões dela recebem o clique */
 header[data-testid="stHeader"] {{ background: transparent; }}
+header[data-testid="stHeader"], header[data-testid="stHeader"] * {{ pointer-events: none !important; }}
+header[data-testid="stHeader"] :is(button, a, [role="button"]) {{ pointer-events: auto !important; }}
 .block-container {{ padding-top: 1.1rem; max-width: 1500px; }}
 section[data-testid="stSidebar"] {{ background: {SIDEBAR}; border-right: 1px solid {LINE}; }}
 section[data-testid="stSidebar"] h3 {{ color: {INK}; font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; }}
@@ -149,12 +153,15 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
   border:1px solid {LINE}; border-radius:20px; overflow:hidden; background:{SURFACE}; }}
 .hero .art {{ position:relative; min-height:300px; background:{INK}; }}
 .hero .art > img, .hero .art > svg.mosaic {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
+.hero .art.img {{ min-height:0; background:#FBF4E1; display:flex; align-items:center; }}  /* creme da capa */
+.hero .art.img > img {{ position:static; height:auto; object-fit:contain; display:block; }}  /* inteira, sem corte */
 .hero .art .globe {{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:62%;
   max-width:240px; aspect-ratio:1; border-radius:50%; background:{BG}; padding:6%;
   box-shadow:0 10px 30px rgba(0,0,0,.25); }}
 .hero .art .globe svg {{ width:100%; height:100%; }}
 .hero .txt {{ padding:30px 34px; display:flex; flex-direction:column; justify-content:center; }}
-.hero h1 {{ font-size:2.5rem; font-weight:800; margin:0; line-height:1.12; color:{INK}; letter-spacing:-.02em; padding:0; }}
+.hero h1 {{ font-size:2.5rem; font-weight:800; margin:0; line-height:1.12; color:{INK}; letter-spacing:-.02em; padding:0;
+  text-wrap:balance; }}  /* linhas de tamanho parecido, sem palavra sozinha na última */
 .hero .rule {{ height:2px; background:{INK}; margin:14px 0 8px; max-width:640px; }}
 .hero .sub {{ font-size:1rem; font-weight:500; color:{TEXT}; margin-bottom:4px; }}
 .hero .sub2 {{ color:{MUTED}; font-size:.85rem; margin-bottom:14px; }}
@@ -168,6 +175,9 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi .ic {{ flex:0 0 40px; height:40px; border-radius:10px; background:rgba(4,65,60,.08); color:{INK};
   display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.7rem; text-align:center; }}
 .kpi .lb {{ font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:{MUTED}; font-weight:600; }}
+.kpi > div:last-child {{ min-width:0; }}
+.kpi .nw {{ white-space:nowrap; }}
+.kpi .un {{ font-size:.6em; font-weight:700; }}
 .kpi .vl {{ font-size:1.55rem; font-weight:800; color:{TEXT}; line-height:1.15; }}
 .kpi .sb {{ font-size:.74rem; color:{MUTED}; }}
 .kpi.hi .vl {{ color:{INK}; }}
@@ -411,7 +421,7 @@ def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
     left = (f'<img src="{art}" alt="">' if art else
             f'{mosaic_svg()}<div class="globe">{dotted_brazil_svg(al_codes)}</div>')
     st.markdown(
-        f"""<div class="hero"><div class="art">{left}</div><div class="txt">
+        f"""<div class="hero"><div class="art{' img' if art else ''}">{left}</div><div class="txt">
         <h1>Diagnóstico Quantitativo da Amazônia Legal</h1>
         <div class="rule"></div>
         <div class="sub">Superintendência do Desenvolvimento da Amazônia</div>
@@ -423,6 +433,7 @@ def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
 
 
 def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "") -> str:
+    value = re.sub("\u00a0([^\\s<]{4,})", "\u00a0<span class=\"un\">\\1</span>", value)  # unidade longa (pontos): menor, cabe ao lado do número
     return (f'<div class="kpi {cls}"><div class="ic">{icon}</div><div><div class="lb">{label}</div>'
             f'<div class="vl">{value}</div><div class="sb">{sub}</div></div></div>')
 

@@ -48,6 +48,15 @@ def al_por_estados(ind: str | None = None) -> bool:
     return bool(i) and i in D["registry"] and D["registry"][i].agg_note.startswith("Soma dos estados")
 
 
+def al_metodo() -> str:
+    """Método de cálculo da Amazônia Legal quando ele não é a soma dos municípios nem dos estados: 'recorte_brasil'
+    (valor da coluna do Recorte Brasil) ou 'com_sem_municipio' (municípios mais o que as UFs registram sem município)."""
+    i = globals().get("IND")
+    nota = D["registry"][i].agg_note if i and i in D["registry"] else ""
+    return ("recorte_brasil" if nota.startswith("Valor do Recorte Brasil")
+            else "com_sem_municipio" if nota.startswith("Soma dos municípios da região mais") else "")
+
+
 def nota_parcial(modo: str = "inteiro") -> str:
     """Aviso sobre estados que fazem parte da Amazônia Legal só em parte (hoje, o Maranhão). Sempre diz qual valor
     está sendo usado: o da parte que fica na região ou o do estado inteiro."""
@@ -56,6 +65,13 @@ def nota_parcial(modo: str = "inteiro") -> str:
     if al_por_estados():  # o total é a soma dos 9 estados, com o Maranhão inteiro
         return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro, que também entra inteiro no total da Amazônia Legal"
                          for u in PARCIAL) + "."
+    if al_metodo() == "recorte_brasil":
+        return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; o total da Amazônia Legal vem das rotas com as duas "
+                         "pontas na região, não da soma dos estados" for u in PARCIAL) + "."
+    if al_metodo() == "com_sem_municipio" and modo != "parcela":
+        return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; no total da Amazônia Legal entram só os seus {a} de {t} "
+                         "municípios da região, mais os registros do estado sem município identificado"
+                         for u, (a, t) in PARCIAL.items()) + "."
     if modo != "parcela" and "Amazônia Legal" not in D["meta"].get(globals().get("IND"), {}).get("levels", []):
         return "; ".join(f"{NOME_UF[u]}: valor do estado inteiro; não há valor específico para sua parte na "
                          "Amazônia Legal nem índice agregado da região para este indicador" for u in PARCIAL) + "."
@@ -77,6 +93,12 @@ def nota_al() -> str:
                 + "; ".join(f"{NOME_UF[u]} usa o valor do estado inteiro" for u in PARCIAL) + ".")
     if al_por_estados():
         return "Amazônia Legal: soma dos 9 estados. " + "; ".join(f"{NOME_UF[u]} entra inteiro" for u in PARCIAL) + "."
+    if al_metodo() == "recorte_brasil":
+        return "Amazônia Legal: rotas com as duas pontas na região (valor do Recorte Brasil), não a soma dos estados."
+    if al_metodo() == "com_sem_municipio":
+        return ("Amazônia Legal: municípios da região mais os registros das UFs sem município identificado. "
+                + "; ".join(f"{NOME_UF[u]} entra com {a} de {t} municípios e, na parcela sem município, inteiro"
+                            for u, (a, t) in PARCIAL.items()) + ".")
     return ("Amazônia Legal: considera só os municípios da região. "
             + "; ".join(f"{NOME_UF[u]} entra com {a} de {t} municípios" for u, (a, t) in PARCIAL.items()) + ".")
 BRASIL, AMZ = "Brasil:1", "Amazônia Legal:0"
@@ -296,7 +318,7 @@ def limpar_filtros():
             del st.session_state[k]
     for k, v in st.session_state.get("_padroes", {}).items():
         st.session_state[k] = list(v) if isinstance(v, list) else v
-        st.session_state.pop(f"wp_{k}", None)  # controles de período: voltam ao valor padrão
+        st.session_state[f"_pv_{k}"] = st.session_state.get(f"_pv_{k}", 0) + 1  # controles de período: voltam ao padrão
 
 
 def alterados() -> list[str]:
@@ -403,7 +425,7 @@ def arrow(v: float, ik=None) -> str:
         return "—"
     r = round(v, ik.diff_decimals)
     seta = "▲" if r > 0 else "▼" if r < 0 else "="
-    return f'<span class="{SIT_CSS[ik.situacao(v)]}">{seta} {ik.fmt_diff(v)}</span>'
+    return f'<span class="{SIT_CSS[ik.situacao(v)]}">{seta} <span class="nw">{ik.fmt_diff(v)}</span></span>'
 
 
 def grid(keys: list[str], n: int = 4):
@@ -473,7 +495,7 @@ def periodo(sr: pd.DataFrame, chave: str, container=None) -> pd.DataFrame:
     """Controle "Período": faixa de anos que os gráficos de evolução mostram (o índice base 100 e as variações passam
     a contar a partir do primeiro ano escolhido). Começa no período todo; volta a ele quando o indicador muda ou quando
     o período guardado não existe mais nos anos com dado.
-    A escolha fica guardada em st.session_state[chave] (uma tupla); o controle em si usa a chave "wp_<chave>" e recebe a
+    A escolha fica guardada em st.session_state[chave] (uma tupla); o controle em si usa a chave "wp_<chave>_<versão>" e recebe a
     escolha como `value`, porque uma faixa de anos precisa de um `value` em tupla para ser uma faixa."""
     container = container or st
     anos = sorted(int(a) for a in sr.dropna(subset=["valor"]).ano.unique())
@@ -482,15 +504,18 @@ def periodo(sr: pd.DataFrame, chave: str, container=None) -> pd.DataFrame:
     if len(anos) < 3:
         return sr
     padrao = (anos[0], anos[-1])
-    wkey = f"wp_{chave}"
+    # a chave do controle muda a cada reinício (_pv_): o navegador guarda o valor de um controle com a mesma chave e as
+    # mesmas opções, e apagar o estado no servidor não o faz voltar ao período todo; com chave nova ele nasce no padrão
+    ver = f"_pv_{chave}"
     if st.session_state.get(f"_per_{chave}") != IND:  # outro indicador: volta ao período todo
         st.session_state[chave] = padrao
-        st.session_state.pop(wkey, None)
+        st.session_state[ver] = st.session_state.get(ver, 0) + 1
         st.session_state[f"_per_{chave}"] = IND
     v = st.session_state.get(chave, padrao)
     if not (isinstance(v, (tuple, list)) and len(v) == 2 and v[0] in anos and v[1] in anos and v[0] < v[1]):
         v = padrao
-        st.session_state.pop(wkey, None)
+        st.session_state[ver] = st.session_state.get(ver, 0) + 1
+    wkey = f"wp_{chave}_{st.session_state.get(ver, 0)}"
     PADROES[chave] = padrao
     ini, fim = container.select_slider("Período", options=anos, value=tuple(v), key=wkey,
                                        help="Escolha os anos que o gráfico mostra. O índice (base 100) e as variações "
@@ -502,6 +527,14 @@ def periodo(sr: pd.DataFrame, chave: str, container=None) -> pd.DataFrame:
 def junta_nomes(nomes: list[str]) -> str:
     """'A', 'A e B', 'A, B e C'."""
     return nomes[0] if len(nomes) == 1 else ", ".join(nomes[:-1]) + " e " + nomes[-1] if nomes else ""
+
+
+def aviso_lacunas(anos: set) -> str:
+    """Nota sob o gráfico de linhas: com só 2 anos com dado, o eixo mostra apenas eles; com mais, explica o pontilhado."""
+    if len(anos) == 2:
+        return "Só 2 anos com dado: " + junta_nomes([str(a) for a in sorted(anos)]) + "."
+    falt = sorted(set(range(min(anos), max(anos) + 1)) - anos) if anos else []
+    return "Trecho pontilhado: sem dado em " + junta_nomes([str(a) for a in falt]) + "." if falt else ""
 
 
 def so_estadual(ind: str) -> bool:
@@ -527,9 +560,9 @@ def map_view(level: str, height: int = 640, width: int = 650):
 # =========================================================================== #
 with T["Visão Geral"]:
     if T["Visão Geral"].open:
-        barra_filtros()
         theme.hero(tuple(sorted({str(c) for c in L[(L.nivel == "Estado") & L.al.fillna(False).astype(bool)].cod.unique()})),
                    D["n_mun_al"], len(D["al_ufs"]))
+        barra_filtros()
 
         v_br, v_al = value_of(BRASIL), value_of(AMZ)
         y0, b0 = first_valid(AMZ)
@@ -755,20 +788,20 @@ with T["Visão Geral"]:
                 tem = set(sr.loc[sr.valor.notna(), "tid"])  # só o que existe para este indicador
                 nome_de = {BRASIL: "Brasil", AMZ: "Amazônia Legal", **dict(zip(regs.tid, regs.label))}
                 opcoes = [nome_de[t] for t in (BRASIL, AMZ, *regs.tid) if t in tem]
-                padrao = [n for n in ("Brasil", "Amazônia Legal") if n in opcoes]
-                # chips clicáveis: Brasil e Amazônia Legal já vêm marcados; as Grandes Regiões entram com um clique.
+                padrao = [n for n in ("Amazônia Legal", "Brasil") if n in opcoes][:1]
+                # chips clicáveis: só a Amazônia Legal já vem marcada (o Brasil, se não houver AL); as Grandes Regiões entram com um clique.
                 # Quando as opções mudam (outro indicador), mantém o que ainda existe ou volta ao padrão.
                 if st.session_state.get("w_vg_opcoes") != opcoes:
                     st.session_state["w_vg_recortes"] = [x for x in st.session_state.get("w_vg_recortes", padrao)
                                                          if x in opcoes] or padrao
                     st.session_state["w_vg_opcoes"] = opcoes
-                PADROES["w_vg_recortes"] = padrao  # "Voltar ao padrão" volta a Brasil e Amazônia Legal
+                PADROES["w_vg_recortes"] = padrao  # "Voltar ao padrão" volta só à Amazônia Legal
                 escolha = st.pills("Clique para incluir ou tirar recortes do gráfico", opcoes, selection_mode="multi",
                                    key="w_vg_recortes") if opcoes else []
                 # medida do gráfico (índice ou valor) e rótulos nos pontos
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
                 medidas_vg = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
-                med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[-1], medidas_vg),
+                med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[0], medidas_vg),
                                      help="Índice: todas as linhas começam em 100, para comparar o ritmo de territórios de "
                                           "tamanhos diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
                 rot_vg = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_vg_rot", True),
@@ -797,10 +830,8 @@ with T["Visão Geral"]:
                                                                                    theme.BROWN, "#8E9A93"])}},
                                       tracejado=("Brasil",), grossas=("Amazônia Legal", "Brasil")), "ov_line")
                     anos_com = set(sr_v.dropna(subset=["valor"]).ano.astype(int))
-                    faltam = sorted(set(range(min(anos_com), max(anos_com) + 1)) - anos_com) if anos_com else []
-                    if faltam:  # lacuna comum a todas as linhas: explica o trecho pontilhado
-                        st.caption("Trecho pontilhado: sem dado em " + (", ".join(map(str, faltam[:-1])) + " e " + str(faltam[-1])
-                                                                       if len(faltam) > 1 else str(faltam[0])) + ".")
+                    if aviso_lacunas(anos_com):
+                        st.caption(aviso_lacunas(anos_com))
                     if valor_vg:
                         tr_v = sr_v.dropna(subset=["valor"]).sort_values("ano")
                         fim_v, ini_v = tr_v.groupby("tid").tail(1), tr_v.groupby("tid").first()
@@ -849,8 +880,10 @@ with T["Visão Geral"]:
                                        + (" (verde = melhorou, vermelho = piorou)." if I.polarity else "."),
                                        f"{melhoraram} de {int(tab['var'].notna().sum())} estados melhoraram no período."
                                        if I.polarity else "")
-                    else:
+                    elif len(tab):
                         st.info("O indicador tem um ano só: não há mudança para mostrar.")
+                    else:
+                        st.info("Este indicador não tem dado por estado: a série é só do Brasil.")
                 elif len(muni) > 10 and muni.uf.nunique() > 1:
                     medida_uf = charts.tipico_por_uf(muni, I)
                     theme.title({"mediana": f"{I.label}: município típico de cada UF",
@@ -1278,9 +1311,8 @@ with T["Perfil do Território"]:
                 plot(charts.lines(sr, I, "indice" if med.startswith("Índice") else "valor", height=430 if rot_tr else 400,
                                   rotulos=rot_tr), "tr_line")
                 anos_tr = set(sr.dropna(subset=["valor"]).ano.astype(int))
-                falt_tr = sorted(set(range(min(anos_tr), max(anos_tr) + 1)) - anos_tr) if anos_tr else []
-                if falt_tr:
-                    st.caption("Trecho pontilhado: sem dado em " + junta_nomes([str(a) for a in falt_tr]) + ".")
+                if aviso_lacunas(anos_tr):
+                    st.caption(aviso_lacunas(anos_tr))
                 tr_p = charts.transform(sr, "indice", I).dropna(subset=["y"]).sort_values("ano")
                 fim_p = tr_p.groupby("label").tail(1)
                 ini_p = tr_p.groupby("label").ano.first()
@@ -1872,8 +1904,9 @@ with T["Séries Temporais"]:
             theme.como_ler(explica, leitura)
             if sr.valor.isna().any():
                 miss = sorted(sr[sr.valor.isna()].ano.unique())
-                st.caption("Anos sem dado nas bases para este indicador: " + ", ".join(map(str, miss)) + ". Os trechos "
-                           "pontilhados do gráfico atravessam esses anos.")
+                st.caption("Anos sem dado nas bases para este indicador: " + ", ".join(map(str, miss)) + "."
+                           + ("" if sr.dropna(subset=["valor"]).ano.nunique() == 2
+                              else " Os trechos pontilhados do gráfico atravessam esses anos."))
 
             if sr.dropna(subset=["valor"]).ano.nunique() > 1:
                 st.markdown("---")
@@ -2075,10 +2108,8 @@ with T["Comparações"]:
             plot(charts.lines(sr_ff, I, "valor" if valor_ff else "indice", log=log_ff, height=360 if rot_ff else 330,
                               rotulos=rot_ff), "ff_line")
             anos_ff = set(sr_ff.dropna(subset=["valor"]).ano.astype(int))
-            falt_ff = sorted(set(range(min(anos_ff), max(anos_ff) + 1)) - anos_ff) if anos_ff else []
-            if falt_ff:
-                st.caption("Trecho pontilhado: sem dado em " + (", ".join(map(str, falt_ff[:-1])) + " e " + str(falt_ff[-1])
-                                                               if len(falt_ff) > 1 else str(falt_ff[0])) + ".")
+            if aviso_lacunas(anos_ff):
+                st.caption(aviso_lacunas(anos_ff))
             if valor_ff:
                 tr_ff = sr_ff.dropna(subset=["valor"]).sort_values("ano")
                 fim_ff, ini_ff = tr_ff.groupby("label").tail(1), tr_ff.groupby("label").first()

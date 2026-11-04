@@ -11,3 +11,9 @@ build/
 
 # catálogo de indicadores (controle interno, fora do repositório)
 catalogo/
+
+
+docs/
+tests/
+# peças da identidade visual (referência; o painel usa só o recorte em assets/brand/)
+assets/id_visual/
