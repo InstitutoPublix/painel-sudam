@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 
 from . import fmt
 from .data import ASSETS, Indicator, band_ranges, bands, n_bands
-from .theme import (ACCENT, BG, BLUE, BROWN, COLORWAY, LEVEL_COLOR, MELHOR, MUTED, ORANGE, PIOR, RED, SEQ, SEQ_CONT,
+from .theme import (ACCENT, BG, BLUE, BROWN, COLORWAY, INK, LEVEL_COLOR, MELHOR, MUTED, ORANGE, PIOR, RED, SEQ, SEQ_CONT,
                     SURFACE, TEXT, text_on)
 
 
@@ -538,6 +538,71 @@ def scatter(df: pd.DataFrame, xi: Indicator, yi: Indicator, log: bool = True, fi
     fig.update_layout(height=height, legend=dict(orientation="h", y=-0.2, title_text="UF:"))
     value_axis(fig, xi, positive_min(df.x) if log else df.x.min(), df.x.max(), "x", log, title=axis_label(xi))
     value_axis(fig, yi, positive_min(df.y) if log else df.y.min(), df.y.max(), "y", log, title=axis_label(yi))
+    return fig
+
+
+def _quebra(rotulo: str, largura: int = 22) -> str:
+    """Quebra um rótulo longo em linhas; a marca " *" do fim fica junto da última palavra."""
+    marca = " *" if rotulo.endswith(" *") else ""
+    base = rotulo[: len(rotulo) - len(marca)]
+    return ("<br>".join(textwrap.wrap(base, largura)) or base) + marca
+
+
+def corr_matrix(m: pd.DataFrame, rotulos: list[str], height: int | None = None) -> go.Figure:
+    """Matriz de correlação em triângulo (cada par aparece uma vez): marrom = relação negativa, verde = positiva, claro =
+    perto de zero; o coeficiente aparece em cada célula, em negrito a partir de 0,3."""
+    z = m.to_numpy(float)
+    n = len(rotulos)
+    z = np.where(np.tril(np.ones((n, n), dtype=bool), -1), z, np.nan)[1:, :-1]  # abaixo da diagonal
+
+    def _txt(v):
+        if np.isnan(v):
+            return ""
+        r = round(float(v), 2) + 0.0  # + 0.0: sem "−0,00"
+        s = fmt.num(r, 2).replace("-", "−")
+        return f"<b>{s}</b>" if abs(r) >= .3 else s
+
+    txt = [[_txt(v) for v in linha] for linha in z]
+    eixo = [_quebra(r) for r in rotulos]
+    fig = go.Figure(go.Heatmap(
+        z=z, x=eixo[:-1], y=eixo[1:], zmin=-1, zmax=1, xgap=2, ygap=2, text=txt, texttemplate="%{text}",
+        colorscale=[[0, BROWN], [.5, "#FBF8EE"], [1, "#11806A"]], textfont=dict(size=12), hoverongaps=False,
+        hovertemplate="%{y}<br>× %{x}<br>ρ = %{text}<extra></extra>",
+        colorbar=dict(thickness=10, len=.7, outlinewidth=0, tickvals=[-1, -.5, 0, .5, 1], y=.35,
+                      ticktext=["−1 relação negativa", "−0,5", "0 sem relação", "0,5", "1 relação positiva"])))
+    fig.update_layout(height=height or max(360, 50 * (n - 1) + 150), margin=dict(l=0, r=0, t=10, b=0),
+                      plot_bgcolor="rgba(0,0,0,0)")
+    fig.update_xaxes(side="bottom", tickangle=-40, showgrid=False, zeroline=False, tickfont=dict(color=TEXT, size=12))
+    fig.update_yaxes(autorange="reversed", showgrid=False, zeroline=False, tickfont=dict(color=TEXT, size=12))
+    return fig
+
+
+def group_profile(df: pd.DataFrame, grupo: str, height: int | None = None) -> go.Figure:
+    """Perfil de um grupo de municípios frente aos demais: um indicador por linha, com a mediana do grupo (verde-escuro)
+    e a dos demais (verde-claro). df: rotulo, va, vb (valores), ta, tb (textos), sentido (1, −1 ou 0), hover_a, hover_b.
+    Cada linha está na escala do seu indicador (a maior das duas barras ocupa a largura toda), e a leitura da diferença
+    fica à direita."""
+    escala = np.maximum(df[["va", "vb"]].abs().max(axis=1), 1e-12)
+    xa, xb = df.va / escala, df.vb / escala
+    claro = "#9FCBB4"
+    fig = go.Figure()
+    for nome, x, t, cor, hov in ((grupo, xa, df.ta, INK, df.hover_a), ("Demais municípios", xb, df.tb, claro, df.hover_b)):
+        fig.add_trace(go.Bar(
+            y=df.rotulo, x=x, orientation="h", name=nome, marker=dict(color=cor), text=t, textposition="outside",
+            textfont=dict(size=11, color=TEXT), cliponaxis=False, customdata=hov,
+            hovertemplate=f"<b>%{{y}}</b><br>{nome}: %{{customdata}}<extra></extra>"))
+    leitura = {1: ("▲ maior no grupo", INK), -1: ("▼ menor no grupo", INK), 0: ("sem diferença consistente", MUTED)}
+    for rot, s in zip(df.rotulo, df.sentido):
+        t, cor = leitura[s]
+        fig.add_annotation(x=1.0, xref="paper", xanchor="left", xshift=12, y=rot, yref="y", text=t, showarrow=False,
+                           font=dict(size=11, color=cor), align="left")
+    lo = float(min(0, xa.min(), xb.min()))
+    fig.update_layout(barmode="group", bargap=.28, bargroupgap=.08, height=height or max(280, 52 * len(df) + 90),
+                      margin=dict(l=0, r=170, t=10, b=0), legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0))
+    fig.update_xaxes(visible=False, range=[lo - .05 if lo < 0 else 0, 1.32])
+    fig.update_yaxes(autorange="reversed", showgrid=False, tickfont=dict(color=TEXT, size=12))
+    if lo < 0:
+        fig.add_vline(x=0, line=dict(color=MUTED, width=1))
     return fig
 
 
