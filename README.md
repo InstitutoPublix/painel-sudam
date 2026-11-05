@@ -186,7 +186,7 @@ Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · 
 As seções 4 e 5 da aba Comparações trabalham com os municípios do recorte (filtros da barra lateral) e com todos os
 indicadores municipais de um eixo:
 
-- **Grupo × demais (seção 4):** compara um grupo (Faixa de Fronteira, sedes de região imediata, porte, tipologia PNDR,
+- **Grupo × demais (seção 4):** compara um grupo (municípios da faixa de fronteira, sedes de região imediata, porte, tipologia PNDR,
   classe do IDHM ou região intermediária, todos de `assets/municipios_caracterizacao.csv`) com os demais municípios.
   O gráfico põe lado a lado a mediana de cada grupo, na escala de cada indicador (quando a mediana é zero nos dois,
   mostra o % de municípios em que o fenômeno existe), e a tabela traz também os quartis. A leitura vem do teste de

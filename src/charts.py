@@ -386,8 +386,10 @@ def histogram(df: pd.DataFrame, ind: Indicator, log: bool = False, ref: tuple[st
     mid, w = (edges[:-1] + edges[1:]) / 2, np.diff(edges)
     f = (lambda x: 10 ** x) if log else (lambda x: x)
     lo_t, hi_t = f(edges[:-1]), f(edges[1:])
+    # vão de 20% do intervalo: com ~30 barras num quadro estreito, um vão menor fica abaixo de 1 pixel e o navegador
+    # o desenha ora com 1 pixel, ora sem nenhum, e o espaçamento parece irregular
     fig = go.Figure(go.Bar(
-        x=mid, y=cnt, width=w * .94, marker=dict(color=ACCENT, cornerradius=2),
+        x=mid, y=cnt, width=w * .8, marker=dict(color=ACCENT, cornerradius=2, line=dict(width=0)),
         customdata=np.column_stack([[ind.fmt(a) for a in lo_t], [ind.fmt(b) for b in hi_t]]),
         hovertemplate="%{customdata[0]} – %{customdata[1]}<br><b>%{y}</b> municípios<extra></extra>"))
     g = (lambda x: float(np.log10(x))) if log else float

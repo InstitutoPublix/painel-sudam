@@ -2223,7 +2223,7 @@ with T["Comparações"]:
         st.markdown('<div class="ler"><span class="lt">Nesta aba:</span>seis comparações, da mais direta à mais '
                     'detalhada. <b>1</b> onde a Amazônia Legal está entre Brasil, regiões e estados · <b>2</b> dois '
                     'territórios frente a frente · <b>3</b> como os municípios de cada estado diferem entre si · '
-                    '<b>4</b> um grupo de municípios (ex.: Faixa de Fronteira) frente aos demais · <b>5</b> quais '
+                    '<b>4</b> um grupo de municípios (ex.: municípios da faixa de fronteira) frente aos demais · <b>5</b> quais '
                     'indicadores de um eixo andam juntos · <b>6</b> um par de indicadores em detalhe.</div>',
                     unsafe_allow_html=True)
 
@@ -2376,14 +2376,14 @@ with T["Comparações"]:
 
         # ---- 4. um grupo de municípios frente aos demais ---------------------------------
         theme.title("4 · Um grupo de municípios frente aos demais",
-                    "Compara os municípios de um grupo (Faixa de Fronteira, sedes de região imediata, tipologia PNDR, "
+                    "Compara os municípios de um grupo (municípios da faixa de fronteira, sedes de região imediata, tipologia PNDR, "
                     "porte…) com os demais municípios do recorte, em todos os indicadores de um eixo. Territórios "
                     "seguem os filtros; cada indicador "
                     + ("no seu ano mais recente." if RECENTE else f"no ano mais recente até {YEAR}."))
         carac = D["carac"]
         grupos_cmp = {}  # rótulo -> (classe de cada município, ordem das classes; None = grupo Sim/Não)
         if carac is not None:
-            grupos_cmp |= {"Faixa de Fronteira": (carac.fronteira, None),
+            grupos_cmp |= {"Municípios da faixa de fronteira": (carac.fronteira, None),
                            "Sede de região imediata": (carac.sede_imediata, None)}
         if D["porte"] is not None:
             grupos_cmp["Porte (habitantes)"] = (D["porte"], [p[0] for p in PORTES])
@@ -2397,7 +2397,7 @@ with T["Comparações"]:
             eixo_g = escolhe_eixo("w_gr_eixo", "Indicadores do eixo", container=g1)
             nome_g = g2.selectbox("Grupo de municípios", list(grupos_cmp),
                                   key=state("w_gr_nome", next(iter(grupos_cmp)), list(grupos_cmp)),
-                                  help="Faixa de Fronteira: municípios com área total ou parcial a até 150 km da "
+                                  help="Municípios da faixa de fronteira: municípios com área total ou parcial a até 150 km da "
                                        "fronteira terrestre (lista do IBGE). Nas classificações com várias classes, "
                                        "escolha a classe ao lado.")
             Dg = base_municipal(do_eixo(eixo_g))
