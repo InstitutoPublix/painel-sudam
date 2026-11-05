@@ -398,7 +398,7 @@ def value_of(tid: str, ind: str = IND, year: int | None = None) -> float:
 def first_valid(tid: str, ind: str = IND, upto: int | None = None):
     upto = year_for(ind) if upto is None else upto
     s = data.series(D, [tid], ind).dropna(subset=["valor"])
-    s = s[s.ano <= upto]
+    s = s[(s.ano <= upto) & (s.ano >= (data.inicio_comparavel(ind, upto) or 0))]  # quebra de método: só o mesmo trecho
     return (int(s.ano.iloc[0]), float(s.valor.iloc[0])) if len(s) else (None, float("nan"))
 
 
@@ -537,6 +537,27 @@ def aviso_lacunas(anos: set) -> str:
     return "Trecho pontilhado: sem dado em " + junta_nomes([str(a) for a in falt]) + "." if falt else ""
 
 
+def sem_evolucao(ind: str = IND) -> bool:
+    """Quebra de método sem dois anos comparáveis (ex.: favelas, só 2022): não há índice nem variação para mostrar."""
+    anos = [int(a) for a in data.years_with_data(D, ind)]
+    ini = data.inicio_comparavel(ind, anos[-1]) if anos else None
+    return bool(ini) and sum(a >= ini for a in anos) < 2
+
+
+def trecho_comparavel(sr: pd.DataFrame, ind: str = IND) -> tuple[pd.DataFrame, str]:
+    """Para o índice e as variações de uma série: só os anos comparáveis com o último ano com dado (quebra de método,
+    ver data.QUEBRAS), e o aviso para pôr sob o gráfico ("" quando a série inteira se compara)."""
+    anos = sr.dropna(subset=["valor"]).ano
+    ini = data.inicio_comparavel(ind, int(anos.max())) if len(anos) else None
+    if not ini or not (anos < ini).any():
+        return sr, ""
+    sc = sr[sr.ano >= ini]
+    anos_c = sc.dropna(subset=["valor"]).ano
+    return sc, (f"⚠ Quebra de método em {ini}: {data.motivo_quebra(ind)}. "
+                + ("Por isso, não há índice nem variação para este indicador." if anos_c.nunique() < 2 else
+                   f"O valor mostra a série inteira; o índice e as variações usam só {int(anos_c.min())} em diante."))
+
+
 def so_estadual(ind: str) -> bool:
     """Indicador sem dado municipal (vem só por estado, região e Brasil)."""
     return "Município" not in D["meta"].get(ind, {}).get("levels", ["Município"])
@@ -600,9 +621,16 @@ with T["Visão Geral"]:
                                     "sem total nacional para comparar" if sem_br
                                     else "da Amazônia Legal no total nacional" if I.additive else "AL ÷ Brasil", "%"),
                           unsafe_allow_html=True)
-        c[3].markdown(theme.kpi("Variação desde " + (str(y0) if y0 else "—"), arrow(var_al),
-                                f"Amazônia Legal, de {y0} a {YEAR}" if y0 else "Amazônia Legal", "Δ"),
-                      unsafe_allow_html=True)
+        ini_cmp = data.inicio_comparavel(IND, YEAR)  # quebra de método: a variação só parte do mesmo trecho
+        if y0 == YEAR:  # nada antes do ano exibido: por quebra de método ou porque a série começa nele
+            c[3].markdown(theme.kpi("Variação no período", "—", data.motivo_quebra(IND) if ini_cmp
+                                    else "sem ano anterior para comparar", "Δ"), unsafe_allow_html=True)
+        else:
+            sub_var = f"Amazônia Legal, de {y0} a {YEAR}" if y0 else "Amazônia Legal"
+            if y0 and ini_cmp:
+                sub_var += f" ({data.trecho_quebra(IND)})"
+            c[3].markdown(theme.kpi("Variação desde " + (str(y0) if y0 else "—"), arrow(var_al), sub_var, "Δ"),
+                          unsafe_allow_html=True)
         if len(muni):
             top, bot = muni.loc[muni.valor.idxmax()], muni.loc[muni.valor.idxmin()]
             # posição entre todos os municípios da abrangência (Amazônia Legal ou Brasil), mesmo com UF, porte ou
@@ -800,7 +828,7 @@ with T["Visão Geral"]:
                                    key="w_vg_recortes") if opcoes else []
                 # medida do gráfico (índice ou valor) e rótulos nos pontos
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
-                medidas_vg = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
+                medidas_vg = ["Valor"] if len(years) == 1 or sem_evolucao() else ["Valor", "Índice (base 100)"]
                 med_vg = c_med.radio("Medida", medidas_vg, horizontal=True, key=state("w_vg_med", medidas_vg[0], medidas_vg),
                                      help="Índice: todas as linhas começam em 100, para comparar o ritmo de territórios de "
                                           "tamanhos diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
@@ -809,6 +837,7 @@ with T["Visão Geral"]:
                                              "o último ano de cada linha). Passar o mouse mostra o valor de qualquer ano.")
                 valor_vg = med_vg == "Valor"
                 sr = periodo(sr, "w_per_vg")
+                sr_idx, aviso_q = trecho_comparavel(sr)  # o índice só usa anos comparáveis
                 quem = ("sem série" if not opcoes else "nenhum recorte escolhido" if not escolha
                         else escolha[0] if len(escolha) == 1 else ", ".join(escolha[:-1]) + " e " + escolha[-1])
                 theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {quem}",
@@ -819,10 +848,11 @@ with T["Visão Geral"]:
                     st.info("Escolha ao menos um recorte acima para ver a evolução.")
                 else:
                     sr_v = sr[sr.tid.map(nome_de).isin(escolha)]
+                    sr_vi = sr_idx[sr_idx.tid.map(nome_de).isin(escolha)]
                     ult_v = sr_v.dropna(subset=["valor"]).groupby("tid").valor.last()
                     log_vg = bool(valor_vg and len(ult_v) > 1 and (sr_v.valor.dropna() > 0).all()
                                   and ult_v.max() > 20 * ult_v.min())  # tamanhos muito diferentes: escala logarítmica
-                    plot(charts.lines(sr_v, I, "valor" if valor_vg else "indice", log=log_vg, height=380 if rot_vg else 360,
+                    plot(charts.lines(sr_v if valor_vg else sr_vi, I, "valor" if valor_vg else "indice", log=log_vg, height=380 if rot_vg else 360,
                                       rotulos=rot_vg,
                                       # os dois recortes principais em verdes bem distintos; as regiões, em outras cores
                                       cores={"Amazônia Legal": theme.INK, "Brasil": "#6CC24A",
@@ -832,6 +862,8 @@ with T["Visão Geral"]:
                     anos_com = set(sr_v.dropna(subset=["valor"]).ano.astype(int))
                     if aviso_lacunas(anos_com):
                         st.caption(aviso_lacunas(anos_com))
+                    if aviso_q:
+                        st.caption(aviso_q)
                     if valor_vg:
                         tr_v = sr_v.dropna(subset=["valor"]).sort_values("ano")
                         fim_v, ini_v = tr_v.groupby("tid").tail(1), tr_v.groupby("tid").first()
@@ -845,7 +877,7 @@ with T["Visão Geral"]:
                                           "eixo multiplica o valor." if log_vg else ""),
                                        " · ".join(frases) + "." if frases else "")
                     else:
-                        tr_v = charts.transform(sr_v, "indice", I).dropna(subset=["y"])
+                        tr_v = charts.transform(sr_vi, "indice", I).dropna(subset=["y"])
                         fim_v = tr_v.sort_values("ano").groupby("tid").tail(1)
                         ini_v = tr_v.sort_values("ano").groupby("tid").ano.first()
                         frases = [f"{nome_de[r.tid]}: <b>{'+' if r.y >= 100 else '−'}{fmt.num(abs(r.y - 100), 1)}%</b> "
@@ -856,7 +888,8 @@ with T["Visão Geral"]:
                                        " · ".join(frases) + "." if frases else "")
             with right:
                 if SO_UF:  # o ranking por estado já está acima: aqui, quanto cada estado mudou
-                    d = L[(L.nivel == "Estado") & (L.ind == IND) & (L.ano <= YEAR)].sort_values("ano")
+                    d = L[(L.nivel == "Estado") & (L.ind == IND)
+                          & L.ano.between(data.inicio_comparavel(IND, YEAR) or 0, YEAR)].sort_values("ano")
                     g = d.groupby("cod", observed=True).agg(v0=("valor", "first"), v1=("valor", "last"),
                                                             ano0=("ano", "first"))
                     g = g[g.index.isin(est_vg.cod) & (g.ano0 < YEAR)]
@@ -941,21 +974,25 @@ with T["Visão Geral"]:
                 com_al, sem_al = [], []
                 for k in ks:
                     s_al = data.series(D, [AMZ], k).dropna(subset=["valor"])
-                    (com_al if len(s_al) else sem_al).append((k, s_al))
-                for col, (k, s_al) in grid(com_al):
+                    # quebra de método: o cartão mostra só o trecho do último ano (o resto não se compara)
+                    ini = data.inicio_comparavel(k, int(s_al.ano.iloc[-1])) if len(s_al) else None
+                    quebra = bool(ini) and bool((s_al.ano < ini).any())
+                    (com_al if len(s_al) else sem_al).append((k, s_al[s_al.ano >= (ini or 0)], quebra))
+                for col, (k, s_al, quebra) in grid(com_al):
                     ik = REG[k]
                     ult, pri = s_al.iloc[-1], s_al.iloc[0]
                     n_anos = len(s_al)
                     dv = change(ult.valor, pri.valor, ik) if n_anos > 1 else float("nan")
                     delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
-                    nota = (f"Único ano com dado: {int(ult.ano)}" if n_anos == 1
+                    nota = (data.motivo_quebra(k)[:1].upper() + data.motivo_quebra(k)[1:] if n_anos == 1 and quebra
+                            else f"Único ano com dado: {int(ult.ano)}" if n_anos == 1
                             else f"Dois anos com dado: {int(pri.ano)} e {int(ult.ano)}" if n_anos == 2 else "")
                     col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
                                             s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
                                  unsafe_allow_html=True)
                 if sem_al:
                     st.caption(f"Sem valor para a Amazônia Legal ({len(sem_al)}): "
-                               + ", ".join(("**" + REG[k].label + "**") if k == IND else REG[k].label for k, _ in sem_al)
+                               + ", ".join(("**" + REG[k].label + "**") if k == IND else REG[k].label for k, _, _ in sem_al)
                                + ". Só existem por estado ou não podem ser somados a partir dos municípios; veja-os "
                                  "nas abas Mapa e Ranking e Perfil do Território.")
 
@@ -1209,6 +1246,7 @@ with T["Perfil do Território"]:
                     sub = f"{rk}{ref} · {arrow(change(v, v0, ik), ik)} desde {yr0}"
                 elif yr0:  # sem ponto anterior: a base inteira tem um ano só, ou só este território
                     sub = f"{rk}{ref} · " + ("único ano com dado na base" if len(data.years_with_data(D, k)) == 1
+                                             else data.motivo_quebra(k) if data.inicio_comparavel(k, ano)
                                              else "sem ano anterior para comparar")
                 else:
                     sub = ref
@@ -1278,12 +1316,12 @@ with T["Perfil do Território"]:
         # ---- Evolução --------------------------------------------------------------------
         with S["Evolução"]:
             if S["Evolução"].open:
-                medidas = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
+                medidas = ["Valor"] if len(years) == 1 or sem_evolucao() else ["Valor", "Índice (base 100)"]
                 c_med, c_rot = st.columns([1.6, 1], vertical_alignment="center")
                 med = c_med.radio("Medida", medidas, horizontal=True,
                                   key=state("w_tr_med", medidas[-1] if I.additive else "Valor", medidas),
                                   captions=[f"{I.unit[:1].upper() + I.unit[1:]}."]
-                                          + (["Ritmo: todos começam em 100; 110 = 10% a mais."] if len(years) > 1 else []),
+                                          + (["Ritmo: todos começam em 100; 110 = 10% a mais."] if len(medidas) > 1 else []),
                                   help="Índice: crescimento relativo, bom para totais de tamanhos diferentes. "
                                        "Valor: o número publicado, bom para taxas e médias.")
                 rot_tr = c_rot.checkbox("Mostrar valores nos pontos", key=state("w_tr_rot", True),
@@ -1300,6 +1338,7 @@ with T["Perfil do Território"]:
                 txt_refs = junta_nomes([n for n, _ in refs_sel])
                 sr = data.series(D, list(dict.fromkeys([tid_de(IND), *[t for _, t in refs_sel]])), IND)
                 sr = periodo(sr, "w_per_tr")
+                sr_idx, aviso_q = trecho_comparavel(sr)  # o índice e a mudança no período só usam anos comparáveis
                 st.caption(f"Como **{I.label}** mudou ao longo do tempo em {nome_curto}"
                            + (f", comparado com {txt_refs}." if refs_sel else "."))
                 theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {nome_curto}"
@@ -1308,12 +1347,15 @@ with T["Perfil do Território"]:
                                                           if med.startswith("Índice") else ""))
                 if PARTE:
                     st.caption("◐ " + nota_parcial(modo_parcial(True, IND)))
-                plot(charts.lines(sr, I, "indice" if med.startswith("Índice") else "valor", height=430 if rot_tr else 400,
+                plot(charts.lines(sr_idx if med.startswith("Índice") else sr, I, "indice" if med.startswith("Índice")
+                                  else "valor", height=430 if rot_tr else 400,
                                   rotulos=rot_tr), "tr_line")
                 anos_tr = set(sr.dropna(subset=["valor"]).ano.astype(int))
                 if aviso_lacunas(anos_tr):
                     st.caption(aviso_lacunas(anos_tr))
-                tr_p = charts.transform(sr, "indice", I).dropna(subset=["y"]).sort_values("ano")
+                if aviso_q:
+                    st.caption(aviso_q)
+                tr_p = charts.transform(sr_idx, "indice", I).dropna(subset=["y"]).sort_values("ano")
                 fim_p = tr_p.groupby("label").tail(1)
                 ini_p = tr_p.groupby("label").ano.first()
                 frases_p = [f"{r.label}: <b>{'+' if r.y >= 100 else '−'}{fmt.num(abs(r.y - 100), 1)}%</b> de "
@@ -1516,10 +1558,11 @@ def variacao_desde(level: str, ind: str = IND, year: int | None = None, parte: b
     pontos para índices, % nos demais), e o ano de partida, que pode diferir entre territórios."""
     year = year_for(ind) if year is None else year
     ik = REG[ind]
-    d = L[(L.nivel == level) & (L.ind == ind) & L.valor.notna() & (L.ano <= year)].sort_values("ano")
+    ini = data.inicio_comparavel(ind, year) or 0  # quebra de método: só anos do mesmo trecho
+    d = L[(L.nivel == level) & (L.ind == ind) & L.valor.notna() & L.ano.between(ini, year)].sort_values("ano")
     g = d.groupby("cod", observed=True).agg(v0=("valor", "first"), v1=("valor", "last"), ano0=("ano", "first"))
     if level == "Estado" and parte and PARCIAL:  # estado só em parte na região: variação da parcela que fica nela
-        dp = L[(L.nivel == PARTE_AL) & (L.ind == ind) & L.valor.notna() & (L.ano <= year)].sort_values("ano")
+        dp = L[(L.nivel == PARTE_AL) & (L.ind == ind) & L.valor.notna() & L.ano.between(ini, year)].sort_values("ano")
         gp = dp.groupby("cod", observed=True).agg(v0=("valor", "first"), v1=("valor", "last"), ano0=("ano", "first"))
         g.loc[gp.index, ["v0", "v1", "ano0"]] = gp
     if ik.delta == "pct":
@@ -1726,6 +1769,7 @@ with T["Séries Temporais"]:
                     "territórios**, depois **como mostrar**.")
         niveis_ts = D["meta"].get(IND, {}).get("levels", [])
         ano_unico = len(years) == 1
+        sem_evol = sem_evolucao()  # quebra de método (ex.: favelas): sem índice, variação nem ritmo para mostrar
         tem_br, tem_al = "Brasil" in niveis_ts, "Amazônia Legal" in niveis_ts
         # série do Brasil por ano: base da medida "em relação ao Brasil" (existe só se o indicador tem Brasil e mais de um ano)
         ref_br = (data.series(D, [BRASIL], IND).dropna(subset=["valor"]).set_index("ano").valor if tem_br
@@ -1809,7 +1853,7 @@ with T["Séries Temporais"]:
                                key=state("w_ts_mun", [], mun_ops))
 
         st.markdown('<div class="secoes-tit" style="margin-top:18px">2 · Como mostrar</div>', unsafe_allow_html=True)
-        medidas = ["Valor"] if ano_unico else ["Valor", "Índice (base 100)", "Variação anual"]
+        medidas = ["Valor"] if ano_unico or sem_evol else ["Valor", "Índice (base 100)", "Variação anual"]
         if tem_ref:
             medidas.append(REL_LBL)
         un_var = "%" if I.delta == "pct" else I.delta_unit
@@ -1819,7 +1863,8 @@ with T["Séries Temporais"]:
                     REL_LBL: ("Que parte do total do Brasil o território tem, em %." if I.additive else
                               "Compara com o Brasil no mesmo ano: 120 = 20% acima do Brasil.")}
         mode_lbl = st.radio("Medida", medidas, horizontal=True,
-                            key=state("w_ts_mode", "Valor" if ano_unico or not I.additive else "Índice (base 100)", medidas),
+                            key=state("w_ts_mode", "Valor" if ano_unico or sem_evol or not I.additive
+                                      else "Índice (base 100)", medidas),
                             help="Use **Valor** para ver o tamanho de cada território; **Índice** para comparar o "
                                  "ritmo de territórios de tamanhos muito diferentes (ex.: Brasil e um município); "
                                  "**Variação anual** para achar anos de alta ou queda forte"
@@ -1847,6 +1892,9 @@ with T["Séries Temporais"]:
                     f"{', '.join(niveis_ind)}. Escolha territórios desses níveis acima.")
         else:
             sr = periodo(sr, "w_per_ts", slot_per)  # faixa de anos de todos os gráficos de evolução desta aba
+            # quebra de método: o valor mostra a série toda; índice, variação anual e ritmo médio, só o trecho
+            # comparável com o último ano do período (ex.: população em 2026, de 2024 em diante)
+            sr_cmp, aviso_q = trecho_comparavel(sr)
             # escala log: vem ligada quando um território é muito maior que os outros (ex.: Brasil ao lado de
             # municípios), senão as linhas menores ficam achatadas no pé do gráfico; volta ao padrão quando muda o
             # indicador ou a seleção
@@ -1868,7 +1916,8 @@ with T["Séries Temporais"]:
                       "rel": (f"Participação no Brasil: {charts.low(I.label)}" if I.additive
                               else f"{I.label} em relação ao Brasil")}[mode]
             # na medida "em relação ao Brasil" o Brasil seria sempre 100: sai do gráfico, salvo se for o único escolhido
-            sr_main = sr[sr.tid != BRASIL] if mode == "rel" and (sr.tid != BRASIL).any() else sr
+            sr_main = sr_cmp if mode in ("indice", "var") else sr
+            sr_main = sr_main[sr_main.tid != BRASIL] if mode == "rel" and (sr.tid != BRASIL).any() else sr_main
             theme.title(f"{titulo} nos {sr_main.tid.nunique()} territórios escolhidos",
                         (f"Valores de {int(sr.ano.iloc[0])}; único ano disponível nesta série" if ano_unico else
                          "Cada barra é a variação em relação ao ano anterior com dado; anos sem dado ficam sem barra"
@@ -1880,8 +1929,10 @@ with T["Séries Temporais"]:
                 st.info("Só o Brasil foi escolhido, e ele é a referência (sempre 100). Escolha também outro território acima.")
             plot(charts.lines(sr_main, I, mode, log and mode == "valor", rotulos=rot_ts, height=470 if rot_ts else 430,
                               ref=ref_br), "ts_main")
-            if mode == "var" and (charts.transform(sr, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
+            if mode == "var" and (charts.transform(sr_cmp, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
                 st.caption("Valores com \\*: depois de anos sem dado, é a média por ano desde o último ano com dado.")
+            if aviso_q:
+                st.caption(aviso_q)
             # como ler + o que a seleção mostra agora
             tr = charts.transform(sr_main, mode, I, ref_br).dropna(subset=["y"])
             fim = tr.sort_values("ano").groupby("label").tail(1)
@@ -1955,7 +2006,7 @@ with T["Séries Temporais"]:
                            + ("" if sr.dropna(subset=["valor"]).ano.nunique() == 2
                               else " Os trechos pontilhados do gráfico atravessam esses anos."))
 
-            if sr.dropna(subset=["valor"]).ano.nunique() > 1:
+            if sr_cmp.dropna(subset=["valor"]).ano.nunique() > 1:
                 st.markdown("---")
                 h1, h2 = st.columns([1, 1.25])
                 with h1:
@@ -1965,7 +2016,7 @@ with T["Séries Temporais"]:
                                 f"{medida[0].upper() + medida[1:]}, do primeiro ao último ano com dado de cada território; "
                                 "cor = nível do território")
                     rows = []
-                    for t, g in sr.dropna(subset=["valor"]).groupby("tid", sort=False):
+                    for t, g in sr_cmp.dropna(subset=["valor"]).groupby("tid", sort=False):
                         g = g.sort_values("ano")
                         rows.append(dict(label=g.label.iloc[0], nivel=g.nivel.iloc[0], tcma=I.rate(
                             g.valor.iloc[0], g.valor.iloc[-1], int(g.ano.iloc[-1] - g.ano.iloc[0])),
@@ -2005,13 +2056,13 @@ with T["Séries Temporais"]:
                     theme.title(f"Variação de {charts.low(I.label)} a cada ano, por território",
                                 f"{'% ao ano' if I.delta == 'pct' else I.delta_unit + ' ao ano'} em relação ao ano anterior "
                                 f"com dado · {leg}")
-                    plot(charts.growth_heatmap(sr, I), "ts_heat")
+                    plot(charts.growth_heatmap(sr_cmp, I), "ts_heat")
                     theme.como_ler("cada linha é um território e cada coluna, um ano. A cor mostra quanto mudou em relação "
                                    "ao ano anterior: " + ("verde quando a situação melhorou e vermelho quando piorou; "
                                                          if I.polarity else "azul quando aumentou e marrom quando diminuiu; ")
                                    + "quanto mais forte, maior a mudança. Uma coluna inteira da mesma cor indica um ano que "
                                      "afetou todos os territórios.")
-                    if mode != "var" and (charts.transform(sr, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
+                    if mode != "var" and (charts.transform(sr_cmp, "var", I).get("dy", pd.Series(dtype=float)) > 1).any():
                         st.caption("Valores com \\*: depois de anos sem dado, é a média por ano desde o último ano com dado.")
 
             st.markdown("---")
@@ -2042,17 +2093,139 @@ with T["Séries Temporais"]:
                                    f"series_{IND}.csv", "text/csv")
 
 # =========================================================================== #
+# 7. COMPARAÇÕES: funções de apoio (grupo × demais e matriz de correlação)
+# =========================================================================== #
+FORCA = ((.2, "praticamente nenhuma"), (.4, "fraca"), (.6, "moderada"), (float("inf"), "forte"))
+VAZIO_ZERO = "sem dado contam como zero"  # trecho da regra de agregação dos indicadores em que célula vazia = zero
+COBERTURA_MATRIZ = .7  # % mínima dos municípios do recorte com dado para o indicador entrar na matriz
+MAX_MATRIZ = 15
+
+
+def forca_rel(rho: float) -> str:
+    """Intensidade de uma correlação em palavras, com a mesma régua em toda a aba."""
+    return next(t for lim, t in FORCA if abs(rho) < lim)
+
+
+def rho_txt(rho: float) -> str:
+    return fmt.num(rho, 2).replace("-", "−")
+
+
+def base_municipal(keys) -> dict:
+    """Bases do painel só com as linhas municipais destes indicadores (e da população): as seções que percorrem um eixo
+    inteiro filtram a tabela longa uma vez, e não uma vez por indicador."""
+    keys = {str(k) for k in keys} | ({D["pop_col"]} if D["pop_col"] else set())
+    return {**D, "long": L[(L.nivel == "Município") & L.ind.isin(keys) & L.valor.notna()]}
+
+
+def anos_municipais(Dm: dict) -> dict[str, list[int]]:
+    """Anos com dado municipal de cada indicador da base reduzida."""
+    g = Dm["long"].groupby("ind", observed=True).ano.unique()
+    return {str(k): sorted(int(a) for a in v) for k, v in g.items() if len(v)}
+
+
+def mun_snap(Dm: dict, k: str, ano: int) -> pd.Series:
+    """Valores municipais de um indicador num ano, com os filtros de território da barra lateral, indexados pelo código."""
+    s = data.snapshot(Dm, "Município", k, ano, al_only=AL_ONLY, ufs=UFS or None, portes=PORTE or None,
+                      grupos=GRUPOS or None)
+    return s.set_index("cod").valor
+
+
+def pop_municipal(Dm: dict, anos: dict, ano: int) -> pd.Series:
+    """População de referência dos municípios num ano: a do Censo em 2010 e 2022 (as estimativas anuais não existem
+    em 2022) e, nos demais anos, a estimativa do IBGE do ano mais próximo, de preferência anterior."""
+    c = D["censo"]
+    if c is not None and ano in c.index.get_level_values("ano"):
+        return c.xs(ano, level="ano").astype(float)
+    ys = anos.get(D["pop_col"] or "", [])
+    if not ys:
+        return pd.Series(dtype=float)
+    y = max([a for a in ys if a <= ano], default=min(ys))
+    d = Dm["long"]
+    d = d[(d.ind == D["pop_col"]) & (d.ano == y)]
+    return pd.Series(d.valor.to_numpy(float), index=d.cod.astype(int).to_numpy())
+
+
+def universo_mun(Dm: dict, anos: dict) -> pd.Index:
+    """Municípios do recorte (filtros da barra lateral), pela população do ano mais recente."""
+    ys = anos.get(D["pop_col"] or "", [])
+    return mun_snap(Dm, D["pop_col"], ys[-1]).index if ys else pd.Index([], dtype=int)
+
+
+def anos_comparaveis(k: str, anos: dict) -> list[int]:
+    """Anos com dado municipal do indicador. A densidade ganha os anos de Censo: o IBGE não estima a população em 2022,
+    e a densidade de 2021 viria das estimativas feitas a partir do Censo 2010, outra base (ver valores_comparaveis)."""
+    ys = anos.get(k, [])
+    if k == data.DENS_ID and D["censo"] is not None and anos.get(data.AREA_ID):
+        ys = sorted(set(ys) | set(D["censo"].index.get_level_values("ano")))
+    return ys
+
+
+def valores_comparaveis(Dm: dict, anos: dict, k: str, ano: int, universo: pd.Index) -> tuple[pd.Series, str]:
+    """Valores municipais de um indicador prontos para comparar municípios entre si, e como entraram. Indicadores
+    somáveis entram por habitante (valores em R$) ou por mil habitantes (contagens), senão a comparação mediria só o
+    tamanho do município; célula vazia vale zero quando a regra do indicador diz isso (ex.: favelas); os demais entram
+    como publicados. População e área ficam como publicadas: são o porte e a extensão do município."""
+    ik = REG[k]
+    como = []
+    if k == data.DENS_ID and ano not in anos.get(k, []):  # ano de Censo: população do Censo ÷ área
+        ys_area = anos[data.AREA_ID]
+        area = mun_snap(Dm, data.AREA_ID, max([a for a in ys_area if a <= ano], default=min(ys_area)))
+        v = pop_municipal(Dm, anos, ano).reindex(area.index) / area.replace(0, np.nan)
+        como.append("população do Censo ÷ área")
+    else:
+        v = mun_snap(Dm, k, ano)
+    if VAZIO_ZERO in ik.agg_note:  # só os municípios do recorte que existiam no ano (ex.: os instalados depois do Censo)
+        existentes = universo.intersection(pop_municipal(Dm, anos, ano).index)
+        v = v.reindex(existentes).fillna(0)
+        como.append("vazio = zero")
+    if ik.additive and k not in (D["pop_col"], data.AREA_ID) and not set(v.unique()) <= {0.0, 1.0}:
+        moeda = ik.kind == "moeda"
+        v = v * ik.scale / pop_municipal(Dm, anos, ano).reindex(v.index) * (1 if moeda else 1000)
+        como.insert(0, "por habitante" if moeda else "por mil habitantes")
+    return v.replace([np.inf, -np.inf], np.nan), " · ".join(como) or "valor publicado"
+
+
+def por_hab(como: str) -> bool:
+    """O indicador foi convertido por habitante ou por mil habitantes."""
+    return como.startswith(("por habitante", "por mil habitantes"))
+
+
+def fmt_comparavel(k: str, como: str, v: float) -> str:
+    if fmt.isna(v):
+        return "—"
+    if como.startswith("por habitante"):
+        return "R$ " + fmt.num(v, 0 if abs(v) >= 100 else 2)
+    return fmt.num(v, 2 if abs(v) < 10 else 1) if como.startswith("por mil") else REG[k].fmt(v)
+
+
+def rotulo_comparavel(k: str, como: str) -> str:
+    return REG[k].label + (" (por habitante)" if como.startswith("por habitante") else
+                           " (por mil hab.)" if como.startswith("por mil") else "")
+
+
+def ver_par(chave: str):
+    """Leva o par escolhido na matriz para a dispersão da seção 6."""
+    par = st.session_state.get(chave)
+    if par:
+        x, y = par.split("|")
+        st.session_state.update(w_sc_x=x, w_sc_y=y, w_sc_lvl="Município")
+
+
+# =========================================================================== #
 # 7. COMPARAÇÕES
 # =========================================================================== #
 with T["Comparações"]:
     if T["Comparações"].open:
         barra_filtros()
         # a aba conta uma história do mais simples ao mais detalhado: onde a Amazônia Legal está → dois territórios
-        # frente a frente → diferenças dentro dos estados → relação entre dois indicadores
-        st.markdown('<div class="ler"><span class="lt">Nesta aba:</span>quatro comparações, da mais direta à mais '
+        # frente a frente → diferenças dentro dos estados → um grupo de municípios frente aos demais → quais
+        # indicadores do eixo andam juntos → um par de indicadores em detalhe
+        st.markdown('<div class="ler"><span class="lt">Nesta aba:</span>seis comparações, da mais direta à mais '
                     'detalhada. <b>1</b> onde a Amazônia Legal está entre Brasil, regiões e estados · <b>2</b> dois '
                     'territórios frente a frente · <b>3</b> como os municípios de cada estado diferem entre si · '
-                    '<b>4</b> se dois indicadores andam juntos.</div>', unsafe_allow_html=True)
+                    '<b>4</b> um grupo de municípios (ex.: Faixa de Fronteira) frente aos demais · <b>5</b> quais '
+                    'indicadores de um eixo andam juntos · <b>6</b> um par de indicadores em detalhe.</div>',
+                    unsafe_allow_html=True)
 
         # ---- 1. onde a Amazônia Legal está -------------------------------------------
         theme.title(f"1 · Onde a Amazônia Legal está: {charts.low(I.label)} em {YEAR}",
@@ -2134,7 +2307,7 @@ with T["Comparações"]:
                        f"pior em <b>{n_pio}</b> em relação a <b>{picks[1][0]}</b>." if n_mel + n_pio else "")
         # medida do gráfico (índice ou valor) e rótulos nos pontos, como na Visão Geral
         f_med, f_rot = st.columns([1.6, 1], vertical_alignment="center")
-        medidas_ff = ["Valor"] if len(years) == 1 else ["Valor", "Índice (base 100)"]
+        medidas_ff = ["Valor"] if len(years) == 1 or sem_evolucao() else ["Valor", "Índice (base 100)"]
         med_ff = f_med.radio("Medida", medidas_ff, horizontal=True, key=state("w_ff_med", medidas_ff[-1], medidas_ff),
                              help="Índice: as duas linhas começam em 100, para comparar o ritmo de territórios de tamanhos "
                                   "diferentes. Valor: o número publicado (unidade: " + charts.low(I.unit) + ").")
@@ -2142,6 +2315,7 @@ with T["Comparações"]:
                                 help="Escreve o valor de cada ponto no gráfico. Passar o mouse mostra o valor de qualquer ano.")
         valor_ff = med_ff == "Valor"
         sr_ff = periodo(data.series(D, [p[1] for p in picks], IND), "w_per_ff")
+        sr_ffi, aviso_q = trecho_comparavel(sr_ff)  # o índice só usa anos comparáveis
         theme.title(f"{'Valores' if len(years) == 1 else 'Evolução'} de {charts.low(I.label)}: {picks[0][0]} e {picks[1][0]}",
                     "O indicador escolhido na barra lateral nos dois territórios · "
                     + (f"valor ano a ano (unidade: {charts.low(I.unit)})" if valor_ff else
@@ -2152,11 +2326,13 @@ with T["Comparações"]:
             ult_ff = sr_ff.dropna(subset=["valor"]).groupby("tid").valor.last()
             log_ff = bool(valor_ff and len(ult_ff) > 1 and (sr_ff.valor.dropna() > 0).all()
                           and ult_ff.max() > 20 * ult_ff.min())  # tamanhos muito diferentes: escala logarítmica
-            plot(charts.lines(sr_ff, I, "valor" if valor_ff else "indice", log=log_ff, height=360 if rot_ff else 330,
+            plot(charts.lines(sr_ff if valor_ff else sr_ffi, I, "valor" if valor_ff else "indice", log=log_ff, height=360 if rot_ff else 330,
                               rotulos=rot_ff), "ff_line")
             anos_ff = set(sr_ff.dropna(subset=["valor"]).ano.astype(int))
             if aviso_lacunas(anos_ff):
                 st.caption(aviso_lacunas(anos_ff))
+            if aviso_q:
+                st.caption(aviso_q)
             if valor_ff:
                 tr_ff = sr_ff.dropna(subset=["valor"]).sort_values("ano")
                 fim_ff, ini_ff = tr_ff.groupby("label").tail(1), tr_ff.groupby("label").first()
@@ -2166,7 +2342,7 @@ with T["Comparações"]:
                                           f"(<b>{I.fmt(ini_ff.loc[r.label, 'valor'])}</b> em {int(ini_ff.loc[r.label, 'ano'])})"
                                           for r in fim_ff.itertuples()) + ".")
             else:
-                tr_ff = charts.transform(sr_ff, "indice", I).dropna(subset=["y"]).sort_values("ano")
+                tr_ff = charts.transform(sr_ffi, "indice", I).dropna(subset=["y"]).sort_values("ano")
                 fim_ff, ini_ff = tr_ff.groupby("label").tail(1), tr_ff.groupby("label").ano.first()
                 theme.como_ler("as duas linhas começam em 100; a mais inclinada é a que mudou mais no período, "
                                "independentemente do tamanho de cada território.",
@@ -2198,8 +2374,275 @@ with T["Comparações"]:
             st.info("Poucos municípios com os filtros atuais para desenhar a distribuição.")
         st.markdown("---")
 
-        # ---- 4. relação entre dois indicadores (o mais técnico, por último) --------------
-        theme.title("4 · Dois indicadores andam juntos?",
+        # ---- 4. um grupo de municípios frente aos demais ---------------------------------
+        theme.title("4 · Um grupo de municípios frente aos demais",
+                    "Compara os municípios de um grupo (Faixa de Fronteira, sedes de região imediata, tipologia PNDR, "
+                    "porte…) com os demais municípios do recorte, em todos os indicadores de um eixo. Territórios "
+                    "seguem os filtros; cada indicador "
+                    + ("no seu ano mais recente." if RECENTE else f"no ano mais recente até {YEAR}."))
+        carac = D["carac"]
+        grupos_cmp = {}  # rótulo -> (classe de cada município, ordem das classes; None = grupo Sim/Não)
+        if carac is not None:
+            grupos_cmp |= {"Faixa de Fronteira": (carac.fronteira, None),
+                           "Sede de região imediata": (carac.sede_imediata, None)}
+        if D["porte"] is not None:
+            grupos_cmp["Porte (habitantes)"] = (D["porte"], [p[0] for p in PORTES])
+        if carac is not None:
+            grupos_cmp |= {"Tipologia PNDR": (carac.pndr, []), "Classe do IDHM (2010)": (carac.idhm, ORDEM_CLASSES),
+                           "Região Geográfica Intermediária": (carac.rg_intermediaria, [])}
+        if not grupos_cmp or not D["pop_col"]:
+            st.info("A base não traz a caracterização dos municípios para formar os grupos.")
+        else:
+            g1, g2, g3 = st.columns(3)
+            eixo_g = escolhe_eixo("w_gr_eixo", "Indicadores do eixo", container=g1)
+            nome_g = g2.selectbox("Grupo de municípios", list(grupos_cmp),
+                                  key=state("w_gr_nome", next(iter(grupos_cmp)), list(grupos_cmp)),
+                                  help="Faixa de Fronteira: municípios com área total ou parcial a até 150 km da "
+                                       "fronteira terrestre (lista do IBGE). Nas classificações com várias classes, "
+                                       "escolha a classe ao lado.")
+            Dg = base_municipal(do_eixo(eixo_g))
+            anos_g = anos_municipais(Dg)
+            univ_g = universo_mun(Dg, anos_g)
+            classes_g, ordem_g = grupos_cmp[nome_g]
+            cls_g = pd.Series(univ_g, index=univ_g).map(classes_g)
+            if ordem_g is None:
+                membro = cls_g.fillna(False).astype(bool)
+                rotulo_g = nome_g
+            else:
+                cont_g = cls_g.value_counts()
+                pool_g = [c for c in (ordem_g or sorted(cont_g.index)) if c in cont_g.index]
+                classe_g = g3.selectbox("Classe", pool_g, disabled=not pool_g,
+                                        key=state(f"w_gr_cl_{nome_g}", pool_g[0] if pool_g else None, pool_g),
+                                        format_func=lambda c: f"{c} ({int(cont_g[c]):,})".replace(",", "."))
+                membro = cls_g.eq(classe_g)
+                rotulo_g = f"{nome_g}: {classe_g}"
+            n_g, n_d = int(membro.sum()), int((~membro).sum())
+            if ordem_g is None:
+                g3.caption(f"{n_g:,} municípios no grupo e {n_d:,} demais no recorte.".replace(",", "."))
+            if n_g < 5 or n_d < 5:
+                st.info(f"A comparação precisa de pelo menos 5 municípios no grupo e 5 fora dele (agora: {n_g} e {n_d}). "
+                        "Confira os filtros da barra lateral: eles podem já restringir os municípios a este grupo.")
+            else:
+                cods_g, cods_d = membro.index[membro], membro.index[~membro]
+                res = []
+                for k in do_eixo(eixo_g):
+                    ys_k = anos_comparaveis(k, anos_g)
+                    ys = ys_k if RECENTE else [a for a in ys_k if a <= YEAR]
+                    if not ys:
+                        continue
+                    v, como = valores_comparaveis(Dg, anos_g, k, ys[-1], univ_g)
+                    a, b = v.reindex(cods_g).dropna(), v.reindex(cods_d).dropna()
+                    if len(a) < 5 or len(b) < 5:
+                        continue
+                    chance, p = data.mann_whitney(a, b)
+                    # consistente: pouco provável de ser acaso (p < 0,05) e não desprezível (fora de 45% a 55%)
+                    sentido = (0 if not (p < .05 and abs(chance - .5) >= .05) else 1 if chance > .5 else -1)
+                    res.append({"k": k, "ano": ys[-1], "como": como, "a": a, "b": b, "chance": chance * 100,
+                                "sentido": sentido})
+                if not res:
+                    st.info("Nenhum indicador deste eixo tem dado municipal suficiente para comparar os dois grupos.")
+                else:
+                    # diferenças consistentes primeiro (maiores, depois menores), das mais fortes às mais fracas
+                    res.sort(key=lambda r: ({1: 0, -1: 1, 0: 2}[r["sentido"]], -abs(r["chance"] - 50)))
+                    for r in res:
+                        # quando o município do meio vale zero nos dois grupos (ex.: favelas, quilombolas), a mediana
+                        # não diferencia nada: o gráfico mostra o % de municípios em que o fenômeno existe
+                        r["esparso"] = bool(r["a"].median() == 0 and r["b"].median() == 0
+                                            and ((r["a"] > 0).any() or (r["b"] > 0).any()))
+                        if r["esparso"]:
+                            r["va"], r["vb"] = (r["a"] > 0).mean() * 100, (r["b"] > 0).mean() * 100
+                            r["ta"], r["tb"] = (f"{fmt.num(r['va'], 0)}% dos municípios",
+                                                f"{fmt.num(r['vb'], 0)}% dos municípios")
+                        else:
+                            r["va"], r["vb"] = r["a"].median(), r["b"].median()
+                            r["ta"], r["tb"] = (fmt_comparavel(r["k"], r["como"], r["va"]),
+                                                fmt_comparavel(r["k"], r["como"], r["vb"]))
+                    q = lambda s, k, como: (f"{fmt_comparavel(k, como, s.median())} "  # noqa: E731
+                                            f"({fmt_comparavel(k, como, s.quantile(.25))} a "
+                                            f"{fmt_comparavel(k, como, s.quantile(.75))})")
+                    pres = lambda s: f" · presente em {fmt.num((s > 0).mean() * 100, 0)}%"  # noqa: E731
+                    LEIT = {1: "maior no grupo", -1: "menor no grupo", 0: "sem diferença consistente"}
+                    cg = pd.DataFrame({
+                        "rotulo": [REG[r["k"]].label + " (% de municípios com presença)" if r["esparso"]
+                                   else rotulo_comparavel(r["k"], r["como"]) for r in res],
+                        "va": [r["va"] for r in res], "vb": [r["vb"] for r in res],
+                        "ta": [r["ta"] for r in res], "tb": [r["tb"] for r in res],
+                        "sentido": [r["sentido"] for r in res],
+                        "hover_a": [f"{q(r['a'], r['k'], r['como'])}{pres(r['a']) if r['esparso'] else ''}<br>"
+                                    f"mediana (1º a 3º quartil) · {len(r['a'])} municípios · {r['ano']}" for r in res],
+                        "hover_b": [f"{q(r['b'], r['k'], r['como'])}{pres(r['b']) if r['esparso'] else ''}<br>"
+                                    f"mediana (1º a 3º quartil) · {len(r['b'])} municípios · {r['ano']}" for r in res]})
+                    plot(charts.group_profile(cg, rotulo_g), "gr")
+                    tab_g = pd.DataFrame([{
+                        "Indicador": rotulo_comparavel(r["k"], r["como"]), "Ano": str(r["ano"]),
+                        f"{rotulo_g}: mediana (Q1 a Q3)": q(r["a"], r["k"], r["como"]) + (pres(r["a"]) if r["esparso"] else ""),
+                        "Demais: mediana (Q1 a Q3)": q(r["b"], r["k"], r["como"]) + (pres(r["b"]) if r["esparso"] else ""),
+                        "Leitura": LEIT[r["sentido"]], "Chance de ser maior": f"{fmt.num(r['chance'], 0)}%",
+                        "Municípios (grupo / demais)": f"{len(r['a'])} / {len(r['b'])}"} for r in res])
+                    st.dataframe(tab_g, width="stretch", hide_index=True, column_config={
+                        "Chance de ser maior": st.column_config.TextColumn(
+                            help="Chance de um município do grupo, sorteado ao acaso, ter valor maior que um dos "
+                                 "demais (empate conta meio). 50% = os dois grupos são parecidos. É a medida do teste "
+                                 "que define a Leitura.")})
+                    st.download_button("Baixar tabela (CSV)", csv_bytes(tab_g),
+                                       f"grupo_x_demais_{sem_acento(rotulo_g).lower().replace(' ', '_')}.csv",
+                                       "text/csv", key="gr_csv")
+                    lista = lambda s: junta_nomes([charts.low(rotulo_comparavel(r["k"], r["como"]))  # noqa: E731
+                                                   for r in res if r["sentido"] == s])
+                    partes = [f"maiores em <b>{lista(1)}</b>" if lista(1) else "",
+                              f"menores em <b>{lista(-1)}</b>" if lista(-1) else "",
+                              f"sem diferença consistente em {lista(0)}" if lista(0) else ""]
+                    theme.como_ler(
+                        "cada linha é um indicador, com a mediana (o município do meio) do grupo, em verde-escuro, e a "
+                        "dos demais municípios, em verde-claro. As barras estão na escala de cada indicador: compare as "
+                        "duas barras de uma mesma linha, não linhas diferentes. À direita, a leitura: maior ou menor no "
+                        "grupo quando a diferença é consistente (teste de Mann-Whitney com p < 0,05 e chance de um "
+                        "município do grupo superar um dos demais fora da faixa de 45% a 55%). Quando a mediana é zero "
+                        "nos dois grupos, a linha mostra o % de municípios em que o fenômeno existe. Contagens entram "
+                        "por mil habitantes e valores em R$ por habitante, para não medir só o tamanho dos municípios. A tabela traz também o 1º e o "
+                        "3º quartil.",
+                        f"Frente aos demais {fmt.num(n_d, 0)} municípios do recorte, os {fmt.num(n_g, 0)} do grupo "
+                        f"<b>{rotulo_g}</b> têm " + "; ".join(p for p in partes if p) + ".")
+        st.markdown("---")
+
+        # ---- 5. quais indicadores do eixo andam juntos (matriz de correlação) -------------
+        theme.title("5 · Quais indicadores do eixo andam juntos?",
+                    "Correlação de Spearman entre os indicadores de um eixo, calculada com os municípios do recorte: "
+                    "mostra de uma vez os pares que sobem juntos, os que andam em sentidos opostos e os sem relação. "
+                    "Territórios seguem os filtros; o ano de referência é escolhido aqui.")
+        m1, m2 = st.columns([2, 1])
+        eixo_m = escolhe_eixo("w_cm_eixo", "Indicadores do eixo", container=m1)
+        Dc = base_municipal(do_eixo(eixo_m))
+        anos_c = anos_municipais(Dc)
+        cand = [k for k in do_eixo(eixo_m) if anos_c.get(k)]
+        if len(cand) < 2 or not D["pop_col"]:
+            st.info("Este eixo tem menos de dois indicadores com dado municipal.")
+        else:
+            freq = pd.Series([anos_c[k][-1] for k in cand]).value_counts()
+            ano_pad = int(freq[freq == freq.max()].index.max())  # o último ano mais comum entre os indicadores do eixo
+            # quantos indicadores têm dado em cada ano: só entram anos com pelo menos dois (num ano com um só, os demais
+            # viriam todos de anos anteriores e a matriz repetiria a de outro ano)
+            n_ano = pd.Series([a for k in cand for a in anos_comparaveis(k, anos_c)]).value_counts()
+            anos_ops = sorted((int(a) for a in n_ano[n_ano >= 2].index), reverse=True) or [ano_pad]
+            ano_pad = ano_pad if ano_pad in anos_ops else anos_ops[0]
+            if st.session_state.get("_cm_eixo") != eixo_m:  # outro eixo: volta ao ano padrão dele
+                st.session_state["w_cm_ano"] = ano_pad
+                st.session_state["_cm_eixo"] = eixo_m
+            ano_c = m2.selectbox("Ano de referência", anos_ops, key=state("w_cm_ano", ano_pad, anos_ops),
+                                 format_func=lambda a: f"{a} · {int(n_ano.get(a, 0))} de {len(cand)} indicadores com dado",
+                                 help="Cada indicador entra no seu ano mais recente até este. O padrão é o ano em que "
+                                      "mais indicadores do eixo têm o último dado (ex.: o Censo 2022 na dinâmica "
+                                      "demográfica). Só aparecem anos com dado em pelo menos dois indicadores.")
+            univ_c = universo_mun(Dc, anos_c)
+            info_c, serie_c, como_c, zeros_c = {}, {}, {}, {}
+            for k in cand:
+                ys = [a for a in anos_comparaveis(k, anos_c) if a <= ano_c]
+                if not ys:
+                    info_c[k] = {"Ano": "—", "Como entra": "—", "Municípios com dado": 0, "Com valor zero": "—",
+                                 "Situação": f"fora: sem dado até {ano_c}"}
+                    continue
+                v, como = valores_comparaveis(Dc, anos_c, k, ys[-1], univ_c)
+                v = v.dropna()
+                zeros_c[k] = float((v == 0).mean()) if len(v) else 0.0
+                cob = len(v) / max(len(univ_c), 1)
+                sit = ("" if cob >= COBERTURA_MATRIZ and v.nunique() >= 3 else
+                       f"fora: dado em só {fmt.num(cob * 100, 0)}% dos municípios" if cob < COBERTURA_MATRIZ
+                       else "fora: sem variação entre os municípios")
+                info_c[k] = {"Ano": str(ys[-1]), "Como entra": como, "Municípios com dado": len(v),
+                             "Com valor zero": f"{fmt.num(zeros_c[k] * 100, 0)}%", "Situação": sit}
+                if not sit:
+                    serie_c[k], como_c[k] = v, como
+            eleg = list(serie_c)
+            # um indicador dividido pela população que quase repete outro do eixo (ex.: PIB municipal por habitante =
+            # PIB per capita) começa fora: na matriz, seria o mesmo indicador duas vezes
+            C_all = pd.DataFrame(serie_c).corr(method="spearman", min_periods=30).abs()
+            repete = {}
+            for k in eleg:
+                if por_hab(como_c[k]) and k not in (D["pop_col"], data.AREA_ID):
+                    par = C_all[k].drop([k, *repete]).dropna()
+                    # o par fica com o indicador publicado por habitante ou, se os dois são convertidos, com o primeiro
+                    par = par[(par >= .95) & np.array([not por_hab(como_c[p]) or eleg.index(p) < eleg.index(k)
+                                                       for p in par.index], dtype=bool)]
+                    if len(par):
+                        repete[k] = par.idxmax()
+                        info_c[k]["Situação"] = (f"fora por padrão: repete {REG[repete[k]].label} "
+                                                 f"(ρ = {rho_txt(C_all.loc[k, repete[k]])})")
+            padrao_sel = [k for k in eleg if k not in (D["pop_col"], data.AREA_ID) and k not in repete][:12]
+            if st.session_state.get("_cm_ctx") != (eixo_m, ano_c):  # outro eixo ou ano: volta à seleção padrão
+                st.session_state["w_cm_sel"] = padrao_sel
+                st.session_state["_cm_ctx"] = (eixo_m, ano_c)
+            sel = st.multiselect(
+                "Indicadores na matriz", eleg, format_func=lambda k: REG[k].label, max_selections=MAX_MATRIZ,
+                key=state("w_cm_sel", padrao_sel, eleg),
+                help=f"Até {MAX_MATRIZ} indicadores. Ficam de fora os que têm dado em menos de "
+                     f"{fmt.num(COBERTURA_MATRIZ * 100, 0)}% dos municípios do recorte. População e área começam "
+                     "fora: são a base da densidade e dos valores por habitante. Também começam fora os indicadores "
+                     "que, divididos pela população, repetem outro do eixo (correlação de 0,95 ou mais).")
+            for k, linha in info_c.items():
+                if k in sel:
+                    linha["Situação"] = "na matriz"
+                elif not linha["Situação"]:
+                    linha["Situação"] = "disponível (não escolhido)"
+            if len(sel) < 2:
+                st.info("Escolha pelo menos dois indicadores para montar a matriz.")
+            else:
+                X = pd.DataFrame({k: serie_c[k] for k in sel})
+                M = X.corr(method="spearman", min_periods=30)
+                ok = X.notna().astype(int)
+                npar = (ok.T @ ok).to_numpy()[~np.eye(len(sel), dtype=bool)]
+                rot_c = [rotulo_comparavel(k, como_c[k]) + (" *" if zeros_c[k] >= .5 else "") for k in sel]
+                plot(charts.corr_matrix(M, rot_c), "cm")
+                st.caption(f"ρ de Spearman · {npar.min() if npar.min() == npar.max() else f'{npar.min()} a {npar.max()}'} "
+                           f"municípios por par ({escopo('Município')}) · ano de referência {ano_c}"
+                           + (" · * mais da metade dos municípios com valor zero: a correlação reflete sobretudo ter "
+                              "ou não ter o fenômeno" if any(zeros_c[k] >= .5 for k in sel) else "")
+                           + ". Detalhes em “Indicadores e anos usados na matriz”, abaixo.")
+                antes = [f"{charts.low(REG[k].label)} ({info_c[k]['Ano']})" for k in sel if info_c[k]["Ano"] != str(ano_c)]
+                if antes:
+                    (st.warning if 2 * len(antes) > len(sel) else st.caption)(
+                        f"Sem dado em {ano_c}, entram com o último ano anterior: {junta_nomes(antes)}."
+                        + (" A maior parte da matriz vem de outros anos; para comparar o mesmo momento, escolha o ano "
+                           "com mais indicadores." if 2 * len(antes) > len(sel) else ""))
+                pares = sorted(((sel[i], sel[j], M.iat[i, j]) for i in range(len(sel)) for j in range(i + 1, len(sel))
+                                if pd.notna(M.iat[i, j])), key=lambda t: -abs(t[2]))
+                fortes = [t for t in pares if abs(t[2]) >= .2][:3]
+                theme.como_ler(
+                    "cada célula cruza o indicador da linha com o da coluna (cada par aparece uma vez), de −1 a 1. Verde: os dois sobem "
+                    "juntos; marrom: quando um sobe, o outro desce; claro: pouca ou nenhuma relação. Valores em negrito "
+                    "a partir de 0,3. A correlação de Spearman compara a ordem dos municípios em cada indicador, por "
+                    "isso não se deixa levar por valores extremos. Relação não prova que um causa o outro.",
+                    ("Relações mais fortes: " + "; ".join(
+                        f"<b>{charts.low(REG[x].label)} × {charts.low(REG[y].label)}</b> ({forca_rel(r)} e "
+                        f"{'positiva' if r > 0 else 'negativa'}, ρ = {rho_txt(r)})" for x, y, r in fortes) + "."
+                     if fortes else "Nenhum par passa de uma relação fraca (todos com |ρ| < 0,2)."))
+                chave_par = f"cm_par_{eixo_m}_{ano_c}"
+                c_par, c_csv = st.columns([3, 1], vertical_alignment="bottom")
+                c_par.selectbox("Ver um par em detalhe na seção 6", [f"{x}|{y}" for x, y, _ in pares], index=None,
+                                placeholder="Escolha um par (do mais forte para o mais fraco)",
+                                format_func=lambda p: "{} × {} (ρ = {})".format(
+                                    *(REG[k].label for k in p.split("|")), rho_txt(M.loc[tuple(p.split("|"))])),
+                                key=chave_par, on_change=ver_par, args=(chave_par,),
+                                help="Leva o par para a dispersão logo abaixo, com cada ponto sendo um município. A "
+                                     "dispersão mostra os valores publicados (sem a divisão pela população).")
+                c_csv.download_button("Baixar matriz (CSV)",
+                                      csv_bytes(M.round(3).set_axis(rot_c).set_axis(rot_c, axis=1)
+                                                .rename_axis("Indicador").reset_index()),
+                                      f"matriz_correlacao_{sem_acento(eixo_m)[:2].strip('.')}_{ano_c}.csv", "text/csv",
+                                      key="cm_csv", width="stretch")
+                with st.expander("Indicadores e anos usados na matriz"):
+                    st.dataframe(pd.DataFrame([{"Indicador": REG[k].label, **info_c[k]} for k in cand]),
+                                 width="stretch", hide_index=True)
+                    st.caption(f"Cada indicador entra no seu ano mais recente até {ano_c}. Indicadores somáveis "
+                               "entram divididos pela população (contagens por mil habitantes, valores em R$ por habitante), com a população do Censo em 2010 "
+                               "e 2022 e a estimativa do IBGE nos demais anos. Quando a regra do indicador diz que "
+                               "célula vazia é zero (ex.: favelas), os municípios sem dado entram com zero. Ficam fora "
+                               f"os indicadores com dado em menos de {fmt.num(COBERTURA_MATRIZ * 100, 0)}% dos "
+                               "municípios do recorte, como os dados amostrais que o IBGE não publica para municípios "
+                               "pequenos.")
+        st.markdown("---")
+
+        # ---- 6. relação entre dois indicadores (o mais técnico, por último) --------------
+        theme.title("6 · Dois indicadores andam juntos?",
                     "Escolha dois indicadores (aqui não vale o da barra lateral) e veja se os territórios com mais de um "
                     "costumam ter mais, ou menos, do outro. Ano e territórios seguem os filtros.")
         b1, b2, b3 = st.columns(3)
@@ -2209,12 +2652,21 @@ with T["Comparações"]:
                           key=state("w_sc_x", D["indicators"][0], D["indicators"]))
         yk = b3.selectbox("Indicador no eixo vertical", D["indicators"], format_func=lambda k: REG[k].label,
                           key=state("w_sc_y", D["indicators"][min(2, len(D["indicators"]) - 1)], D["indicators"]))
+        anos_sc = ""  # preenchido quando os dois indicadores entram em anos diferentes
         if RECENTE:  # ano mais recente em que os dois indicadores têm dado, para comparar o mesmo ano
             comuns = set(data.years_with_data(D, xk)) & set(data.years_with_data(D, yk))
             ysc = max(comuns) if comuns else None
         else:
             ysc = YEAR
-        sx, sy = (snap(sc_lvl, xk, ysc), snap(sc_lvl, yk, ysc)) if ysc else (snap(sc_lvl, xk, 0), snap(sc_lvl, yk, 0))
+        if ysc:
+            sx, sy = snap(sc_lvl, xk, ysc), snap(sc_lvl, yk, ysc)
+        elif RECENTE:  # sem ano em comum (ex.: densidade, sem estimativa em 2022, e indicadores do Censo): cada um no
+            # seu último ano, como na matriz da seção 5
+            yx, yy = year_for(xk), year_for(yk)
+            sx, sy, ysc = snap(sc_lvl, xk, yx), snap(sc_lvl, yk, yy), max(yx, yy)
+            anos_sc = f"{REG[xk].label} em {yx} e {charts.low(REG[yk].label)} em {yy}"
+        else:
+            sx, sy = snap(sc_lvl, xk, 0), snap(sc_lvl, yk, 0)
         sd = sx[["cod", "label", "uf", "valor"]].rename(columns={"valor": "x"}).merge(
             sy[["cod", "valor"]].rename(columns={"valor": "y"}), on="cod")
         if D["pop_col"]:
@@ -2240,14 +2692,14 @@ with T["Comparações"]:
             plot(charts.scatter(sd, REG[xk], REG[yk], log=lsc,
                                 size_col="pop" if "pop" in sd else None), "sc")
             rho = sd.x.rank().corr(sd.y.rank())  # Spearman = Pearson dos postos
-            st.caption(f"{escopo(sc_lvl, len(sd))} em {ysc}"
-                       + (" (ano mais recente com dado nos dois indicadores)" if RECENTE else "")
+            st.caption(escopo(sc_lvl, len(sd))
+                       + (f" · {anos_sc} (não há ano com dado nos dois; cada um no seu ano mais recente)" if anos_sc
+                          else f" em {ysc}" + (" (ano mais recente com dado nos dois indicadores)" if RECENTE else ""))
                        + f" · cor = UF · tamanho do ponto = população · linha tracejada = tendência"
                        + (" ajustada nos logaritmos" if lsc else "") + ".")
             # relação em linguagem simples, pela correlação de postos (Spearman), que não se deixa levar por extremos;
             # a leitura descreve o que se vê no gráfico (subida, descida ou linha quase plana)
-            forca = ("praticamente nenhuma" if abs(rho) < .2 else "fraca" if abs(rho) < .4
-                     else "moderada" if abs(rho) < .6 else "forte")
+            forca = forca_rel(rho)
             nx, ny = charts.low(REG[xk].label), charts.low(REG[yk].label)
             plural_sc = {"Município": "município", "Estado": "estado"}[sc_lvl]
             if abs(rho) < .2:
@@ -2264,7 +2716,7 @@ with T["Comparações"]:
                            "andam juntos; para baixo, andam em sentidos opostos; quase plana, não há relação. "
                            "Relação não prova que um causa o outro.",
                            f"Relação <b>{forca}</b>{' e positiva' if rho >= .2 else ' e negativa' if rho <= -.2 else ''}: "
-                           f"{visto} (correlação de Spearman = {fmt.num(rho, 2).replace('-', '−')}, numa escala de −1 a 1).{poucos}")
+                           f"{visto} (correlação de Spearman = {rho_txt(rho)}, numa escala de −1 a 1).{poucos}")
 
 # =========================================================================== #
 # 8. SOBRE

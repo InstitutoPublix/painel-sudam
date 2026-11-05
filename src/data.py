@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,33 @@ MANIFEST_TTL = 600  # segundos entre checagens de nova versão no bucket
 LEVELS = ["Brasil", "Amazônia Legal", "Grande Região", "Estado", "Município"]
 PARTE_AL = "Estado (parte AL)"  # nível com o valor da parcela de um estado que está só em parte na Amazônia Legal
 POP_ID = "IND-001"  # define o porte dos municípios e o tamanho dos pontos nas dispersões
+AREA_ID = "IND-013"  # área territorial: com a população, é o denominador da densidade
+DENS_ID = "IND-002"  # densidade demográfica: nos anos de Censo (sem estimativa), o painel a recalcula com o Censo
+
+# Séries com quebra de método: as variações ("desde ...") só comparam anos do mesmo trecho. Por indicador: ano em que
+# começa o trecho novo, o que ele é (para "de 2024 a 2026 (...)") e por que não se compara com o anterior.
+_POP_2022 = (2022, "estimativas a partir do Censo 2022",
+             "estimativas a partir do Censo 2022, não comparáveis às anteriores, do Censo 2010")
+QUEBRAS = {
+    POP_ID: _POP_2022,
+    DENS_ID: _POP_2022,
+    "IND-107": (2022, "Censo 2022", "o Censo 2022 mudou a delimitação das favelas; 2010 não é comparável"),
+}
+
+
+def inicio_comparavel(ind: str, ano: int) -> int | None:
+    """Primeiro ano que se compara com `ano` na série do indicador (None: a série inteira se compara)."""
+    q = QUEBRAS.get(ind)
+    return q[0] if q and ano >= q[0] else None
+
+
+def trecho_quebra(ind: str) -> str:
+    return QUEBRAS.get(ind, (None, "", ""))[1]
+
+
+def motivo_quebra(ind: str) -> str:
+    return QUEBRAS.get(ind, (None, "", ""))[2]
+
 
 PORTES = [
     ("Até 5 mil", 0, 5_000),
@@ -249,6 +277,7 @@ def _load(versao: str) -> dict:
                        labels=[b[0] for b in PORTES]).astype(str).rename("porte")
 
     carac = load_caracterizacao()
+    censo = load_censo()
 
     # último ano com dado de cada indicador (em qualquer nível): base do modo "mais recente" do painel
     latest = long[long.valor.notna()].groupby("ind", observed=True).ano.max()
@@ -260,6 +289,7 @@ def _load(versao: str) -> dict:
         "indicators": inds,
         "porte": porte,
         "carac": carac,
+        "censo": censo,
         "latest": {str(k): int(v) for k, v in latest.items()},
         "ufs": sorted(set(al_ufs) | est_ufs),
         "al_ufs": al_ufs,
@@ -287,6 +317,16 @@ def load_caracterizacao() -> pd.DataFrame | None:
     for col in ("rg_intermediaria", "rg_imediata"):
         c[col] = c[col] + " (" + c.uf + ")"
     return c.set_index("cod")
+
+
+def load_censo() -> pd.Series | None:
+    """População dos Censos 2010 e 2022 por município (assets/censo_municipios.csv, de scripts/censo_ibge.py), indexada
+    por (cod, ano). Nos anos de Censo, é o denominador dos indicadores por habitante calculados no painel: as estimativas
+    anuais não existem em 2022."""
+    path = ASSETS / "censo_municipios.csv"
+    if not path.exists():
+        return None
+    return pd.read_csv(path, usecols=["cod", "ano", "pop_total"]).set_index(["cod", "ano"]).pop_total
 
 
 # Filtros por agrupamento: coluna da caracterização → rótulo na barra lateral
@@ -410,6 +450,25 @@ def cagr(first: float, last: float, years: int) -> float:
     if fmt.isna(first) or fmt.isna(last) or first <= 0 or years <= 0:
         return float("nan")
     return ((last / first) ** (1 / years) - 1) * 100
+
+
+def mann_whitney(a: pd.Series, b: pd.Series) -> tuple[float, float]:
+    """Compara dois grupos sem supor distribuição normal (teste de Mann-Whitney, aproximação normal com correção de
+    empates). Devolve (chance, p): a chance de um valor de `a` superar um de `b` (empate conta meio; 0,5 = grupos
+    iguais) e o p bicaudal."""
+    a, b = pd.Series(a, dtype=float).dropna(), pd.Series(b, dtype=float).dropna()
+    n1, n2 = len(a), len(b)
+    if not n1 or not n2:
+        return float("nan"), float("nan")
+    tudo = pd.concat([a, b], ignore_index=True)
+    u = float(tudo.rank().iloc[:n1].sum()) - n1 * (n1 + 1) / 2
+    n = n1 + n2
+    t = tudo.value_counts().to_numpy(float)
+    var = n1 * n2 / 12 * ((n + 1) - (t ** 3 - t).sum() / (n * (n - 1)))
+    if var <= 0:  # todos os valores iguais
+        return u / (n1 * n2), 1.0
+    z = (u - n1 * n2 / 2) / math.sqrt(var)
+    return u / (n1 * n2), math.erfc(abs(z) / math.sqrt(2))
 
 
 def ranks(values: pd.Series, polarity: int) -> pd.Series:

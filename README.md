@@ -162,8 +162,46 @@ dos municípios (classe do IDHM).
 Após gerar a base, execute `.venv/bin/python -m unittest discover -s tests -v` para conferir a separação das fontes,
 os recortes e a troca entre séries no painel. Os testes de interface usam a base local, sem acessar o bucket.
 
+## Séries com quebra de método
+
+Algumas séries têm anos que não se comparam. Elas ficam listadas em `QUEBRAS` (`src/data.py`), com o ano em que
+começa o trecho novo e o motivo. As variações "desde ..." (cartões da Visão Geral e do Perfil do Território, cartões
+por eixo e coluna de variação do ranking) só comparam anos do mesmo trecho:
+
+| Indicador | Trecho novo | Motivo |
+| --- | --- | --- |
+| População total (`IND-001`) e densidade (`IND-002`) | 2022 em diante | as estimativas de 2024 em diante partem do Censo 2022; as de 2015 a 2021, do Censo 2010 |
+| Moradores em favelas (`IND-107`) | 2022 | o Censo 2022 mudou a delimitação (em 2010, aglomerados subnormais) |
+
+Assim, em 2026 a população varia "desde 2024", e favelas não mostra variação. Nos gráficos de evolução (Visão Geral,
+Perfil do Território, Séries Temporais e Comparações), o **valor** continua com a série inteira, e o **índice**, a
+variação anual, o ritmo médio e o mapa de calor usam só o trecho comparável, com aviso sob o gráfico. Quando o trecho
+tem um ano só (favelas), essas medidas não aparecem. Para incluir outra quebra, basta acrescentar uma linha em
+`QUEBRAS`.
+
 ## Abas
 Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.
+
+### Comparações: grupo de municípios × demais e matriz de correlação
+As seções 4 e 5 da aba Comparações trabalham com os municípios do recorte (filtros da barra lateral) e com todos os
+indicadores municipais de um eixo:
+
+- **Grupo × demais (seção 4):** compara um grupo (Faixa de Fronteira, sedes de região imediata, porte, tipologia PNDR,
+  classe do IDHM ou região intermediária, todos de `assets/municipios_caracterizacao.csv`) com os demais municípios.
+  O gráfico põe lado a lado a mediana de cada grupo, na escala de cada indicador (quando a mediana é zero nos dois,
+  mostra o % de municípios em que o fenômeno existe), e a tabela traz também os quartis. A leitura vem do teste de
+  Mann-Whitney (`data.mann_whitney`): a diferença é consistente com p < 0,05 e chance de um município do grupo
+  superar um dos demais fora da faixa de 45% a 55%.
+- **Matriz de correlação (seção 5):** Spearman entre os indicadores do eixo, cada um no ano mais recente até o ano de
+  referência (padrão: o último ano mais comum no eixo). Entram no máximo 15 indicadores, e ficam fora os que têm dado
+  em menos de 70% dos municípios. Um par escolhido abaixo da matriz abre a dispersão da seção 6.
+- **Regras comuns (`valores_comparaveis` em `main.py`):** indicadores somáveis entram divididos pela população
+  (contagens por mil habitantes, valores em R$ por habitante), com a população do Censo em 2010 e 2022 e a estimativa
+  do IBGE nos demais anos. Um indicador dividido pela população que repete outro do eixo (correlação de 0,95 ou mais,
+  ex.: PIB municipal por habitante e PIB per capita) começa fora da matriz. Quando a regra de agregação diz que
+  municípios sem dado contam como zero (ex.: favelas), eles entram com zero. Nos anos de Censo, a densidade é
+  recalculada como população do Censo ÷ área, porque não há estimativa em 2022 e a de 2021 vem de outra base
+  censitária. População e área entram como publicadas.
 
 ## Estrutura
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual
