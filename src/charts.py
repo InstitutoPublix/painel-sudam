@@ -599,7 +599,8 @@ def group_profile(df: pd.DataFrame, grupo: str, height: int | None = None) -> go
         fig.add_annotation(x=1.0, xref="paper", xanchor="left", xshift=12, y=rot, yref="y", text=t, showarrow=False,
                            font=dict(size=11, color=cor), align="left")
     lo = float(min(0, xa.min(), xb.min()))
-    fig.update_layout(barmode="group", bargap=.28, bargroupgap=.08, height=height or max(280, 52 * len(df) + 90),
+    # Sem vão adicional entre categorias: o mesmo intervalo separa todas as barras.
+    fig.update_layout(barmode="group", bargap=0, bargroupgap=.28, height=height or max(280, 52 * len(df) + 90),
                       margin=dict(l=0, r=170, t=10, b=0), legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0))
     fig.update_xaxes(visible=False, range=[lo - .05 if lo < 0 else 0, 1.32])
     fig.update_yaxes(autorange="reversed", showgrid=False, tickfont=dict(color=TEXT, size=12))
