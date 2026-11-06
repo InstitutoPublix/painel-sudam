@@ -43,6 +43,28 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   (tabelas 9923, 202, 9514 e 200, as mesmas do Roteiro de Extração). Use `peso_censo = "pop_total"` (ou `pop_urbana`,
   `pop_0_14`, `pop_15_64`, `pop_65_mais`) no bloco do indicador. Se a planilha passar a trazer essa população, o
   `peso_coluna` substitui o arquivo.
+- **Totais da RAIS (`numerador_rais`, `peso_rais`):** "Empregos formais com ensino superior" (IND-173) vem na planilha
+  só como % de cada município. A ficha manda calcular a Amazônia Legal pela razão de totais (vínculos com superior
+  completo, mestrado ou doutorado ÷ vínculos ativos em 31/12), e para isso o build lê os dois totais de
+  `assets/rais_vinculos_municipios.csv`, gerado da tabulação dos microdados da RAIS por
+  `python scripts/rais_vinculos.py <tabulação.csv> --ano 2025`. O arquivo reproduz os percentuais dos 773 municípios e
+  dos estados publicados. A razão só sai nos anos que o arquivo tem (hoje, 2025): para os anteriores, rode o script com
+  a tabulação de cada ano e refaça o build. Não use o pessoal assalariado do CEMPRE como peso: dá 30,4% em vez de 29,9%.
+- **Totais do SIM/SINASC (`numerador_sim`, `peso_sim`):** mesma lógica para a mortalidade infantil (IND-036): óbitos
+  de menores de 1 ano ÷ nascidos vivos × 1.000, lidos de `assets/mortalidade_infantil_municipios.csv`, gerado das duas
+  tabulações do TABNET por município e ano com
+  `python scripts/sim_sinasc.py <óbitos-infantis.csv> <nascidos-vivos.csv>`. O arquivo reproduz o Brasil e os estados
+  publicados (diferença até 0,1, das linhas de município ignorado). Ao atualizar a série, exporte as duas tabulações
+  com todos os anos e rode o script de novo (ele refaz o arquivo inteiro). Para outra fonte de totais, acrescente-a em
+  `TOTAIS_EXTERNOS` (`scripts/build_data.py`).
+- **Média de razões (`agregacao = "media_razoes"`, `razoes_de`):** para a cobertura vacinal (IND-038), a ficha tira a
+  média simples das coberturas das vacinas. Na Amazônia Legal, cada vacina tem a sua cobertura da região (doses
+  aplicadas ÷ população-alvo, somadas nos municípios) e o valor é a média entre elas. Os totais vêm de
+  `assets/cobertura_vacinal_municipios.csv`, gerado da planilha do painel do Ministério da Saúde por
+  `python scripts/cobertura_vacinal.py <planilha.xlsx> --ano 2025`; o arquivo reproduz o Brasil (85,80%) e os estados
+  publicados. Só 2025 por enquanto: a planilha do painel de 2023 e 2024 entra com o mesmo comando, um ano por vez
+  (antes de 2023 a fonte era o TABNET, com outras vacinas). Boa Esperança do Norte (MT), criado em 2025, ainda não
+  aparece na fonte.
 - **Soma dos estados (`agregacao = "soma_estados"`):** quando o dado municipal é parcial (o IBGE suprime municípios
   pequenos na amostra, como na migração internacional), a Amazônia Legal é a soma dos estados dela, e o Maranhão entra
   inteiro. O painel avisa isso na nota do indicador.
@@ -62,6 +84,12 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   tiverem dado; abaixo disso o ano fica vazio e o build avisa. Ajuste com `cobertura_minima` (%) no
   `config/indicadores.toml` ou com `--cobertura-minima` para todos. Em contagens esparsas (aeroportos, portos,
   CFEM…), célula vazia quer dizer zero: use `cobertura_minima = 0` depois de conferir que a soma bate com os estados.
+- **Ano incompleto (`ano_parcial`):** quando a fonte já traz o ano corrente com só parte do total (ex.: Bolsas do
+  ProUni em 2026), `ano_parcial = 2026` tira esse ano do indicador; sem isso, o total parcial vira o "último ano" dos
+  cartões e parece uma queda. Indicadores de estoque (posição no mês, como CadÚnico) não precisam.
+- **Peso do ano inicial (`peso_ano_anterior`):** nas taxas de transição do INEP, cada ano é um par (a evasão de 2022 é
+  a de 2021/2022), e a ficha pesa pelas matrículas do ano inicial. Com `peso_ano_anterior = true`, a média ponderada
+  usa o peso do ano anterior. Em 2015, sem as matrículas de 2014 na planilha, vale o ano mais próximo (o build avisa).
 - **Média simples e `fator_municipal`:** para indicadores de existência (sim/não por município), use
   `agregacao = "media_simples"`; a Amazônia Legal vira o % de municípios. Se a aba municipal vem em 0/1 e as demais
   em %, use `fator_municipal = 100` para alinhar as escalas. Confira sempre o peso ou a regra reproduzindo o valor
@@ -178,6 +206,12 @@ Perfil do Território, Séries Temporais e Comparações), o **valor** continua 
 variação anual, o ritmo médio e o mapa de calor usam só o trecho comparável, com aviso sob o gráfico. Quando o trecho
 tem um ano só (favelas), essas medidas não aparecem. Para incluir outra quebra, basta acrescentar uma linha em
 `QUEBRAS`.
+
+**Valor inicial quase nulo.** Nos cartões da Visão Geral (o quarto cartão e os cartões por eixo), a variação % não
+aparece quando o primeiro ano da Amazônia Legal fica abaixo de 10% da mediana da série (`base_quase_nula` em
+`main.py`). O cartão mostra o motivo no lugar do número. Hoje isso pega a despesa municipal em P&D (`IND-192`), que em
+2015 tinha um só município com gasto e daria "+85.780%", e a área de manejo florestal autorizada (`IND-154`), que daria
+"+23.370%".
 
 ## Abas
 Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.

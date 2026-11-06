@@ -39,6 +39,24 @@ CENSO = ROOT / "assets" / "censo_municipios.csv"  # população dos Censos 2010 
 CAMPOS_CENSO = {"pop_total": "população do Censo", "pop_urbana": "população urbana do Censo",
                 "pop_0_14": "população de 0 a 14 anos do Censo", "pop_15_64": "população de 15 a 64 anos do Censo",
                 "pop_65_mais": "população de 65 anos ou mais do Censo"}
+# totais por município e ano que a planilha não traz, gerados por scripts próprios a partir das tabulações das fontes:
+# numerador e denominador das razões (`numerador_<fonte>` e `peso_<fonte>` em config/indicadores.toml)
+TOTAIS_EXTERNOS = {
+    "rais": (ROOT / "assets" / "rais_vinculos_municipios.csv",
+             "python scripts/rais_vinculos.py <tabulação> --ano <ano>",
+             {"total": "vínculos formais ativos em 31/12 (RAIS)",
+              "superior": "vínculos com superior completo, mestrado ou doutorado (RAIS)"}),
+    "sim": (ROOT / "assets" / "mortalidade_infantil_municipios.csv",
+            "python scripts/sim_sinasc.py <óbitos infantis> <nascidos vivos>",
+            {"obitos": "óbitos de menores de 1 ano (SIM)", "nascidos": "nascidos vivos (SINASC)"}),
+}
+# totais por grupo (ex.: uma razão por vacina) para a regra "media_razoes": a razão de cada grupo é a soma do
+# numerador ÷ a soma do denominador nos municípios do recorte, e o valor é a média simples entre os grupos
+TOTAIS_POR_GRUPO = {
+    "vacinas": (ROOT / "assets" / "cobertura_vacinal_municipios.csv",
+                "python scripts/cobertura_vacinal.py <planilha.xlsx> --ano <ano>",
+                "vacina", "doses", "populacao_alvo", "doses aplicadas ÷ população-alvo de cada vacina"),
+}
 
 LISTA = "Lista de Indicadores"
 LISTA_HEADER_ROW = 4  # linhas 0–3 são título e grupos de colunas
@@ -143,7 +161,7 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
     formato = item.get("formato", default_fmt)
     # somável (participação no total, escala log): regra "soma" ou ficha que manda somar, mesmo quando a Amazônia
     # Legal fica sem valor (ex.: dado só por estado); `aditivo` no config decide quando a ficha engana
-    somavel = bool(item.get("aditivo", rule in ("soma", "soma_estados") or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
+    somavel = bool(item.get("aditivo", rule in ("soma", "soma_estados", "soma_com_sem_municipio") or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
     casas = item.get("casas", {"percentual": 1, "moeda": 0}.get(formato, 0 if somavel else 2))
     pol = norm(ficha["polarity"])
     return {
@@ -279,7 +297,8 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     fica vazio. Passando só os municípios de um estado, calcula a parcela desse estado na região (`rotulo` nomeia
     o recorte nos avisos).
     razoes: para a regra "razao_totais", chave -> (indicador do numerador, fator): total do numerador nos municípios da
-    região dividido pelo total do peso (com os anos sem dado interpolados) × fator."""
+    região dividido pelo total do peso (com os anos sem dado interpolados) × fator. Para "media_razoes", chave ->
+    (lista de pares de colunas numerador/denominador, fator): média simples das razões de cada par × fator."""
     al = mun[mun.al]
     n_al = al.cod.nunique()
     years = sorted(mun.ano.unique())
@@ -297,11 +316,18 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
             s_num = al.groupby("ano")[num].sum(min_count=1)
             w = interpolated(al, peso)
             s_peso = w.sum(min_count=1).reindex(s_num.index)
+            # só os anos em que a razão sai (com numerador): nos demais, o peso interpolado não é usado
             filled = sorted(int(y) for y in w.columns if al.pivot(index="cod", columns="ano", values=peso)[y].isna().any()
-                            and w[y].notna().any())
+                            and w[y].notna().any() and pd.notna(s_num.get(y)))
             if filled:
                 rep.warn(f"{i}: peso {peso} interpolado para calcular a {rotulo} em {years_text(filled)}.")
             cols[i] = out.ano.map((s_num / s_peso.where(s_peso > 0) * fator))
+            continue
+        if rule == "media_razoes":
+            pares, fator = (razoes or {}).get(i, ([], 1))
+            razoes_grupo = pd.concat([al.groupby("ano")[n].sum(min_count=1) / al.groupby("ano")[d].sum(min_count=1).where(lambda x: x > 0)
+                                      for n, d in pares if n in al and d in al], axis=1) if pares else pd.DataFrame()
+            cols[i] = out.ano.map(razoes_grupo.mean(axis=1) * fator) if len(razoes_grupo.columns) else pd.Series(np.nan, index=out.index)
             continue
         if i not in al or al[i].notna().sum() == 0 or (rule == "media_ponderada" and peso not in al):
             cols[i] = pd.Series(np.nan, index=out.index)  # sem dado municipal (ou sem o peso): o resumo final avisa que falta a Amazônia Legal
@@ -375,6 +401,8 @@ def main():
     pesos_coluna: dict[str, str] = {}  # pesos lidos direto de uma coluna da planilha (`peso_coluna`), sem ficha própria
     pesos_censo: dict[str, str] = {}  # pesos que vêm do arquivo do Censo (`peso_censo`): chave -> campo de CAMPOS_CENSO
     razoes: dict[str, tuple[str, float]] = {}  # razao_totais: chave -> (indicador do numerador, fator)
+    medias_razoes: dict[str, tuple[str, float]] = {}  # media_razoes: chave -> (fonte de TOTAIS_POR_GRUPO, fator)
+    campos_ext: dict[str, tuple[str, str]] = {}  # totais de TOTAIS_EXTERNOS (`numerador_rais`, `peso_sim`...): chave -> (fonte, campo)
     for it in items:
         i, ref = it["chave"], it["id"]
         if ref not in lista.index:
@@ -399,8 +427,23 @@ def main():
                 continue
             peso = f"{i}#censo"
             pesos_censo[peso] = it["peso_censo"]
+        # totais externos: numerador e denominador da razão vêm do arquivo da fonte, só nos anos que ele tem (sem interpolar)
+        for fonte, (_, _, campos) in TOTAIS_EXTERNOS.items():
+            for papel in ("numerador", "peso"):
+                campo = it.get(f"{papel}_{fonte}")
+                if not campo:
+                    continue
+                if campo not in campos:
+                    rep.error(f"{i}: {papel}_{fonte} '{campo}' desconhecido (use um de {', '.join(campos)}).")
+                    continue
+                k = f"{i}#{fonte}_{campo}"
+                campos_ext[k] = (fonte, campo)
+                if papel == "peso":
+                    peso = k
+                else:
+                    it["numerador"] = k
         if rule not in ("soma", "soma_estados", "soma_com_sem_municipio", "taxa_censo", "media_ponderada", "media_simples",
-                        "razao_totais", "publicado"):
+                        "razao_totais", "media_razoes", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
             continue
@@ -413,7 +456,13 @@ def main():
                 rep.error(f"{i}: razao_totais exige `numerador` (chave de outro indicador) e `peso` (o denominador).")
                 continue
             razoes[i] = (it["numerador"], float(it.get("fator", 1)))
-        if peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna and peso not in pesos_censo:
+        if rule == "media_razoes":
+            if it.get("razoes_de") not in TOTAIS_POR_GRUPO:
+                rep.error(f"{i}: media_razoes exige `razoes_de` (um de {', '.join(TOTAIS_POR_GRUPO)}).")
+                continue
+            medias_razoes[i] = (it["razoes_de"], float(it.get("fator", 1)))
+        if (peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna
+                and peso not in pesos_censo and peso not in campos_ext):
             rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}' nem em config/indicadores.toml.")
             continue
         rules[i] = (rule, peso if rule in ("media_ponderada", "razao_totais") else None)
@@ -424,6 +473,7 @@ def main():
     cfg_by_key = {it["chave"]: it for it in items}
     weights = {p for _, p in rules.values() if p and p not in pesos_censo}  # os do Censo não vêm da planilha
     weights |= {num for num, _ in razoes.values()}  # numeradores das razões também precisam ser lidos
+    weights -= set(campos_ext)  # os totais externos também não
 
     def coluna(i: str) -> str:
         """Coluna de cada entrada: `coluna` explícita, a `categoria` da ficha ("Nome — Categoria"), todas as
@@ -445,6 +495,9 @@ def main():
     def nome_peso(p: str) -> str:
         if p in pesos_censo:
             return CAMPOS_CENSO[pesos_censo[p]] + " (SIDRA/IBGE)"
+        if p in campos_ext:
+            fonte, campo = campos_ext[p]
+            return TOTAIS_EXTERNOS[fonte][2][campo]
         if p in pesos_coluna:
             return pesos_coluna[p].split(CAT)[-1]
         it = cfg_by_key.get(p)
@@ -471,6 +524,43 @@ def main():
             chave = pd.MultiIndex.from_frame(mun[["cod", "ano"]])
             mun = pd.concat([mun, pd.DataFrame({k: v.reindex(chave).to_numpy() for k, v in extra.items()}, index=mun.index)],
                             axis=1)
+
+    # totais externos por município e ano: numerador e denominador das razões; anos fora do arquivo ficam vazios
+    chave = pd.MultiIndex.from_frame(mun[["cod", "ano"]])
+    for fonte in sorted({f for f, _ in campos_ext.values()}):
+        arquivo, comando = TOTAIS_EXTERNOS[fonte][:2]
+        if not arquivo.exists():
+            rep.error(f"{arquivo.relative_to(ROOT)} não encontrado: rode `{comando}`.")
+            return finish(rep, None)
+        tot = pd.read_csv(arquivo).set_index(["cod", "ano"])
+        mun = pd.concat([mun, pd.DataFrame({k: tot[c].reindex(chave).to_numpy(float)
+                                            for k, (f, c) in campos_ext.items() if f == fonte}, index=mun.index)], axis=1)
+
+    # totais por grupo (media_razoes): uma coluna de numerador e uma de denominador por grupo; anos fora do arquivo vazios
+    for i, (fonte, fator) in medias_razoes.items():
+        arquivo, comando, grupo, col_num, col_den, _ = TOTAIS_POR_GRUPO[fonte]
+        if not arquivo.exists():
+            rep.error(f"{arquivo.relative_to(ROOT)} não encontrado: rode `{comando}`.")
+            return finish(rep, None)
+        tot = pd.read_csv(arquivo)
+        grupos = sorted(tot[grupo].unique())
+        largo = tot.pivot_table(index=["cod", "ano"], columns=grupo, values=[col_num, col_den], aggfunc="sum")
+        largo = largo.reindex(chave)
+        novas, pares = {}, []
+        for n, g in enumerate(grupos):
+            kn, kd = f"{i}#{fonte}_{n}_num", f"{i}#{fonte}_{n}_den"
+            novas[kn], novas[kd] = largo[(col_num, g)].to_numpy(float), largo[(col_den, g)].to_numpy(float)
+            pares.append((kn, kd))
+        mun = pd.concat([mun, pd.DataFrame(novas, index=mun.index)], axis=1)
+        razoes[i] = (pares, fator)
+
+    # taxas de transição (ex.: evasão de 2021/2022, gravada em 2022): o peso é o do ano inicial do par, ou seja, o valor
+    # do ano anterior (`peso_ano_anterior`); no primeiro ano da série, sem o anterior, vale o mais próximo (interpolação)
+    for it in items:
+        if it.get("peso_ano_anterior") and it["chave"] in rules and rules[it["chave"]][1] in mun:
+            p = rules[it["chave"]][1]
+            anterior = mun.set_index(["cod", "ano"])[p]
+            mun[p] = anterior.reindex(pd.MultiIndex.from_arrays([mun.cod, mun.ano - 1])).to_numpy()
 
     # municípios fora da malha do IBGE usada nos mapas
     try:
@@ -555,6 +645,13 @@ def main():
                             value_vars=ind_ids, var_name="ind", value_name="valor"))
     long = pd.concat(parts, ignore_index=True)
     long = long[long.valor.notna()].reset_index(drop=True)  # só as células com valor: a base fica bem menor
+    # ano ainda incompleto na fonte (`ano_parcial`): um total de meio ano pareceria queda e viraria o "último ano"
+    for it in items:
+        anos = it.get("ano_parcial")
+        if anos is not None:
+            anos = anos if isinstance(anos, list) else [anos]
+            long = long[~((long.ind == it["chave"]) & long.ano.isin(anos))]
+    long = long.reset_index(drop=True)
     long["al"] = long["al"].astype("boolean")
     long["ano"] = long["ano"].astype("int16")
     # categorias: cada texto é gravado uma vez no parquet (o nome do território se repete em milhões de linhas e,
@@ -580,15 +677,19 @@ def main():
                  "nessa parcela)" if rule == "soma_com_sem_municipio"
             else f"Razão entre totais: soma de {nome_peso(razoes[i][0])} nos municípios ÷ soma de {nome_peso(peso)}"
                  + (f" × {razoes[i][1]:g}" if razoes[i][1] != 1 else "") if rule == "razao_totais"
+            else f"Média simples das razões de cada grupo ({TOTAIS_POR_GRUPO[medias_razoes[i][0]][5]}), com numerador e "
+                 "denominador somados nos municípios da região" if rule == "media_razoes"
             else "Taxa recalculada com a população dos Censos 2010 e 2022 somada nos municípios" if rule == "taxa_censo"
             else "Sem valor próprio: a fonte publica o indicador pronto em cada nível e a planilha não traz os totais "
                  "para recalculá-lo a partir dos municípios" if rule == "publicado"
             else "Média simples dos municípios (cada município pesa igual)" if rule == "media_simples"
             else f"Média ponderada dos municípios por {nome_peso(peso)}")
+        if rule == "media_ponderada" and cfg_by_key.get(i, {}).get("peso_ano_anterior"):
+            f["aggregationApplied"] += " do ano inicial de cada par (o ano anterior)"
         al_de = cfg_by_key.get(i, {}).get("al_de")
         if al_de:
             f["aggregationApplied"] = "Valor do Recorte Brasil para as rotas com as duas pontas na Amazônia Legal, como manda a ficha"
-        if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "taxa_censo"):
+        if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "media_razoes", "taxa_censo"):
             f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
                                         else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
         nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais

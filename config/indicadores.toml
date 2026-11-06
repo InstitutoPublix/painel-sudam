@@ -440,12 +440,15 @@ agregacao = "soma"
 cobertura_minima = 0
 
 [[indicador]]
-# aproximação conferida: diferença mediana 1.3% e até 4.0% em 9 de cada 10 estados-ano
+# razão entre totais, como manda a ficha, com os vínculos da RAIS (assets/rais_vinculos_municipios.csv, de
+# scripts/rais_vinculos.py); reproduz os 773 municípios e os estados publicados. Só há totais de 2025: os anos
+# anteriores ficam sem Amazônia Legal até entrar a tabulação de cada ano (o pessoal assalariado do CEMPRE não serve de peso)
 id = "IND-173"
 rotulo = "Empregos formais com ensino superior"
-agregacao = "media_ponderada"
-peso = "IND-021"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,3%"
+agregacao = "razao_totais"
+numerador_rais = "superior"
+peso_rais = "total"
+fator = 100
 
 [[indicador]]
 # Amazônia Legal sem valor: precisa do PIB e dos vínculos somados; a média dos municípios difere demais
@@ -493,12 +496,12 @@ agregacao = "publicado"
 nota_agregacao = "a média dos municípios difere demais do valor estadual publicado"
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.7% e até 3.5% em 9 de cada 10 estados-ano
+# Amazônia Legal sem valor: a planilha só traz as matrículas de todo o fundamental (urbanas + rurais), e a taxa urbana
+# precisaria das urbanas como peso
 id = "IND-026"
 rotulo = "Distorção idade-série: fundamental urbano"
-agregacao = "media_ponderada"
-peso = "IND-001"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+agregacao = "publicado"
+nota_agregacao = "a planilha não traz as matrículas urbanas, e o peso disponível mistura matrículas urbanas e rurais"
 
 [[indicador]]
 # Amazônia Legal sem valor: a média dos municípios difere demais do valor estadual publicado
@@ -508,12 +511,12 @@ agregacao = "publicado"
 nota_agregacao = "a média dos municípios difere demais do valor estadual publicado"
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.4% e até 1.9% em 9 de cada 10 estados-ano
+# Amazônia Legal sem valor: a planilha só traz as matrículas de todo o médio (urbanas + rurais), e a taxa urbana
+# precisaria das urbanas como peso
 id = "IND-028"
 rotulo = "Distorção idade-série: médio urbano"
-agregacao = "media_ponderada"
-peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,4%"
+agregacao = "publicado"
+nota_agregacao = "a planilha não traz as matrículas urbanas, e o peso disponível mistura matrículas urbanas e rurais"
 
 [[indicador]]
 # soma conferida com os totais estaduais
@@ -578,6 +581,7 @@ nota_agregacao = "a ficha pede usar o valor publicado; a média dos municípios 
 id = "IND-111"
 rotulo = "Bolsas do ProUni"
 agregacao = "soma"
+ano_parcial = 2026  # a fonte já traz 2026, mas só com parte das bolsas do ano
 cobertura_minima = 0
 
 [[indicador]]
@@ -636,24 +640,26 @@ agregacao = "publicado"
 nota_agregacao = "precisa das despesas municipais, que a planilha não traz"
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.8% e até 2.1% em 9 de cada 10 estados-ano
+# aproximação conferida (peso do ano inicial): diferença mediana 0.8% e até 1.9% em 9 de cada 10 estados-ano
 id = "IND-178"
 chave = "IND-178-ef"
 rotulo = "Evasão escolar: fundamental"
 categoria = "Ensino Fundamental"
 agregacao = "media_ponderada"
 peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Fundamental"
+peso_ano_anterior = true  # cada ano é o par (ano anterior)/ano: a ficha pesa pelas matrículas do ano inicial
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,8%"
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.5% e até 1.1% em 9 de cada 10 estados-ano
+# aproximação conferida (peso do ano inicial): diferença mediana 0.3% e até 0.7% em 9 de cada 10 estados-ano
 id = "IND-178"
 chave = "IND-178-em"
 rotulo = "Evasão escolar: médio"
 categoria = "Ensino Médio"
 agregacao = "media_ponderada"
 peso_coluna = "Matrículas e estabelecimentos por etapa de ensino, por município — Matrículas — Ensino Médio"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,5%"
+peso_ano_anterior = true  # cada ano é o par (ano anterior)/ano: a ficha pesa pelas matrículas do ano inicial
+nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,3%"
 
 [[indicador]]
 # soma conferida com os totais estaduais
@@ -676,20 +682,24 @@ cobertura_minima = 0
 # 4. Saúde e qualidade de vida
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.5% e até 2.0% em 9 de cada 10 estados-ano
+# razão de totais, como pede a ficha: óbitos de menores de 1 ano (SIM) ÷ nascidos vivos (SINASC) × 1.000, com as
+# tabulações do TABNET por município (scripts/sim_sinasc.py); antes era média ponderada pela população
 id = "IND-036"
 rotulo = "Mortalidade infantil"
-agregacao = "media_ponderada"
-peso = "IND-001"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,5%"
+agregacao = "razao_totais"
+numerador_sim = "obitos"
+peso_sim = "nascidos"
+fator = 1000
 
 [[indicador]]
-# aproximação conferida: diferença mediana 0.7% e até 1.6% em 9 de cada 10 estados-ano
+# como a ficha: cobertura de cada vacina na região (doses ÷ população-alvo somadas nos municípios) e média simples
+# entre as vacinas, com a planilha do painel do Ministério da Saúde (scripts/cobertura_vacinal.py); só nos anos do
+# arquivo (hoje, 2025). Antes era média ponderada pela população
 id = "IND-038"
 rotulo = "Cobertura vacinal"
-agregacao = "media_ponderada"
-peso = "IND-001"
-nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 0,7%"
+agregacao = "media_razoes"
+razoes_de = "vacinas"
+fator = 100
 
 [[indicador]]
 # Amazônia Legal sem valor: precisa da população atendida, que a planilha não traz

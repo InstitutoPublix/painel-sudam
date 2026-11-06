@@ -415,6 +415,18 @@ def change(v: float, v0: float, ik=None) -> float:
     return (ik or I).diff(v, v0)
 
 
+def base_quase_nula(v0: float, valores, ik=None) -> bool:
+    """Variação % que só infla: o valor inicial é quase nulo perto do resto da série (menos de 10% da mediana), como
+    a despesa em P&D de 2015, quando um só município declarava gasto. O cartão mostra o motivo no lugar do número."""
+    vs = pd.Series(valores, dtype=float).dropna()
+    med = vs.median() if len(vs) > 2 else float("nan")
+    return (ik or I).delta == "pct" and not fmt.isna(v0) and med > 0 and 0 < v0 < 0.1 * med
+
+
+def aviso_base(y0) -> str:
+    return f"valor de {y0} quase nulo perto do resto da série: a variação % não diz nada"
+
+
 SIT_CSS = {1: "up", -1: "down", 0: "neutro"}  # verde = melhora, vermelho = piora, sem cor = sem polaridade
 
 
@@ -524,6 +536,12 @@ def periodo(sr: pd.DataFrame, chave: str, container=None) -> pd.DataFrame:
     return sr[(sr.ano >= ini) & (sr.ano <= fim)]
 
 
+def sem_latex(t) -> str:
+    """Texto para markdown do Streamlit, que lê o trecho entre dois "$" como fórmula: "US$ 6,85 ... US$ 2,15" virava
+    LaTeX. Com o "$" escapado, aparece como está."""
+    return str(t).replace("$", r"\$")
+
+
 def junta_nomes(nomes: list[str]) -> str:
     """'A', 'A e B', 'A, B e C'."""
     return nomes[0] if len(nomes) == 1 else ", ".join(nomes[:-1]) + " e " + nomes[-1] if nomes else ""
@@ -588,6 +606,10 @@ with T["Visão Geral"]:
         v_br, v_al = value_of(BRASIL), value_of(AMZ)
         y0, b0 = first_valid(AMZ)
         var_al = change(v_al, b0) if y0 and y0 < YEAR else float("nan")
+        s_amz = data.series(D, [AMZ], IND).dropna(subset=["valor"])
+        base_nula = bool(y0) and base_quase_nula(b0, s_amz[s_amz.ano.between(y0, YEAR)].valor)
+        if base_nula:
+            var_al = float("nan")
         muni = snap("Município")
         SO_UF = so_estadual(IND)  # sem municípios: os cartões, o mapa e o ranking usam os estados
         share = v_al / v_br * 100 if I.additive and v_br else float("nan")
@@ -622,9 +644,10 @@ with T["Visão Geral"]:
                                     else "da Amazônia Legal no total nacional" if I.additive else "AL ÷ Brasil", "%"),
                           unsafe_allow_html=True)
         ini_cmp = data.inicio_comparavel(IND, YEAR)  # quebra de método: a variação só parte do mesmo trecho
-        if y0 == YEAR:  # nada antes do ano exibido: por quebra de método ou porque a série começa nele
-            c[3].markdown(theme.kpi("Variação no período", "—", data.motivo_quebra(IND) if ini_cmp
-                                    else "sem ano anterior para comparar", "Δ"), unsafe_allow_html=True)
+        if y0 == YEAR or base_nula:  # nada antes do ano exibido (quebra de método ou início da série) ou base ~zero
+            c[3].markdown(theme.kpi("Variação no período", "—", aviso_base(y0) if base_nula
+                                    else data.motivo_quebra(IND) if ini_cmp else "sem ano anterior para comparar", "Δ"),
+                          unsafe_allow_html=True)
         else:
             sub_var = f"Amazônia Legal, de {y0} a {YEAR}" if y0 else "Amazônia Legal"
             if y0 and ini_cmp:
@@ -983,7 +1006,10 @@ with T["Visão Geral"]:
                     ult, pri = s_al.iloc[-1], s_al.iloc[0]
                     n_anos = len(s_al)
                     dv = change(ult.valor, pri.valor, ik) if n_anos > 1 else float("nan")
-                    delta = "" if fmt.isna(dv) else f"{arrow(dv, ik)} desde {int(pri.ano)}"  # sem variação (ex.: base zero)
+                    base_nula = n_anos > 1 and base_quase_nula(pri.valor, s_al.valor, ik)
+                    delta = (f'<span title="{aviso_base(int(pri.ano))}">— valor de {int(pri.ano)} quase nulo</span>'
+                             if base_nula else "" if fmt.isna(dv)  # sem variação (ex.: base zero)
+                             else f"{arrow(dv, ik)} desde {int(pri.ano)}")
                     nota = (data.motivo_quebra(k)[:1].upper() + data.motivo_quebra(k)[1:] if n_anos == 1 and quebra
                             else f"Único ano com dado: {int(ult.ano)}" if n_anos == 1
                             else f"Dois anos com dado: {int(pri.ano)} e {int(ult.ano)}" if n_anos == 2 else "")
@@ -992,7 +1018,8 @@ with T["Visão Geral"]:
                                  unsafe_allow_html=True)
                 if sem_al:
                     st.caption(f"Sem valor para a Amazônia Legal ({len(sem_al)}): "
-                               + ", ".join(("**" + REG[k].label + "**") if k == IND else REG[k].label for k, _, _ in sem_al)
+                               + ", ".join(("**" + sem_latex(REG[k].label) + "**") if k == IND
+                                           else sem_latex(REG[k].label) for k, _, _ in sem_al)
                                + ". Só existem por estado ou não podem ser somados a partir dos municípios; veja-os "
                                  "nas abas Mapa e Ranking e Perfil do Território.")
 
@@ -2782,11 +2809,12 @@ with T["Sobre o Painel"]:
         for k in ks:
             ik = REG[k]
             m = D["meta"].get(ik.key)
-            with st.expander(f"{m.get('ref', ik.key) if m else ik.key} · {ik.label} — {ik.unit}"):
+            with st.expander(sem_latex(f"{m.get('ref', ik.key) if m else ik.key} · {ik.label} — {ik.unit}")):
                 if not m:
                     st.write("Sem ficha técnica cadastrada.")
                     continue
-                st.write(m["description"])
+                m = {c: sem_latex(v) if isinstance(v, str) else v for c, v in m.items()}  # textos da ficha vão ao markdown
+                st.markdown(m["description"])
                 if m.get("category"):
                     st.markdown(f"*Recorte mostrado no painel:* **{m['category']}** (a ficha {m['ref']} reúne outras "
                                 "categorias na planilha).")
@@ -2798,8 +2826,9 @@ with T["Sobre o Painel"]:
                     f"- **Unidade:** {m['unit']} · **Polaridade:** {m['polarity']}\n"
                     f"- **Regra de agregação (ficha):** {m['aggregation']} · **Menor unidade:** {m['minTerritory']}\n"
                     f"- **Amazônia Legal no painel:** {m.get('aggregationApplied', '—')}")
-                if m.get("note") and m["note"] != "—":
-                    st.markdown(f'<div class="note"><b>Observação.</b> {m["note"]}</div>', unsafe_allow_html=True)
+                nota = D["meta"][ik.key].get("note")  # bloco HTML: o "$" não vira fórmula, vai sem escape
+                if nota and nota != "—":
+                    st.markdown(f'<div class="note"><b>Observação.</b> {nota}</div>', unsafe_allow_html=True)
 
 # "Voltar ao padrão": desenhado agora, com os padrões de todos os controles da aba aberta já registrados
 st.session_state["_padroes"] = {k: (list(v) if isinstance(v, list) else v) for k, v in PADROES.items()}
