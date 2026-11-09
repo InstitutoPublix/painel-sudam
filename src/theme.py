@@ -186,7 +186,7 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .kpi.sel {{ border:2px solid {INK}; box-shadow:0 3px 12px rgba(4,65,60,.16); }}
 
 /* cartões pequenos com tendência (Visão Geral, eixo a eixo): altura fixa para a grade ficar alinhada */
-.mini {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:14px; padding:12px 14px 8px; height:196px;
+.mini {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:14px; padding:12px 14px 8px; height:212px;
   display:flex; flex-direction:column; margin-bottom:14px; box-shadow:0 2px 8px rgba(4,65,60,.05); }}
 .mini.sel {{ border:2px solid {INK}; box-shadow:0 3px 12px rgba(4,65,60,.16); }}
 .mini .lb {{ font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; color:{MUTED}; font-weight:700;
@@ -194,14 +194,14 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
   overflow:hidden; }}
 .mini.sel .lb {{ color:{INK}; }}
 .mini .vl {{ font-size:1.45rem; font-weight:800; color:{TEXT}; line-height:1.2; }}
-.mini .sb {{ font-size:.72rem; color:{MUTED}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-.mini .dl {{ font-size:.74rem; min-height:1.2em; }}
+.mini .sb {{ font-size:.86rem; color:{MUTED}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.mini .dl {{ font-size:.88rem; min-height:1.2em; }}
 .mini .sp {{ margin-top:auto; }}
 .mini .sp svg {{ display:block; width:100%; height:38px; overflow:visible; }}
-.mini .yr {{ display:flex; justify-content:space-between; font-size:.64rem; color:{MUTED}; gap:6px; }}
+.mini .yr {{ display:flex; justify-content:space-between; font-size:.78rem; color:{MUTED}; gap:6px; }}
 .mini .yr b {{ color:{TEXT}; font-weight:700; }}
 .mini .yr.c span {{ flex:1; text-align:center; font-weight:600; }}
-.mini .bv {{ position:absolute; transform:translate(-50%,-115%); font-size:.7rem; font-weight:700; color:{TEXT}; white-space:nowrap; }}
+.mini .bv {{ position:absolute; transform:translate(-50%,-115%); font-size:.84rem; font-weight:700; color:{TEXT}; white-space:nowrap; }}
 /* passar o mouse na linha: ponto, guia vertical e etiqueta "ano: valor" (HTML sobre o SVG, sem deformar o ponto) */
 .mini .sp {{ position:relative; }}
 .mini .hz-area {{ position:absolute; left:0; right:0; top:0; height:38px; }}

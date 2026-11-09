@@ -58,7 +58,8 @@ def _colors(labels_levels: list[tuple[str, str]]) -> dict[str, str]:
 
 def low(text: str) -> str:
     """Primeira letra minúscula para usar no meio da frase, preservando siglas ('PIB municipal')."""
-    return text[0].lower() + text[1:] if len(text) > 1 and text[1].islower() else text
+    palavra = text.split(" ", 1)[0]
+    return text[0].lower() + text[1:] if len(text) > 1 and palavra[1:] == palavra[1:].lower() else text
 
 
 def axis_label(ind: Indicator) -> str:

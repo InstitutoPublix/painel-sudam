@@ -160,8 +160,11 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
     default_fmt = "percentual" if "%" in unit else "moeda" if unit.strip().upper().startswith("R$") else "numero"
     formato = item.get("formato", default_fmt)
     # somável (participação no total, escala log): regra "soma" ou ficha que manda somar, mesmo quando a Amazônia
-    # Legal fica sem valor (ex.: dado só por estado); `aditivo` no config decide quando a ficha engana
-    somavel = bool(item.get("aditivo", rule in ("soma", "soma_estados", "soma_com_sem_municipio") or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma"))))
+    # Legal fica sem valor (ex.: dado só por estado); `aditivo` no config decide quando a ficha engana. Percentual nunca
+    # é somável por padrão: a ficha às vezes manda somar o numerador (ex.: valor adicionado da agropecuária)
+    somavel = bool(item.get("aditivo", formato != "percentual" and (
+        rule in ("soma", "soma_estados", "soma_com_sem_municipio")
+        or (rule == "publicado" and norm(ficha["aggregation"]).startswith("soma")))))
     casas = item.get("casas", {"percentual": 1, "moeda": 0}.get(formato, 0 if somavel else 2))
     pol = norm(ficha["polarity"])
     return {
@@ -690,8 +693,10 @@ def main():
         if al_de:
             f["aggregationApplied"] = "Valor do Recorte Brasil para as rotas com as duas pontas na Amazônia Legal, como manda a ficha"
         if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "media_razoes", "taxa_censo"):
-            f["aggregationApplied"] += (" · municípios sem dado contam como zero" if minimos[i] == 0
-                                        else f" · exige cobertura mínima de {minimos[i]:g}% dos municípios")
+            # na soma, município sem dado não soma nada (vale zero); na média, fica fora da conta
+            f["aggregationApplied"] += (f" · exige cobertura mínima de {minimos[i]:g}% dos municípios" if minimos[i]
+                                        else " · municípios sem dado contam como zero" if rule == "soma"
+                                        else " · sem cobertura mínima: entram só os municípios com dado")
         nota = cfg_by_key.get(i, {}).get("nota_agregacao")  # ex.: aproximação conferida contra os valores estaduais
         if nota and rule == "publicado" and not al_de:
             f["aggregationApplied"] = f"Não calculada para a Amazônia Legal: {nota}"

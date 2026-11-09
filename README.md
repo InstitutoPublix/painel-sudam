@@ -226,8 +226,8 @@ indicadores municipais de um eixo:
   mostra o % de municípios em que o fenômeno existe), e a tabela traz também os quartis. A leitura vem do teste de
   Mann-Whitney (`data.mann_whitney`): a diferença é consistente com p < 0,05 e chance de um município do grupo
   superar um dos demais fora da faixa de 45% a 55%.
-- **Matriz de correlação (seção 5):** Spearman entre os indicadores do eixo, cada um no ano mais recente até o ano de
-  referência (padrão: o último ano mais comum no eixo). Entram no máximo 15 indicadores, e ficam fora os que têm dado
+- **Matriz de correlação (seção 5):** Spearman entre os indicadores do eixo, cada um no seu ano mais recente com dado
+  municipal (não há filtro de ano; a nota abaixo da matriz diz o ano de cada indicador). Entram no máximo 15 indicadores, e ficam fora os que têm dado
   em menos de 70% dos municípios. Um par escolhido abaixo da matriz abre a dispersão da seção 6.
 - **Regras comuns (`valores_comparaveis` em `main.py`):** indicadores somáveis entram divididos pela população
   (contagens por mil habitantes, valores em R$ por habitante), com a população do Censo em 2010 e 2022 e a estimativa
