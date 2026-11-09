@@ -214,7 +214,7 @@ aparece quando o primeiro ano da Amazônia Legal fica abaixo de 10% da mediana d
 "+23.370%".
 
 ## Abas
-Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Sobre.
+Visão Geral · Mapa e Ranking · Perfil do Território · Séries Temporais · Comparações · Relatório · Sobre.
 
 ### Comparações: grupo de municípios × demais e matriz de correlação
 As seções 4 e 5 da aba Comparações trabalham com os municípios do recorte (filtros da barra lateral) e com todos os
@@ -237,11 +237,33 @@ indicadores municipais de um eixo:
   recalculada como população do Censo ÷ área, porque não há estimativa em 2022 e a de 2021 vem de outra base
   censitária. População e área entram como publicadas.
 
+### Relatório: PDF de um estado ou município (protótipo)
+A aba **Relatório** monta um PDF A4 para imprimir ou anexar. A pessoa escolhe:
+1. **Território:** um estado (o Maranhão pode ser só a parte na Amazônia Legal) ou um município;
+2. **Comparar com:** até 4 outros territórios do mesmo tipo, e quais referências entram (nível acima, Amazônia
+   Legal, Brasil);
+3. **Indicadores:** os eixos e, se quiser, os indicadores um a um;
+4. **Partes:** resumo (números-chave e placar por eixo), pontos fortes e de atenção, "Como ler", texto de leitura,
+   gráfico da evolução e gráfico de comparação de cada indicador, tabela-resumo do eixo (desligada por padrão),
+   mapas dos municípios (estados) e fontes.
+
+Cada indicador vira uma ficha (três por página): valor em destaque, frases com a comparação, a posição e a variação,
+e os dois gráficos. A aba mostra uma estimativa de páginas; o PDF é gerado no botão **Gerar relatório** (poucos
+segundos) e fica em cache pelas opções escolhidas e pela versão da base.
+
+- Os números vêm de `src/perfil.py`, o mesmo cálculo da tabela do Resumo do Perfil do Território: o painel e o PDF
+  mostram os mesmos valores. O layout está em `src/relatorio.py` (reportlab, só Python: gráficos e mapas em vetor,
+  fonte Montserrat de `assets/fonts/`).
+- Pelo terminal: `python scripts/relatorio.py "Pará" --comparar "Amazonas" "Tocantins" --eixos 1 4`,
+  `python scripts/relatorio.py "Marabá (PA)" --tabela -o maraba.pdf` ou `python scripts/relatorio.py "Maranhão" --parte`.
+
 ## Estrutura
 - `main.py`: app e abas · `src/data.py`: carga das bases · `src/charts.py`: gráficos · `src/theme.py`: identidade visual
+- `src/perfil.py`: cálculos do Perfil do Território · `src/relatorio.py`: relatório do território em PDF · `src/mosaico.py`: mosaico de ícones (topo do painel e capa do PDF)
 - `scripts/build_data.py`: planilha → bases do painel · `scripts/upload_gcs.py`: bases → bucket · `scripts/catalogo.py`: catálogo dos indicadores · `config/indicadores.toml`: indicadores ativos
 - `assets/geo/`: malhas do IBGE · `assets/indicators.json`: cores e descrições dos eixos
 - `assets/logos/`: a assinatura institucional do topo e do rodapé (`assinatura.png`, recorte de `assina_sudam.png`, enviada pelo design: Publix, PNUD, SUDAM, Ministério da Integração e do Desenvolvimento Regional e bandeira); as logos avulsas (`pnud`, `sudam`, `publix`) valem só se esse arquivo não existir. Também o emblema do projeto (`emblema`), em
   `.svg`, `.png`, `.webp` ou `.jpg`, já recortados e leves; os arquivos de origem ficam em `assets/logos/originais/`.
   Sem arquivo, o nome aparece em texto · `assets/brand/mosaico_topo.webp`: mosaico de ícones do topo, gerado por
-  `scripts/mosaico_topo.py` a partir dos ícones da identidade visual em `assets/id_visual/icons/` (fora do repositório)
+  `scripts/mosaico_topo.py` a partir dos ícones da identidade visual em `assets/id_visual/icons/` · `assets/fonts/`:
+  Montserrat (licença OFL), usada no PDF
