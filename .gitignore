@@ -15,5 +15,7 @@ catalogo/
 
 docs/
 tests/
-# peças da identidade visual (referência; o painel usa só o recorte em assets/brand/)
-assets/id_visual/
+# peças da identidade visual: a capa fica fora (só referência); os ícones entram, para que
+# scripts/mosaico_topo.py possa refazer o mosaico do topo (assets/brand/mosaico_topo.webp)
+assets/id_visual/*
+!assets/id_visual/icons/

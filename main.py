@@ -331,8 +331,11 @@ def alterados() -> list[str]:
 
 
 def barra_filtros():
-    """Resumo, no topo da aba, dos filtros da barra lateral que estão valendo nela, com o botão para limpá-los."""
+    """Topo da aba: cartões com os filtros da barra lateral que valem nela e a ficha resumida do indicador e, abaixo,
+    o título da aba com o botão para voltar os filtros ao padrão."""
+    global BOTAO_PADRAO
     if not show:
+        theme.pagina(ABA)
         return
     itens = [f"Indicador: <b>{I.label}</b>"]
     if "ano" in show:
@@ -347,11 +350,12 @@ def barra_filtros():
         itens += [f"{nome_grupo(c)}: <b>{', '.join(map(_sn, v))}</b>" for c, v in GRUPOS.items()]
     if PARCIAL and ABA != "Perfil do Território":  # a aba Perfil do Território traz a sua própria nota, conforme a escolha feita nela
         itens.append("◐ " + nota_parcial(modo_parcial(AL_ONLY and "recorte" in show, IND)))
-    # um cartão só, igual em todas as abas: filtros aplicados e, quando a aba usa o indicador, a ficha resumida dele
+    # dois cartões lado a lado, iguais em todas as abas: filtros aplicados e, quando a aba usa o indicador, a ficha
+    # resumida dele
     esc = lambda t: html.escape(str(t).strip())  # noqa: E731
     fixos = [x for x in itens if not x.startswith("◐")]
     notas = [x for x in itens if x.startswith("◐")]
-    linhas = ['<div class="lin"><div class="t">Filtros aplicados</div><div class="it">'
+    linhas = ['<div class="ctx"><div class="t">Filtros aplicados</div><div class="it">'
               + "".join(f'<span class="c">{x.replace(": ", " · ", 1)}</span>' for x in fixos)
               + "".join(f'<span class="tx">{x}</span>' for x in notas) + "</div></div>"]
     if "ind" in show:  # unidade, fonte e fórmula, como constam na planilha
@@ -366,14 +370,14 @@ def barra_filtros():
             sobre.append(f'<span class="tx"><b>Fórmula:</b> {esc(fx)}</span>')
         if m.get("note") and m["note"] != "—":  # avisos da planilha (quebra de série, anos ausentes etc.)
             sobre.append(f'<span class="alerta"><b>Atenção:</b> {esc(m["note"])}</span>')
-        linhas.append('<div class="lin"><div class="t">Sobre o indicador</div><div class="it">' + "".join(sobre)
+        linhas.append('<div class="ctx"><div class="t">Sobre o indicador</div><div class="it">' + "".join(sobre)
                       + "</div></div>")
-    cartao = '<div class="ctx">' + "".join(linhas) + "</div>"
-    # botão ao lado do cartão; só é desenhado no fim da página (ver o final do script), quando os controles da aba já
-    # registraram o padrão deles e dá para saber se algo mudou
-    global BOTAO_PADRAO
-    c_barra, c_botao = st.columns([5, 1.25], vertical_alignment="center")
-    c_barra.markdown(cartao, unsafe_allow_html=True)
+    st.markdown('<div class="ctxrow">' + "".join(linhas) + "</div>", unsafe_allow_html=True)
+    # botão na linha do título; só é desenhado no fim da página (ver o final do script), quando os controles da aba
+    # já registraram o padrão deles e dá para saber se algo mudou
+    c_tit, c_botao = st.columns([5, 1.25], vertical_alignment="center")
+    with c_tit:
+        theme.pagina(ABA)
     BOTAO_PADRAO = c_botao.empty()
 
 
@@ -599,8 +603,6 @@ def map_view(level: str, height: int = 640, width: int = 650):
 # =========================================================================== #
 with T["Visão Geral"]:
     if T["Visão Geral"].open:
-        theme.hero(tuple(sorted({str(c) for c in L[(L.nivel == "Estado") & L.al.fillna(False).astype(bool)].cod.unique()})),
-                   D["n_mun_al"], len(D["al_ufs"]))
         barra_filtros()
 
         v_br, v_al = value_of(BRASIL), value_of(AMZ)
@@ -631,7 +633,7 @@ with T["Visão Geral"]:
         COR_MENOR = {1: "lo", -1: "hi"}.get(I.polarity, "")
         sem_br = fmt.isna(v_br)  # alguns indicadores não têm total nacional
         c[0].markdown(theme.kpi("Brasil", I.fmt(v_br), "sem dado nacional para este indicador" if sem_br
-                                else f"{I.label} · {YEAR}", "🇧🇷"), unsafe_allow_html=True)
+                                else f"{I.label} · {YEAR}", "BR"), unsafe_allow_html=True)
         c[1].markdown(theme.kpi("Amazônia Legal", I.fmt(v_al), f"{I.label} · {YEAR}", "AL", "hi"), unsafe_allow_html=True)
         if not I.additive and I.delta != "pct":
             c[2].markdown(theme.kpi("Diferença para o Brasil", arrow(dif_br),
@@ -2741,9 +2743,10 @@ with T["Comparações"]:
 # =========================================================================== #
 with T["Sobre o Painel"]:
     if T["Sobre o Painel"].open:
+        barra_filtros()
         s1, s2 = st.columns([1.2, 1])
         with s1:
-            st.markdown("### Sobre o painel")
+            st.markdown("### O que o painel mostra")
             st.markdown(
                 "Este painel apresenta o **Diagnóstico Quantitativo da Amazônia Legal** (PRDA · Produto 1), "
                 "no âmbito do projeto BRA/21/005 — SUDAM, PNUD e Instituto Publix. Ele permite ler cada indicador "

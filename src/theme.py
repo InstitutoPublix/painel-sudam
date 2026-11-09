@@ -4,8 +4,6 @@ from __future__ import annotations
 import re
 import base64
 import html
-import json
-import random
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -16,7 +14,9 @@ from .data import ASSETS
 # base
 BG = "#FAF5E1"        # creme do emblema
 SURFACE = "#FFFDF5"   # cartões
-SIDEBAR = "#F1EACF"
+SIDEBAR = "#F1EACE"
+NAV = "#EAE3C7"       # faixa das abas e alça da barra lateral
+CARD = "#FFFCF5"      # cartões de contexto do topo de cada aba
 INK = "#04413C"       # verde do emblema (títulos e destaques)
 TEXT = "#1C2B27"
 MUTED = "#5B6B65"
@@ -41,6 +41,9 @@ SEQ_CONT = [[0, "#F0F3D2"], [0.35, "#A9CF46"], [0.7, "#11806A"], [1, "#04413C"]]
 COLORWAY = [INK, TEAL, ORANGE, BLUE, GREEN, "#D49A12", BROWN, "#8E9A93"]
 LEVEL_COLOR = {"Brasil": "#5A6660", "Amazônia Legal": INK, "Grande Região": TEAL,
                "Estado": BLUE, "Município": ORANGE}
+
+PAD = "1.5rem"  # margem lateral do conteúdo; o topo e a faixa das abas vão até a borda
+T_MOS = 38      # lado de cada ícone do mosaico do topo, em px
 
 FONT = "Montserrat, 'Segoe UI', system-ui, sans-serif"
 
@@ -79,10 +82,31 @@ CSS = f"""
 html, body, [class*="css"], .stApp {{ font-family: {FONT}; }}
 .stApp {{ background: {BG}; color: {TEXT}; }}
 /* a barra fixa do topo é transparente e cobre o alto da página ao rolar: só os botões dela recebem o clique */
-header[data-testid="stHeader"] {{ background: transparent; }}
+header[data-testid="stHeader"] {{ background: transparent; height:0; }}
 header[data-testid="stHeader"], header[data-testid="stHeader"] * {{ pointer-events: none !important; }}
 header[data-testid="stHeader"] :is(button, a, [role="button"]) {{ pointer-events: auto !important; }}
-.block-container {{ padding-top: 1.1rem; max-width: 1500px; }}
+/* menu do Streamlit (canto direito): numa pílula creme, legível sobre o mosaico */
+:is([data-testid="stMainMenu"], [data-testid="stToolbarActions"]:not(:empty)) {{ background:rgba(250,245,226,.94);
+  border-radius:9px; box-shadow:0 1px 4px rgba(4,65,60,.18); }}
+[data-testid="stAppDeployButton"] {{ display:none; }}
+.block-container {{ padding:0 {PAD} 3rem !important; max-width:none !important; }}
+/* alça da barra lateral: aba bege no meio da borda, sempre visível, com um triângulo para recolher ou abrir.
+   will-change faz a barra ser a referência do position:fixed, então a alça acompanha a largura dela e não rola */
+section[data-testid="stSidebar"] {{ will-change:transform; }}
+[data-testid="stSidebarCollapseButton"] {{ position:fixed; top:calc(50% - 36px); right:-14px; z-index:1000;
+  visibility:visible !important; }}
+:is([data-testid="stSidebarCollapseButton"] button, [data-testid="stExpandSidebarButton"]) {{
+  visibility:visible !important; width:14px; min-width:0; height:72px; min-height:0; padding:0; border:none !important;
+  border-radius:0 7px 7px 0; background:{NAV} !important; box-shadow:1px 0 4px rgba(60,50,20,.18);
+  display:flex; align-items:center; justify-content:center; }}
+[data-testid="stExpandSidebarButton"] {{ position:fixed; left:0; top:calc(50% - 36px); z-index:1000; }}
+:is([data-testid="stSidebarCollapseButton"] button, [data-testid="stExpandSidebarButton"]) [data-testid="stIconMaterial"] {{
+  display:none; }}
+:is([data-testid="stSidebarCollapseButton"] button, [data-testid="stExpandSidebarButton"])::after {{ content:"";
+  border-top:7px solid transparent; border-bottom:7px solid transparent; }}
+[data-testid="stSidebarCollapseButton"] button::after {{ border-right:8px solid {INK}; margin-left:-1px; }}
+[data-testid="stExpandSidebarButton"]::after {{ border-left:8px solid {INK}; margin-left:1px; }}
+:is([data-testid="stSidebarCollapseButton"] button, [data-testid="stExpandSidebarButton"]):hover {{ background:#DFD6B4 !important; }}
 section[data-testid="stSidebar"] {{ background: {SIDEBAR}; border-right: 1px solid {LINE}; }}
 section[data-testid="stSidebar"] h3 {{ color: {INK}; font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; }}
 /* barra lateral: rótulos fortes e campos claros com borda, para as opções saltarem do fundo */
@@ -105,35 +129,56 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] details {{ backgroun
 .sbtopo {{ margin:2px 0 4px; }}
 .sbtopo .t {{ font-size:.8rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:{INK}; }}
 .sbtopo .aba {{ display:inline-block; margin-top:6px; font-size:.76rem; color:{MUTED}; }}
-.sbtopo .aba b {{ background:{INK}; color:{BG}; padding:2px 9px; border-radius:999px; font-weight:700; margin-left:3px; }}
+.sbtopo .aba b {{ background:{INK}; color:{BG}; padding:2px 9px; border-radius:999px; font-weight:700; margin-left:3px;
+  display:inline-block; white-space:nowrap; }}
 .sbinfo {{ background:rgba(255,253,245,.65); border:1px solid {LINE}; border-radius:10px; padding:8px 11px;
   margin:-4px 0 14px; font-size:.75rem; color:{MUTED}; line-height:1.45; }}
 .sbinfo div + div {{ margin-top:3px; }}
 .sbinfo b {{ color:{TEXT}; font-weight:700; }}
 h1, h2, h3 {{ color: {INK}; }}
 
-/* topo */
-.topbar {{ display:flex; align-items:center; justify-content:space-between; gap:24px; padding:6px 4px 14px;
-  border-bottom:1px solid {LINE}; margin-bottom:6px; flex-wrap:wrap; }}
-.brand {{ display:flex; align-items:center; gap:14px; }}
-.brand svg, .brand img {{ width:54px; height:54px; flex:0 0 54px; }}
-.brand .t1 {{ font-weight:800; font-size:1.12rem; color:{INK}; line-height:1.2; }}
-.brand .t2 {{ font-size:.78rem; color:{MUTED}; margin-top:3px; padding-top:3px; border-top:1px solid {INK}; }}
+/* topo: marca do projeto, título do painel e mosaico da identidade visual com os logos, até a borda direita */
+.topo {{ display:flex; align-items:center; margin:-1rem -{PAD} 0 0; min-height:{3 * T_MOS + 7}px; }}
+.topo .marca {{ flex:none; display:flex; align-items:center; gap:10px; padding:12px 0; }}
+.topo .marca img, .topo .marca svg {{ width:76px; height:76px; flex:0 0 76px; }}
+.topo .m1 {{ font-weight:700; font-size:.8rem; line-height:1.22; color:{INK}; padding-bottom:3px;
+  border-bottom:1px solid {INK}; }}
+.topo .m2 {{ font-size:.5rem; color:{TEXT}; margin-top:3px; letter-spacing:.01em; }}
+.topo .sv {{ flex:none; width:1px; align-self:stretch; background:rgba(4,65,60,.35); margin:18px 26px; }}
+/* o título cede espaço primeiro (quebra em duas linhas) para o mosaico aparecer inteiro; só em telas estreitas o
+   mosaico também encolhe, perdendo os ícones soltos da esquerda */
+.topo .titulo {{ flex:0 100 auto; min-width:260px; margin-right:26px; font-weight:700; font-size:1.42rem; line-height:1.2; color:{INK};
+  letter-spacing:-.005em; text-wrap:balance; }}
+.topo .mos {{ flex:0 1 {round(15.28 * T_MOS)}px; min-width:345px; align-self:flex-start; position:relative; height:{3 * T_MOS + 7}px; overflow:hidden;
+  margin-left:auto; max-width:{round(15.28 * T_MOS)}px; }}
+.topo .mos > img {{ position:absolute; right:0; top:0; height:100%; width:auto; max-width:none; }}
+.topo .assin {{ position:absolute; right:0; top:{round(.9 * T_MOS)}px; height:{round(1.3 * T_MOS)}px;
+  width:{round(8.75 * T_MOS)}px; background:{SIDEBAR}; border-radius:12px 0 0 12px; display:flex; align-items:center;
+  justify-content:center; box-shadow:0 1px 5px rgba(60,50,20,.18); }}
+.topo .assin img {{ height:34px; width:auto; max-width:92%; object-fit:contain; display:block; }}
+@media (max-width: 1100px) {{ .topo {{ flex-wrap:wrap; }} .topo .sv {{ display:none; }}
+  .topo .titulo {{ flex-basis:100%; order:3; padding:4px 0 12px; }} .topo .mos {{ margin-left:auto; }} }}
+
+/* logos avulsos (rodapé) */
 .logos {{ display:flex; align-items:center; gap:22px; }}
 .logos img {{ height:44px; width:auto; display:block; }}
 .logos img.pnud {{ height:52px; }} .logos img.publix {{ height:24px; }}
 .logos span {{ font-weight:800; letter-spacing:.04em; font-size:.95rem; color:{INK}; }}
 .logos small {{ display:block; font-weight:500; font-size:.55rem; letter-spacing:.18em; color:{MUTED}; text-align:center; }}
 .logos .sep {{ width:1px; height:30px; background:{LINE}; }}
-/* assinatura única enviada pelo design: uma imagem larga, que encolhe junto com a janela */
 .logos.assinatura img {{ height:50px; max-width:100%; object-fit:contain; }}
 
-/* abas */
-div[data-baseweb="tab-list"] {{ gap:4px; border-bottom:1px solid {LINE}; }}
-button[data-baseweb="tab"] {{ background:transparent; padding:10px 16px; border-radius:8px 8px 0 0; }}
-button[data-baseweb="tab"] p {{ font-weight:600; font-size:.88rem; color:{MUTED}; }}
-button[data-baseweb="tab"][aria-selected="true"] p {{ color:{INK}; font-weight:700; }}
-div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
+/* abas: faixa bege de borda a borda, logo abaixo do topo; a aberta fica em negrito */
+.st-key-aba > div > [role="tablist"] {{ background:{NAV}; margin:0 -{PAD}; padding:0 calc({PAD} - 12px); gap:2px;
+  border:none; box-shadow:none; }}
+.st-key-aba > div > [role="tablist"] > [data-testid="stTab"] {{ padding:9px 12px; margin:0; background:transparent; }}
+.st-key-aba > div > [role="tablist"] > [data-testid="stTab"] p {{ font-size:.8rem; font-weight:500; color:{TEXT}; }}
+.st-key-aba > div > [role="tablist"] > [data-testid="stTab"]:hover p {{ color:{INK}; }}
+.st-key-aba > div > [role="tablist"] > [data-testid="stTab"][aria-selected="true"] p {{ font-weight:800; color:{INK}; }}
+.st-key-aba > div > [role="tablist"] .react-aria-SelectionIndicator {{ display:none; }}
+
+/* título da aba aberta, abaixo dos cartões de contexto */
+.pagina {{ font-size:2.05rem; font-weight:800; color:{INK}; letter-spacing:-.01em; line-height:1.15; margin:8px 0 4px; }}
 
 /* seções do Perfil do Território: barra de botões, mais visível que abas comuns */
 .secoes-tit {{ font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:{MUTED}; font-weight:700;
@@ -148,33 +193,16 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .st-key-terr_sec [role="tab"][aria-selected="true"] p {{ color:{BG}; }}
 .st-key-terr_sec .react-aria-SelectionIndicator {{ display:none; }}
 
-/* capa */
-.hero {{ display:grid; grid-template-columns: minmax(240px, 34%) 1fr; margin:14px 0 18px;
-  border:1px solid {LINE}; border-radius:20px; overflow:hidden; background:{SURFACE}; }}
-.hero .art {{ position:relative; min-height:300px; background:{INK}; }}
-.hero .art > img, .hero .art > svg.mosaic {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
-.hero .art.img {{ min-height:0; background:#FBF4E1; display:flex; align-items:center; }}  /* creme da capa */
-.hero .art.img > img {{ position:static; height:auto; object-fit:contain; display:block; }}  /* inteira, sem corte */
-.hero .art .globe {{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:62%;
-  max-width:240px; aspect-ratio:1; border-radius:50%; background:{BG}; padding:6%;
-  box-shadow:0 10px 30px rgba(0,0,0,.25); }}
-.hero .art .globe svg {{ width:100%; height:100%; }}
-.hero .txt {{ padding:30px 34px; display:flex; flex-direction:column; justify-content:center; }}
-.hero h1 {{ font-size:2.5rem; font-weight:800; margin:0; line-height:1.12; color:{INK}; letter-spacing:-.02em; padding:0;
-  text-wrap:balance; }}  /* linhas de tamanho parecido, sem palavra sozinha na última */
-.hero .rule {{ height:2px; background:{INK}; margin:14px 0 8px; max-width:640px; }}
-.hero .sub {{ font-size:1rem; font-weight:500; color:{TEXT}; margin-bottom:4px; }}
-.hero .sub2 {{ color:{MUTED}; font-size:.85rem; margin-bottom:14px; }}
-.hero p {{ color:{TEXT}; font-size:.9rem; max-width:760px; margin:0; }}
-@media (max-width: 900px) {{ .hero {{ grid-template-columns:1fr; }} .hero .art {{ min-height:220px; }}
-  .hero h1 {{ font-size:1.9rem; }} }}
-
 /* cards */
 .kpi {{ background:{SURFACE}; border:1px solid {LINE}; border-radius:14px; padding:14px 16px; height:100%;
   display:flex; gap:12px; align-items:center; min-height:92px; box-shadow:0 2px 8px rgba(4,65,60,.05); }}
 .kpi .ic {{ flex:0 0 40px; height:40px; border-radius:10px; background:rgba(4,65,60,.08); color:{INK};
   display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.7rem; text-align:center; }}
 .kpi .lb {{ font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:{MUTED}; font-weight:600; }}
+/* palavras inteiras (sem "AMAZÔNI-A"); em cartões estreitos (telas de notebook), o ícone sai para sobrar espaço */
+.kpi {{ container-type:inline-size; }}
+.kpi :is(.lb, .vl, .sb) {{ overflow-wrap:normal; word-break:normal; hyphens:none; }}
+@container (max-width: 140px) {{ .kpi .ic {{ display:none; }} .kpi .vl {{ font-size:1.35rem; }} }}
 .kpi > div:last-child {{ min-width:0; }}
 .kpi .nw {{ white-space:nowrap; }}
 .kpi .un {{ font-size:.6em; font-weight:700; }}
@@ -237,21 +265,21 @@ div[data-baseweb="tab-highlight"] {{ background:{INK}; height:3px; }}
 .ler .lt {{ font-weight:800; color:{INK}; margin-right:4px; }}
 .ler .dado {{ display:block; margin-top:4px; color:{INK}; }}
 
-/* cartão de contexto no topo de cada aba: filtros aplicados e ficha resumida do indicador */
-.ctx {{ background:{SURFACE}; border:1px solid {LINE}; border-left:4px solid {INK}; border-radius:12px;
-  padding:2px 16px; margin:6px 0 16px; box-shadow:0 2px 8px rgba(4,65,60,.05); }}
-.ctx .lin {{ display:grid; grid-template-columns:150px 1fr; gap:12px; align-items:start; padding:10px 0; }}
-.ctx .lin + .lin {{ border-top:1px dashed {LINE}; }}
-.ctx .t {{ font-size:.68rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:{INK};
-  padding-top:5px; }}
+/* cartões de contexto no topo de cada aba: filtros aplicados e ficha resumida do indicador, lado a lado */
+.ctxrow {{ display:flex; flex-wrap:wrap; gap:12px; align-items:stretch; margin:0 0 6px; }}
+.ctx {{ flex:1 1 420px; background:{CARD}; border-radius:9px; padding:10px 16px 11px;
+  box-shadow:0 2px 7px rgba(60,50,20,.16); display:grid; grid-template-columns:auto 1fr; gap:6px 12px;
+  align-items:start; }}
+.ctx .t {{ font-size:.64rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:{INK};
+  padding-top:5px; white-space:nowrap; min-width:118px; }}
 .ctx .it {{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }}
-.ctx .c {{ background:rgba(4,65,60,.07); border-radius:999px; padding:3px 11px; font-size:.78rem; color:{MUTED}; }}
+.ctx .c {{ background:rgba(4,65,60,.07); border-radius:999px; padding:3px 11px; font-size:.74rem; color:{MUTED}; }}
 .ctx .c b {{ color:{TEXT}; font-weight:700; }}
-.ctx .tx {{ flex-basis:100%; font-size:.78rem; color:{MUTED}; line-height:1.5; }}
+.ctx .tx {{ flex-basis:100%; font-size:.74rem; color:{MUTED}; line-height:1.5; }}
 .ctx .tx b {{ color:{TEXT}; font-weight:700; }}
-.ctx .alerta {{ flex-basis:100%; background:#FBEFD9; color:#7A4A12; border-radius:8px; padding:5px 10px;
-  font-size:.77rem; line-height:1.45; }}
-@media (max-width: 760px) {{ .ctx .lin {{ grid-template-columns:1fr; gap:4px; }} }}
+.ctx .alerta {{ flex-basis:100%; background:#FBEFD9; color:#7A4A12; border-radius:6px; padding:5px 10px;
+  font-size:.74rem; line-height:1.45; }}
+@media (max-width: 760px) {{ .ctx {{ grid-template-columns:1fr; gap:4px; }} }}
 .fgroup {{ display:flex; align-items:center; gap:8px; font-weight:800; color:{INK}; font-size:.78rem;
   letter-spacing:.08em; text-transform:uppercase; margin:18px 0 0; padding-top:14px; border-top:1px solid rgba(4,65,60,.18); }}
 .fgroup .n {{ flex:0 0 22px; height:22px; border-radius:50%; background:{INK}; color:{BG}; font-size:.72rem;
@@ -345,91 +373,33 @@ def logos_html() -> str:
     return '<div class="logos">' + '<div class="sep"></div>'.join(items) + "</div>"
 
 
+@st.cache_data(show_spinner=False)
+def _topo_html() -> str:
+    """Topo do painel, como na arte da identidade visual: emblema e nome do projeto, título do painel e, à direita,
+    o mosaico de ícones (assets/brand/mosaico_topo.webp, gerado por scripts/mosaico_topo.py) com os logos por cima."""
+    mosaico = _data_uri(BRAND / "mosaico_topo")
+    assinatura = _data_uri(LOGOS / "assinatura")
+    logos = (f'<img src="{assinatura}" alt="{ASSINATURA_ALT}">' if assinatura else logos_html())
+    arte = f'<img src="{mosaico}" alt="">' if mosaico else ""
+    direita = f'<div class="mos">{arte}<div class="assin">{logos}</div></div>'
+    return (f'<div class="topo"><div class="marca">{emblem_html()}<div><div class="m1">Apoio à Execução,<br>'
+            'Monitoramento e Gestão do<br>Plano Regional de<br>Desenvolvimento da Amazônia</div>'
+            '<div class="m2">Superintendência do Desenvolvimento da Amazônia</div></div></div><div class="sv"></div>'
+            f'<div class="titulo">Diagnóstico Quantitativo da Amazônia Legal</div>{direita}</div>')
+
+
 def header():
-    st.markdown(
-        f"""<div class="topbar">
-          <div class="brand">{emblem_html()}
-            <div><div class="t1">Diagnóstico Quantitativo da Amazônia Legal</div>
-            <div class="t2">Plano Regional de Desenvolvimento da Amazônia · PRDA</div></div></div>
-          {logos_html()}</div>""",
-        unsafe_allow_html=True)
+    st.markdown(_topo_html(), unsafe_allow_html=True)
+
+
+def pagina(nome: str):
+    """Título da aba aberta (ex.: "Visão Geral"), em destaque abaixo dos cartões de contexto."""
+    st.markdown(f'<div class="pagina">{html.escape(nome)}</div>', unsafe_allow_html=True)
 
 
 def footer():
     st.markdown(f'<div class="footer"><div>Projeto BRA/21/005 · SUDAM · PNUD · Instituto Publix · PRDA · Produto 1'
                 f'</div>{logos_html()}</div>', unsafe_allow_html=True)
-
-
-# --------------------------------------------------------------------------- #
-# capa
-# --------------------------------------------------------------------------- #
-@st.cache_data(show_spinner=False)
-def mosaic_svg(cols: int = 6, rows: int = 8, seed: int = 7) -> str:
-    """Mosaico geométrico nas cores da ilustração (usado enquanto não houver a arte em assets/brand)."""
-    rnd = random.Random(seed)
-    pal = [INK, "#11806A", GREEN, "#A9CF46", TEAL, BLUE, SUN, ORANGE]
-    s, out = 50, []
-    for r in range(rows):
-        for c in range(cols):
-            x, y = c * s, r * s
-            out.append(f'<rect x="{x}" y="{y}" width="{s}" height="{s}" fill="{rnd.choice(pal)}"/>')
-            k, fg = rnd.random(), rnd.choice(pal)
-            if k < .3:
-                out.append(f'<path d="M{x} {y + s} L{x + s} {y} L{x + s} {y + s}Z" fill="{fg}"/>')
-            elif k < .55:
-                out.append(f'<path d="M{x} {y + s} A{s} {s} 0 0 1 {x + s} {y + s}Z" fill="{fg}" '
-                           f'transform="rotate({rnd.choice([0, 90, 180, 270])} {x + s / 2} {y + s / 2})"/>')
-            elif k < .7:
-                out.append("".join(f'<rect x="{x}" y="{y + i * 10 + 2}" width="{s}" height="5" fill="{fg}"/>'
-                                   for i in range(5)))
-            elif k < .82:
-                out.append(f'<ellipse cx="{x + s / 2}" cy="{y + s / 2}" rx="9" ry="17" fill="{fg}" '
-                           f'transform="rotate({rnd.choice([-35, 35])} {x + s / 2} {y + s / 2})"/>')
-    return (f'<svg class="mosaic" viewBox="0 0 {cols * s} {rows * s}" preserveAspectRatio="xMidYMid slice" '
-            f'xmlns="http://www.w3.org/2000/svg">{"".join(out)}</svg>')
-
-
-@st.cache_data(show_spinner=False)
-def dotted_brazil_svg(al_codes: tuple[str, ...], step: float = 0.6) -> str:
-    """Mapa do Brasil em pontos, com a Amazônia Legal em verde institucional."""
-    import numpy as np
-    import shapely
-    from shapely.geometry import shape
-    from shapely.ops import unary_union
-
-    gj = json.loads((ASSETS / "geo" / "uf.json").read_text())
-    al, rest = [], []
-    for f in gj["features"]:
-        (al if f["properties"]["codarea"] in al_codes else rest).append(shape(f["geometry"]))
-    g_al, g_rest = unary_union(al), unary_union(rest)
-    x0, x1, y0, y1 = -74.2, -34.5, -33.9, 5.4
-    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
-    xs, ys = xs.ravel(), ys.ravel()
-    in_al, in_rest = shapely.contains_xy(g_al, xs, ys), shapely.contains_xy(g_rest, xs, ys)
-    W, H = 300, 300 * (y1 - y0) / (x1 - x0)
-    px = lambda x: (x - x0) / (x1 - x0) * W  # noqa: E731
-    py = lambda y: (y1 - y) / (y1 - y0) * H  # noqa: E731
-    dots = []
-    for m, color, r in ((in_rest, "#B9CDB4", 2.0), (in_al, INK, 2.3)):
-        for x, y in zip(xs[m], ys[m]):
-            dots.append(f'<circle cx="{px(x):.1f}" cy="{py(y):.1f}" r="{r}" fill="{color}"/>')
-    return f'<svg viewBox="0 0 {W:.0f} {H:.0f}" xmlns="http://www.w3.org/2000/svg">{"".join(dots)}</svg>'
-
-
-def hero(al_codes: tuple[str, ...], n_mun: int, n_ufs: int):
-    art = _data_uri(BRAND / "ilustracao")
-    left = (f'<img src="{art}" alt="">' if art else
-            f'{mosaic_svg()}<div class="globe">{dotted_brazil_svg(al_codes)}</div>')
-    st.markdown(
-        f"""<div class="hero"><div class="art{' img' if art else ''}">{left}</div><div class="txt">
-        <h1>Diagnóstico Quantitativo da Amazônia Legal</h1>
-        <div class="rule"></div>
-        <div class="sub">Superintendência do Desenvolvimento da Amazônia</div>
-        <div class="sub2">{n_ufs} estados · {n_mun} municípios · Projeto BRA/21/005 · SUDAM · PNUD · Instituto Publix</div>
-        <p>Explore os indicadores por <b>Brasil, Amazônia Legal, Grandes Regiões, Estados e Municípios</b>:
-        mapas temáticos, séries históricas, rankings e comparações entre territórios e escalas.</p>
-        </div></div>""",
-        unsafe_allow_html=True)
 
 
 def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "") -> str:
