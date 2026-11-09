@@ -2126,6 +2126,7 @@ FORCA = ((.2, "praticamente nenhuma"), (.4, "fraca"), (.6, "moderada"), (float("
 VAZIO_ZERO = "sem dado contam como zero"  # trecho da regra de agregação dos indicadores em que célula vazia = zero
 COBERTURA_MATRIZ = .7  # % mínima dos municípios do recorte com dado para o indicador entrar na matriz
 MAX_MATRIZ = 15
+MIN_PAR = 30  # municípios com dado nos dois indicadores para calcular a correlação de um par
 
 
 def forca_rel(rho: float) -> str:
@@ -2201,7 +2202,7 @@ def valores_comparaveis(Dm: dict, anos: dict, k: str, ano: int, universo: pd.Ind
         como.append("população do Censo ÷ área")
     else:
         v = mun_snap(Dm, k, ano)
-    if VAZIO_ZERO in ik.agg_note:  # só os municípios do recorte que existiam no ano (ex.: os instalados depois do Censo)
+    if ik.additive and VAZIO_ZERO in ik.agg_note:  # só os municípios do recorte que existiam no ano (ex.: os instalados depois do Censo)
         existentes = universo.intersection(pop_municipal(Dm, anos, ano).index)
         v = v.reindex(existentes).fillna(0)
         como.append("vazio = zero")
@@ -2536,44 +2537,32 @@ with T["Comparações"]:
         theme.title("5 · Quais indicadores do eixo andam juntos?",
                     "Correlação de Spearman entre os indicadores de um eixo, calculada com os municípios do recorte: "
                     "mostra de uma vez os pares que sobem juntos, os que andam em sentidos opostos e os sem relação. "
-                    "Territórios seguem os filtros; o ano de referência é escolhido aqui.")
-        m1, m2 = st.columns([2, 1])
-        eixo_m = escolhe_eixo("w_cm_eixo", "Indicadores do eixo", container=m1)
+                    "Territórios seguem os filtros; cada indicador entra no seu ano mais recente, informado na nota "
+                    "abaixo da matriz.")
+        eixo_m = escolhe_eixo("w_cm_eixo", "Indicadores do eixo", container=st.columns([2, 1])[0])
         Dc = base_municipal(do_eixo(eixo_m))
         anos_c = anos_municipais(Dc)
         cand = [k for k in do_eixo(eixo_m) if anos_c.get(k)]
+        univ_c = universo_mun(Dc, anos_c) if D["pop_col"] else pd.Index([])
         if len(cand) < 2 or not D["pop_col"]:
             st.info("Este eixo tem menos de dois indicadores com dado municipal.")
+        elif len(univ_c) < MIN_PAR:
+            st.info(f"A matriz compara municípios e precisa de pelo menos {MIN_PAR} no recorte para calcular cada "
+                    f"correlação; com os filtros atuais, há só {escopo('Município', len(univ_c))}. Amplie "
+                    "os filtros da barra lateral (Abrangência, Estados, Porte ou outros filtros de municípios).")
         else:
-            freq = pd.Series([anos_c[k][-1] for k in cand]).value_counts()
-            ano_pad = int(freq[freq == freq.max()].index.max())  # o último ano mais comum entre os indicadores do eixo
-            # quantos indicadores têm dado em cada ano: só entram anos com pelo menos dois (num ano com um só, os demais
-            # viriam todos de anos anteriores e a matriz repetiria a de outro ano)
-            n_ano = pd.Series([a for k in cand for a in anos_comparaveis(k, anos_c)]).value_counts()
-            anos_ops = sorted((int(a) for a in n_ano[n_ano >= 2].index), reverse=True) or [ano_pad]
-            ano_pad = ano_pad if ano_pad in anos_ops else anos_ops[0]
-            if st.session_state.get("_cm_eixo") != eixo_m:  # outro eixo: volta ao ano padrão dele
-                st.session_state["w_cm_ano"] = ano_pad
-                st.session_state["_cm_eixo"] = eixo_m
-            ano_c = m2.selectbox("Ano de referência", anos_ops, key=state("w_cm_ano", ano_pad, anos_ops),
-                                 format_func=lambda a: f"{a} · {int(n_ano.get(a, 0))} de {len(cand)} indicadores com dado",
-                                 help="Cada indicador entra no seu ano mais recente até este. O padrão é o ano em que "
-                                      "mais indicadores do eixo têm o último dado (ex.: o Censo 2022 na dinâmica "
-                                      "demográfica). Só aparecem anos com dado em pelo menos dois indicadores.")
-            univ_c = universo_mun(Dc, anos_c)
+            # sem filtro de ano: cada indicador entra no seu ano mais recente com dado municipal (o filtro de ano
+            # gerava dúvida, e escolher um ano só não alinha indicadores que saem em anos diferentes)
             info_c, serie_c, como_c, zeros_c = {}, {}, {}, {}
             for k in cand:
-                ys = [a for a in anos_comparaveis(k, anos_c) if a <= ano_c]
-                if not ys:
-                    info_c[k] = {"Ano": "—", "Como entra": "—", "Municípios com dado": 0, "Com valor zero": "—",
-                                 "Situação": f"fora: sem dado até {ano_c}"}
-                    continue
+                ys = anos_comparaveis(k, anos_c)
                 v, como = valores_comparaveis(Dc, anos_c, k, ys[-1], univ_c)
                 v = v.dropna()
                 zeros_c[k] = float((v == 0).mean()) if len(v) else 0.0
                 cob = len(v) / max(len(univ_c), 1)
                 sit = ("" if cob >= COBERTURA_MATRIZ and v.nunique() >= 3 else
                        f"fora: dado em só {fmt.num(cob * 100, 0)}% dos municípios" if cob < COBERTURA_MATRIZ
+                       else "fora: indicador sim/não (só dois valores)" if v.nunique() == 2
                        else "fora: sem variação entre os municípios")
                 info_c[k] = {"Ano": str(ys[-1]), "Como entra": como, "Municípios com dado": len(v),
                              "Com valor zero": f"{fmt.num(zeros_c[k] * 100, 0)}%", "Situação": sit}
@@ -2582,7 +2571,7 @@ with T["Comparações"]:
             eleg = list(serie_c)
             # um indicador dividido pela população que quase repete outro do eixo (ex.: PIB municipal por habitante =
             # PIB per capita) começa fora: na matriz, seria o mesmo indicador duas vezes
-            C_all = pd.DataFrame(serie_c).corr(method="spearman", min_periods=30).abs()
+            C_all = pd.DataFrame(serie_c).corr(method="spearman", min_periods=MIN_PAR).abs()
             repete = {}
             for k in eleg:
                 if por_hab(como_c[k]) and k not in (D["pop_col"], data.AREA_ID):
@@ -2595,9 +2584,9 @@ with T["Comparações"]:
                         info_c[k]["Situação"] = (f"fora por padrão: repete {REG[repete[k]].label} "
                                                  f"(ρ = {rho_txt(C_all.loc[k, repete[k]])})")
             padrao_sel = [k for k in eleg if k not in (D["pop_col"], data.AREA_ID) and k not in repete][:12]
-            if st.session_state.get("_cm_ctx") != (eixo_m, ano_c):  # outro eixo ou ano: volta à seleção padrão
+            if st.session_state.get("_cm_ctx") != eixo_m:  # outro eixo: volta à seleção padrão
                 st.session_state["w_cm_sel"] = padrao_sel
-                st.session_state["_cm_ctx"] = (eixo_m, ano_c)
+                st.session_state["_cm_ctx"] = eixo_m
             sel = st.multiselect(
                 "Indicadores na matriz", eleg, format_func=lambda k: REG[k].label, max_selections=MAX_MATRIZ,
                 key=state("w_cm_sel", padrao_sel, eleg),
@@ -2614,22 +2603,24 @@ with T["Comparações"]:
                 st.info("Escolha pelo menos dois indicadores para montar a matriz.")
             else:
                 X = pd.DataFrame({k: serie_c[k] for k in sel})
-                M = X.corr(method="spearman", min_periods=30)
+                M = X.corr(method="spearman", min_periods=MIN_PAR)
                 ok = X.notna().astype(int)
                 npar = (ok.T @ ok).to_numpy()[~np.eye(len(sel), dtype=bool)]
                 rot_c = [rotulo_comparavel(k, como_c[k]) + (" *" if zeros_c[k] >= .5 else "") for k in sel]
                 plot(charts.corr_matrix(M, rot_c), "cm")
                 st.caption(f"ρ de Spearman · {npar.min() if npar.min() == npar.max() else f'{npar.min()} a {npar.max()}'} "
-                           f"municípios por par ({escopo('Município')}) · ano de referência {ano_c}"
+                           f"municípios por par ({escopo('Município')})"
                            + (" · * mais da metade dos municípios com valor zero: a correlação reflete sobretudo ter "
                               "ou não ter o fenômeno" if any(zeros_c[k] >= .5 for k in sel) else "")
                            + ". Detalhes em “Indicadores e anos usados na matriz”, abaixo.")
-                antes = [f"{charts.low(REG[k].label)} ({info_c[k]['Ano']})" for k in sel if info_c[k]["Ano"] != str(ano_c)]
-                if antes:
-                    (st.warning if 2 * len(antes) > len(sel) else st.caption)(
-                        f"Sem dado em {ano_c}, entram com o último ano anterior: {junta_nomes(antes)}."
-                        + (" A maior parte da matriz vem de outros anos; para comparar o mesmo momento, escolha o ano "
-                           "com mais indicadores." if 2 * len(antes) > len(sel) else ""))
+                # nota com o ano de cada indicador, agrupado do mais recente ao mais antigo
+                por_ano = {}
+                for k in sel:
+                    por_ano.setdefault(info_c[k]["Ano"], []).append(charts.low(REG[k].label))
+                st.caption("Cada indicador entra no seu ano mais recente com dado municipal: "
+                           + (f"todos em {next(iter(por_ano))}." if len(por_ano) == 1 else
+                              "; ".join(f"{a}: {junta_nomes(n)}" for a, n in sorted(por_ano.items(), reverse=True))
+                              + ". Os anos diferem entre indicadores, porque as fontes saem em anos diferentes."))
                 pares = sorted(((sel[i], sel[j], M.iat[i, j]) for i in range(len(sel)) for j in range(i + 1, len(sel))
                                 if pd.notna(M.iat[i, j])), key=lambda t: -abs(t[2]))
                 fortes = [t for t in pares if abs(t[2]) >= .2][:3]
@@ -2642,7 +2633,7 @@ with T["Comparações"]:
                         f"<b>{charts.low(REG[x].label)} × {charts.low(REG[y].label)}</b> ({forca_rel(r)} e "
                         f"{'positiva' if r > 0 else 'negativa'}, ρ = {rho_txt(r)})" for x, y, r in fortes) + "."
                      if fortes else "Nenhum par passa de uma relação fraca (todos com |ρ| < 0,2)."))
-                chave_par = f"cm_par_{eixo_m}_{ano_c}"
+                chave_par = f"cm_par_{eixo_m}"
                 c_par, c_csv = st.columns([3, 1], vertical_alignment="bottom")
                 c_par.selectbox("Ver um par em detalhe na seção 6", [f"{x}|{y}" for x, y, _ in pares], index=None,
                                 placeholder="Escolha um par (do mais forte para o mais fraco)",
@@ -2654,12 +2645,12 @@ with T["Comparações"]:
                 c_csv.download_button("Baixar matriz (CSV)",
                                       csv_bytes(M.round(3).set_axis(rot_c).set_axis(rot_c, axis=1)
                                                 .rename_axis("Indicador").reset_index()),
-                                      f"matriz_correlacao_{sem_acento(eixo_m)[:2].strip('.')}_{ano_c}.csv", "text/csv",
+                                      f"matriz_correlacao_{sem_acento(eixo_m)[:2].strip('.')}.csv", "text/csv",
                                       key="cm_csv", width="stretch")
                 with st.expander("Indicadores e anos usados na matriz"):
                     st.dataframe(pd.DataFrame([{"Indicador": REG[k].label, **info_c[k]} for k in cand]),
                                  width="stretch", hide_index=True)
-                    st.caption(f"Cada indicador entra no seu ano mais recente até {ano_c}. Indicadores somáveis "
+                    st.caption("Cada indicador entra no seu ano mais recente com dado municipal. Indicadores somáveis "
                                "entram divididos pela população (contagens por mil habitantes, valores em R$ por habitante), com a população do Censo em 2010 "
                                "e 2022 e a estimativa do IBGE nos demais anos. Quando a regra do indicador diz que "
                                "célula vazia é zero (ex.: favelas), os municípios sem dado entram com zero. Ficam fora "
