@@ -243,4 +243,5 @@ indicadores municipais de um eixo:
 - `assets/geo/`: malhas do IBGE · `assets/indicators.json`: cores e descrições dos eixos
 - `assets/logos/`: a assinatura institucional do topo e do rodapé (`assinatura.png`, recorte de `assina_sudam.png`, enviada pelo design: Publix, PNUD, SUDAM, Ministério da Integração e do Desenvolvimento Regional e bandeira); as logos avulsas (`pnud`, `sudam`, `publix`) valem só se esse arquivo não existir. Também o emblema do projeto (`emblema`), em
   `.svg`, `.png`, `.webp` ou `.jpg`, já recortados e leves; os arquivos de origem ficam em `assets/logos/originais/`.
-  Sem arquivo, o nome aparece em texto · `assets/brand/ilustracao.*`: arte da capa (opcional; sem ela, usa um mosaico)
+  Sem arquivo, o nome aparece em texto · `assets/brand/mosaico_topo.webp`: mosaico de ícones do topo, gerado por
+  `scripts/mosaico_topo.py` a partir dos ícones da identidade visual em `assets/id_visual/icons/` (fora do repositório)
