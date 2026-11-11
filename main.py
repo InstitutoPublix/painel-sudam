@@ -373,6 +373,8 @@ def barra_filtros():
             sobre.append(f'<span class="tx"><b>Fórmula:</b> {esc(fx)}</span>')
         if m.get("note") and m["note"] != "—":  # avisos da planilha (quebra de série, anos ausentes etc.)
             sobre.append(f'<span class="alerta"><b>Atenção:</b> {esc(m["note"])}</span>')
+        if I.caveat:  # o que o número conta (ex.: a mesma pessoa em mais de um registro)
+            sobre.append(f'<span class="alerta"><b>Atenção:</b> {esc(I.caveat)}.</span>')
         linhas.append('<div class="ctx"><div class="t">Sobre o indicador</div><div class="it">' + "".join(sobre)
                       + "</div></div>")
     st.markdown('<div class="ctxrow">' + "".join(linhas) + "</div>", unsafe_allow_html=True)
@@ -613,7 +615,7 @@ with T["Visão Geral"]:
         var_al = change(v_al, b0) if y0 and y0 < YEAR else float("nan")
         s_amz = data.series(D, [AMZ], IND).dropna(subset=["valor"])
         base_nula = bool(y0) and base_quase_nula(b0, s_amz[s_amz.ano.between(y0, YEAR)].valor)
-        if base_nula:
+        if base_nula or I.no_change:
             var_al = float("nan")
         muni = snap("Município")
         SO_UF = so_estadual(IND)  # sem municípios: os cartões, o mapa e o ranking usam os estados
@@ -636,8 +638,9 @@ with T["Visão Geral"]:
         COR_MENOR = {1: "lo", -1: "hi"}.get(I.polarity, "")
         sem_br = fmt.isna(v_br)  # alguns indicadores não têm total nacional
         c[0].markdown(theme.kpi("Brasil", I.fmt(v_br), "sem dado nacional para este indicador" if sem_br
-                                else f"{I.label} · {YEAR}", "BR"), unsafe_allow_html=True)
-        c[1].markdown(theme.kpi("Amazônia Legal", I.fmt(v_al), f"{I.label} · {YEAR}", "AL", "hi"), unsafe_allow_html=True)
+                                else f"{I.label} · {I.ano(YEAR)}", "BR"), unsafe_allow_html=True)
+        c[1].markdown(theme.kpi("Amazônia Legal", I.fmt(v_al), f"{I.label} · {I.ano(YEAR)}", "AL", "hi"),
+                      unsafe_allow_html=True)
         if not I.additive and I.delta != "pct":
             c[2].markdown(theme.kpi("Diferença para o Brasil", arrow(dif_br),
                                     "sem total nacional para comparar" if sem_br
@@ -649,8 +652,9 @@ with T["Visão Geral"]:
                                     else "da Amazônia Legal no total nacional" if I.additive else "AL ÷ Brasil", "%"),
                           unsafe_allow_html=True)
         ini_cmp = data.inicio_comparavel(IND, YEAR)  # quebra de método: a variação só parte do mesmo trecho
-        if y0 == YEAR or base_nula:  # nada antes do ano exibido (quebra de método ou início da série) ou base ~zero
-            c[3].markdown(theme.kpi("Variação no período", "—", aviso_base(y0) if base_nula
+        if y0 == YEAR or base_nula or I.no_change:  # nada antes do ano exibido, base ~zero ou série que não se compara
+            c[3].markdown(theme.kpi("Variação no período", "—", f"não comparável: {I.no_change}" if I.no_change
+                                    else aviso_base(y0) if base_nula
                                     else data.motivo_quebra(IND) if ini_cmp else "sem ano anterior para comparar", "Δ"),
                           unsafe_allow_html=True)
         else:
@@ -1012,14 +1016,21 @@ with T["Visão Geral"]:
                     n_anos = len(s_al)
                     dv = change(ult.valor, pri.valor, ik) if n_anos > 1 else float("nan")
                     base_nula = n_anos > 1 and base_quase_nula(pri.valor, s_al.valor, ik)
-                    delta = (f'<span title="{aviso_base(int(pri.ano))}">— valor de {int(pri.ano)} quase nulo</span>'
+                    sem_var = f"Variação não comparável: {ik.no_change}." if ik.no_change else ""
+                    # ressalva sobre o que o número conta: fica no lugar da variação (que, nesses casos, não se compara)
+                    delta = (f'<span class="rs" title="{html.escape(ik.caveat)}. {html.escape(sem_var)}">⚠ '
+                             f'{html.escape(ik.caveat)}</span>' if ik.caveat
+                             else f'<span title="{html.escape(sem_var)}">— variação não comparável</span>'
+                             if ik.no_change and n_anos > 1
+                             else f'<span title="{aviso_base(int(pri.ano))}">— valor de {int(pri.ano)} quase nulo</span>'
                              if base_nula else "" if fmt.isna(dv)  # sem variação (ex.: base zero)
                              else f"{arrow(dv, ik)} desde {int(pri.ano)}")
                     nota = (data.motivo_quebra(k)[:1].upper() + data.motivo_quebra(k)[1:] if n_anos == 1 and quebra
                             else f"Único ano com dado: {int(ult.ano)}" if n_anos == 1
                             else f"Dois anos com dado: {int(pri.ano)} e {int(ult.ano)}" if n_anos == 2 else "")
-                    col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{int(ult.ano)} · {ik.unit}", delta,
-                                            s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt),
+                    col.markdown(theme.mini(ik.label, ik.fmt(ult.valor), f"{ik.ano(ult.ano)} · {ik.unit}", delta,
+                                            s_al.ano.tolist(), s_al.valor.tolist(), nota, sel=k == IND, fmt_valor=ik.fmt,
+                                            fmt_ano=ik.ano),
                                  unsafe_allow_html=True)
                 if sem_al:
                     st.caption(f"Sem valor para a Amazônia Legal ({len(sem_al)}): "
@@ -1243,10 +1254,13 @@ with T["Perfil do Território"]:
                         rk = f"empatado em {pos}º · {empate:,} de {len(peers):,} com o mesmo valor · ".replace(",", ".")
                     else:
                         rk = ("=" if empate > 1 else "") + f"{pos}º de {len(peers)} · "
-                ref = f"{ano} (último dado do território; indicador vai até {year_for(k)})" if antigo else f"{ano}"
+                ref = (f"{ik.ano(ano)} (último dado do território; indicador vai até {ik.ano(year_for(k))})" if antigo
+                       else ik.ano(ano))
                 if PARTE and tv == tid:
                     ref += " · estado inteiro"
-                if yr0 and yr0 < ano and v0 == 0 and ik.delta == "pct":
+                if yr0 and yr0 < ano and ik.no_change:
+                    sub = f"{rk}{ref} · variação não comparável"
+                elif yr0 and yr0 < ano and v0 == 0 and ik.delta == "pct":
                     sub = f"{rk}{ref} · era zero em {yr0}"
                 elif yr0 and yr0 < ano:
                     sub = f"{rk}{ref} · {arrow(change(v, v0, ik), ik)} desde {yr0}"

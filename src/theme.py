@@ -224,6 +224,8 @@ h1, h2, h3 {{ color: {INK}; }}
 .mini .vl {{ font-size:1.45rem; font-weight:800; color:{TEXT}; line-height:1.2; }}
 .mini .sb {{ font-size:.86rem; color:{MUTED}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
 .mini .dl {{ font-size:.88rem; min-height:1.2em; }}
+.mini .dl .rs {{ font-size:.72rem; line-height:1.25; color:{MUTED}; display:-webkit-box; -webkit-line-clamp:2;
+                 -webkit-box-orient:vertical; overflow:hidden; }}
 .mini .sp {{ margin-top:auto; }}
 .mini .sp svg {{ display:block; width:100%; height:38px; overflow:visible; }}
 .mini .yr {{ display:flex; justify-content:space-between; font-size:.78rem; color:{MUTED}; gap:6px; }}
@@ -409,7 +411,7 @@ def kpi(label: str, value: str, sub: str = "", icon: str = "●", cls: str = "")
 
 
 def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valores=None, nota: str = "",
-         sel: bool = False, fmt_valor=str) -> str:
+         sel: bool = False, fmt_valor=str, fmt_ano=lambda a: str(int(a))) -> str:
     """Cartão compacto de um indicador com a tendência desenhada em SVG dentro dele (sem gráfico à parte): todos
     têm a mesma altura. Com 2 anos são duas barras; com 1 só a `nota` no mesmo espaço. O primeiro e o último ano
     aparecem com o valor; passando o mouse sobre a linha, cada ano mostra o seu (`fmt_valor` formata)."""
@@ -436,14 +438,14 @@ def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valo
             zonas.append(f'<div class="hz" style="left:{esq:.2f}%;width:{larg:.2f}%">'
                          f'<b style="left:{px:.1f}%"></b><i style="left:{px:.1f}%;top:{py:.1f}%"></i>'
                          f'<span style="left:{px:.1f}%;top:{py:.1f}%;transform:translate({desloc},-160%)">'
-                         f'{int(a)}: {esc(fmt_valor(v))}</span></div>')
+                         f'{esc(fmt_ano(a))}: {esc(fmt_valor(v))}</span></div>')
         grafico = (f'<div class="sp"><svg viewBox="0 0 100 32" preserveAspectRatio="none">'
                    f'<polygon points="{area}" fill="rgba(4,65,60,0.08)"/>'
                    f'<polyline points="{linha}" fill="none" stroke="{INK}" stroke-width="2" '
                    f'vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>'
                    f'<div class="hz-area">{"".join(zonas)}</div>'
-                   f'<div class="yr"><span>{int(x0)}: <b>{esc(fmt_valor(vs[0]))}</b></span>'
-                   f'<span>{int(x1)}: <b>{esc(fmt_valor(vs[-1]))}</b></span></div></div>')
+                   f'<div class="yr"><span>{esc(fmt_ano(x0))}: <b>{esc(fmt_valor(vs[0]))}</b></span>'
+                   f'<span>{esc(fmt_ano(x1))}: <b>{esc(fmt_valor(vs[-1]))}</b></span></div></div>')
     elif anos is not None and len(anos) == 2 and min(float(v) for v in valores) >= 0 and max(float(v) for v in valores) > 0:
         # só dois anos: duas barras a partir do zero (a altura é proporcional ao valor), uma por ano
         vs = [float(v) for v in valores]
@@ -458,7 +460,7 @@ def mini(label: str, value: str, sub: str = "", delta: str = "", anos=None, valo
         grafico = (f'<div class="sp"><svg viewBox="0 0 100 32" preserveAspectRatio="none">{"".join(barras)}'
                    f'<line x1="0" y1="30.5" x2="100" y2="30.5" stroke="rgba(4,65,60,0.25)" stroke-width="1" '
                    f'vector-effect="non-scaling-stroke"/></svg><div class="hz-area">{"".join(rotulos)}</div>'
-                   f'<div class="yr c"><span>{int(anos[0])}</span><span>{int(anos[1])}</span></div></div>')
+                   f'<div class="yr c"><span>{esc(fmt_ano(anos[0]))}</span><span>{esc(fmt_ano(anos[1]))}</span></div></div>')
     else:
         grafico = f'<div class="nota">{esc(nota)}</div>' if nota else '<div class="nota"></div>'
     return (f'<div class="mini{" sel" if sel else ""}"><div class="lb" title="{esc(label)}">{esc(label)}</div>'

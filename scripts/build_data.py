@@ -49,6 +49,13 @@ TOTAIS_EXTERNOS = {
     "sim": (ROOT / "assets" / "mortalidade_infantil_municipios.csv",
             "python scripts/sim_sinasc.py <óbitos infantis> <nascidos vivos>",
             {"obitos": "óbitos de menores de 1 ano (SIM)", "nascidos": "nascidos vivos (SINASC)"}),
+    "ripsa": (ROOT / "assets" / "populacao_ripsa_municipios.csv",
+              "python scripts/populacao_ripsa.py <tabulação da RIPSA>",
+              {"pop": "população residente da RIPSA (estimativas do Ministério da Saúde)"}),
+    # sem coluna de ano: o mesmo valor serve de peso em todos os anos do indicador
+    "ana": (ROOT / "assets" / "seguranca_hidrica_ana_municipios.csv",
+            "python scripts/seguranca_hidrica_ana.py",
+            {"pop_urbana": "população urbana de 2020 da planilha da ANA (Atlas Águas)"}),
 }
 # totais por grupo (ex.: uma razão por vacina) para a regra "media_razoes": a razão de cada grupo é a soma do
 # numerador ÷ a soma do denominador nos municípios do recorte, e o valor é a média simples entre os grupos
@@ -177,6 +184,11 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
         "additive": somavel,
         "polarity": 1 if pol.startswith("maior") else -1 if pol.startswith("menor") else 0,
         "icon": item.get("icone", {"percentual": "%", "moeda": "R$"}.get(formato, "●")),
+        # ressalvas exibidas com o valor: ano que não é o de dezembro (ex.: "set./2026"), variação que não se compara
+        # e aviso curto sobre o que o número conta
+        "yearLabels": {str(a): str(t) for a, t in item.get("rotulo_ano", {}).items()},
+        "noChange": item.get("sem_variacao", ""),
+        "caveat": item.get("ressalva", ""),
     }
 
 
@@ -535,7 +547,9 @@ def main():
         if not arquivo.exists():
             rep.error(f"{arquivo.relative_to(ROOT)} não encontrado: rode `{comando}`.")
             return finish(rep, None)
-        tot = pd.read_csv(arquivo).set_index(["cod", "ano"])
+        tot = pd.read_csv(arquivo)
+        # arquivo sem ano (ex.: população urbana de 2020 da ANA): o valor de cada município vale em todos os anos
+        tot = tot.set_index(["cod", "ano"]) if "ano" in tot else tot.set_index("cod").reindex(chave.get_level_values(0)).set_axis(chave)
         mun = pd.concat([mun, pd.DataFrame({k: tot[c].reindex(chave).to_numpy(float)
                                             for k, (f, c) in campos_ext.items() if f == fonte}, index=mun.index)], axis=1)
 
@@ -608,6 +622,13 @@ def main():
             src = cfg_by_key[i]["al_de"]
             if src in bra0:
                 amz[i] = amz.ano.map(bra0.set_index("ano")[src])
+        if cfg_by_key.get(i, {}).get("al_soma_menos"):
+            # contagem de pares com ao menos uma ponta na região (ex.: rotas aéreas): soma dos municípios da região menos os
+            # pares com as duas pontas nela (coluna do Recorte Brasil), que a soma conta duas vezes
+            src = cfg_by_key[i]["al_soma_menos"]
+            if src in bra0 and i in mun:
+                s_mun = mun[mun.al].groupby("ano")[i].sum(min_count=1)
+                amz[i] = amz.ano.map(s_mun - bra0.set_index("ano")[src])
 
     for i in rules:
         if cfg_by_key.get(i, {}).get("sem_brasil"):
@@ -690,8 +711,13 @@ def main():
         if rule == "media_ponderada" and cfg_by_key.get(i, {}).get("peso_ano_anterior"):
             f["aggregationApplied"] += " do ano inicial de cada par (o ano anterior)"
         al_de = cfg_by_key.get(i, {}).get("al_de")
+        al_soma_menos = cfg_by_key.get(i, {}).get("al_soma_menos")
         if al_de:
             f["aggregationApplied"] = "Valor do Recorte Brasil para as rotas com as duas pontas na Amazônia Legal, como manda a ficha"
+        elif al_soma_menos:
+            f["aggregationApplied"] = ("Soma dos municípios da Amazônia Legal menos as rotas com as duas pontas na região "
+                                       "(Recorte Brasil), que a soma conta duas vezes")
+            al_de = al_soma_menos  # a Amazônia Legal tem valor próprio, como no al_de
         if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "media_razoes", "taxa_censo"):
             # na soma, município sem dado não soma nada (vale zero); na média, fica fora da conta
             f["aggregationApplied"] += (f" · exige cobertura mínima de {minimos[i]:g}% dos municípios" if minimos[i]
