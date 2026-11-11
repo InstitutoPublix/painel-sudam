@@ -80,6 +80,7 @@ class Linha:
     ano: int | None = None             # último ano com dado do território (None: sem dado)
     valor: float = NAN
     estado_inteiro: bool = False       # queria a parcela na Amazônia Legal, mas o indicador só existe inteiro
+    motivo_inteiro: str = ""           # por que a parcela não existe (vazio: o dado só existe para o estado inteiro)
     refs: dict = field(default_factory=dict)        # tid da referência → valor no mesmo ano
     pos_al: Posicao | None = None      # entre os estados da Amazônia Legal
     pos_uf: Posicao | None = None      # entre os municípios do mesmo estado
@@ -120,6 +121,8 @@ def linhas(D: dict, tid: str, plvl: str, uf: str | None, refs, parte: bool = Fal
             continue
         y, v = int(s.ano.iloc[-1]), float(s.valor.iloc[-1])
         ln.ano, ln.valor, ln.estado_inteiro = y, v, parte and not na_parcela
+        if ln.estado_inteiro:
+            ln.motivo_inteiro = D_todo["meta"][k].get("parteAL", "")
         ln.serie = s[["ano", "valor"]].reset_index(drop=True)
         r = data.series(D, [t for _, t in refs], k)
         r = r[r.ano == y]
@@ -147,7 +150,7 @@ def linhas(D: dict, tid: str, plvl: str, uf: str | None, refs, parte: bool = Fal
                         num = float(mm.valor.sum())
                 ln.comp_tipo = "participacao"
                 ln.comp = num / v_ref * 100 if v_ref and not fmt.isna(v_ref) else None
-            else:
+            elif not ik.magnitude:  # contagens e participações de leitura de magnitude não se comparam com a referência
                 ln.comp_tipo = "diferenca"
                 ln.comp = ik.diff(v, v_ref)  # p.p. para proporções, pontos para índices, % nos demais
                 ln.situacao = ik.situacao(ln.comp)

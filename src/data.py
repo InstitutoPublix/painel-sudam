@@ -34,15 +34,10 @@ POP_ID = "IND-001"  # define o porte dos municípios e o tamanho dos pontos nas 
 AREA_ID = "IND-013"  # área territorial: com a população, é o denominador da densidade
 DENS_ID = "IND-002"  # densidade demográfica: nos anos de Censo (sem estimativa), o painel a recalcula com o Censo
 
-# Séries com quebra de método: as variações ("desde ...") só comparam anos do mesmo trecho. Por indicador: ano em que
-# começa o trecho novo, o que ele é (para "de 2024 a 2026 (...)") e por que não se compara com o anterior.
-_POP_2022 = (2022, "estimativas a partir do Censo 2022",
-             "estimativas a partir do Censo 2022, não comparáveis às anteriores, do Censo 2010")
-QUEBRAS = {
-    POP_ID: _POP_2022,
-    DENS_ID: _POP_2022,
-    "IND-107": (2022, "Censo 2022", "o Censo 2022 mudou a delimitação das favelas; 2010 não é comparável"),
-}
+# Séries com quebra de método: as variações ("desde ...") só comparam anos do mesmo trecho. Vêm da chave `quebra` de
+# config/indicadores.toml (ano em que começa o trecho novo, o que ele é e por que não se compara com o anterior) e são
+# carregadas com as bases (ver load); por indicador: (ano, trecho, motivo).
+QUEBRAS: dict[str, tuple[int, str, str]] = {}
 
 
 def inicio_comparavel(ind: str, ano: int) -> int | None:
@@ -90,6 +85,9 @@ class Indicator:
     year_labels: tuple = ()  # pares (ano, rótulo) de anos que não fecham em dezembro (ex.: (2026, "set./2026"))
     no_change: str = ""      # motivo para não mostrar a variação no período (vazio: mostra)
     caveat: str = ""         # aviso curto sobre o que o número conta
+    magnitude: bool = False  # leitura de magnitude, sem desempenho: os totais e as contagens/participações marcadas com
+    #                          `leitura = "magnitude"` (rotas, participação no total do país), que não se comparam
+    #                          com as referências como uma taxa
 
     def ano(self, y) -> str:
         """Ano como exibido: o número, ou o rótulo do ano parcial ("set./2026")."""
@@ -186,7 +184,7 @@ def make_indicator(f: dict) -> Indicator:
     return Indicator(f["id"], d["label"], d["unit"], d["format"], d["decimals"], d["scale"], d["additive"],
                      d["log"], d["polarity"], f["axis"], d["icon"], f.get("aggregationApplied", ""),
                      tuple(sorted((int(a), t) for a, t in d.get("yearLabels", {}).items())),
-                     d.get("noChange", ""), d.get("caveat", ""))
+                     d.get("noChange", ""), d.get("caveat", ""), bool(d.get("magnitude", d["additive"])))
 
 
 # --------------------------------------------------------------------------- #
@@ -234,6 +232,9 @@ def load() -> dict:
     """Bases do painel, recarregadas quando a versão no manifest muda. Os indicadores (objetos Indicator) são
     recriados a cada execução, fora do cache: assim uma mudança no código da classe vale na hora, sem reiniciar."""
     D = _load(_manifest()["versao"])
+    QUEBRAS.clear()
+    QUEBRAS.update({k: (int(q["ano"]), q.get("trecho", ""), q.get("motivo", ""))
+                    for k, f in D["meta"].items() if (q := f["display"].get("break"))})
     return {**D, "registry": {k: make_indicator(f) for k, f in D["meta"].items()}}
 
 

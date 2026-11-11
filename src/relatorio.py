@@ -16,7 +16,7 @@ import io
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from xml.sax.saxutils import escape
 
@@ -58,6 +58,7 @@ SECOES = {
     "mapas": ("Mapas dos municípios (relatório de estado)", True),
     "fontes": ("Fontes dos indicadores", True),
 }
+ANOS_DESTAQUE = 5  # pontos fortes e de atenção só com dado dos últimos 5 anos (fora: séries encerradas, Censo 2010)
 FICHA = ("texto", "evolucao", "comparacao")  # o que compõe a ficha de cada indicador
 REFS = ("acima", "al", "brasil")  # nível acima do território (região ou estado), Amazônia Legal, Brasil
 
@@ -258,21 +259,31 @@ def _pct(v, *a) -> str:
 
 
 def _fv(ik, v) -> str:
-    """Valor formatado como no painel, com o sinal de menos tipográfico (−2,1%, não -2,1%)."""
-    return re.sub(r"(^|\s|\$)-(?=\d)", "\\1−", ik.fmt(v))
+    """Valor formatado como no painel, com o sinal de menos tipográfico (−2,1%, não -2,1%). Um valor que não é zero
+    nunca aparece como zero: ganha casas decimais até o primeiro algarismo significativo (IPA 0,004, não 0,00)."""
+    txt = ik.fmt(v)
+    if not fmt.isna(v) and v != 0 and not re.search(r"[1-9]", txt):
+        for casas in range(ik.decimals + 1, 7):
+            txt = replace(ik, decimals=casas).fmt(v)
+            if re.search(r"[1-9]", txt):
+                break
+    return re.sub(r"(^|\s|\$)-(?=\d)", "\\1−", txt)
 
 
-def _ticks(lo: float, hi: float, n: int = 4) -> list[float]:
-    """Marcas 'redondas' do eixo de valores (1, 2, 2,5 ou 5 × potência de 10) cobrindo de lo a hi."""
+def _ticks(lo: float, hi: float, n: int = 4, inteiro: bool = False) -> list[float]:
+    """Marcas 'redondas' do eixo de valores (1, 2, 2,5 ou 5 × potência de 10) cobrindo de lo a hi. inteiro: o
+    indicador é uma contagem exibida sem casas decimais, então o passo é de pelo menos 1 (sem "1, 2, 2, 2, 3")."""
     if hi == lo:
         d = abs(hi) * .1 or 1
-        lo, hi = lo - d, hi + d
+        lo, hi = (0, hi + d) if lo >= 0 else (lo - d, hi + d)  # série constante e não negativa: o eixo parte do zero
     bruto = (hi - lo) / n
     mag = 10 ** math.floor(math.log10(bruto))
     passo = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= bruto * .999)
+    if inteiro:
+        passo = max(1, round(passo)) if passo >= 1 else 1
     v, fim, out = math.floor(lo / passo) * passo, math.ceil(hi / passo) * passo, []
     while v <= fim + passo * 1e-6:
-        out.append(round(v, 10))
+        out.append(round(v, 10) + 0.0)  # + 0.0: sem "−0"
         v += passo
     return out
 
@@ -286,9 +297,10 @@ def _corta(texto: str, fonte: str, tam: float, largura: float) -> str:
 class GraficoEvolucao(Flowable):
     """Linhas ano a ano: o território (linha grossa), os comparados e as referências (Brasil tracejado)."""
 
-    def __init__(self, linhas: list[dict], ik, w: float, h: float):
+    def __init__(self, linhas: list[dict], ik, w: float, h: float, quebra: int | None = None):
         super().__init__()
         self.linhas, self.ik, self.w, self.h = linhas, ik, w, h
+        self.quebra = quebra  # ano em que a série muda de método: as linhas não ligam os dois trechos
 
     def wrap(self, *_):
         return self.w, self.h
@@ -300,7 +312,7 @@ class GraficoEvolucao(Flowable):
             return
         anos = sorted({int(a) for a, _ in pts})
         vs = [v for _, v in pts]
-        ticks = _ticks(min(vs), max(vs))
+        ticks = _ticks(min(vs), max(vs), inteiro=ik.decimals == 0 and ik.kind != "percentual")
         rot = [re.sub(r",0+(?!\d)", "", _fv(ik, t)) for t in ticks]  # "90%" em vez de "90,00%"
         esq = max(pdfmetrics.stringWidth(r, "Mont", 6) for r in rot) + 5
         x0, x1, y0, y1 = esq, self.w - 6, 12, self.h - 4
@@ -317,13 +329,30 @@ class GraficoEvolucao(Flowable):
         passo = max(1, math.ceil(len(anos) / 7))
         marcas = anos[::passo] + ([anos[-1]] if (len(anos) - 1) % passo else [])
         for a in marcas:
-            c.drawCentredString(px(a), 2, str(a))
+            c.drawCentredString(px(a), 2, ik.ano(a))
+        q = self.quebra
+        if q is not None and anos[0] < q <= anos[-1]:  # linha pontilhada onde a série muda de método
+            xq = px(max(a for a in anos if a < q) + .5) if any(a < q for a in anos) else px(q)
+            c.setStrokeColor(MUTED)
+            c.setLineWidth(.6)
+            c.setDash(1, 1.6)
+            c.line(xq, y0, xq, y1)
+            c.setDash()
+            c.setFillColor(MUTED)
+            c.setFont("Mont", 5.6)
+            rot = "mudança de método"
+            if xq + 2 + pdfmetrics.stringWidth(rot, "Mont", 5.6) > x1:  # perto da borda direita: o rótulo vai à esquerda
+                c.drawRightString(xq - 2, y1 - 6, rot)
+            else:
+                c.drawString(xq + 2, y1 - 6, rot)
         for ln in sorted(self.linhas, key=lambda ln: ln.get("grossa", False)):  # o território por cima
             c.setStrokeColor(C(ln["cor"]))
             c.setFillColor(C(ln["cor"]))
             c.setLineWidth(1.8 if ln.get("grossa") else 1)
             c.setDash(*([2.2, 1.6] if ln.get("tracejada") else []))
             serie = [(int(a), v) for a, v in zip(ln["anos"], ln["vals"])]
+            if q is not None:  # um ponto vazio entre os dois trechos: a linha não atravessa a mudança de método
+                serie = [x for x in serie if x[0] < q] + [(q - .5, float("nan"))] + [x for x in serie if x[0] >= q]
             trecho = []
             for a, v in serie + [(None, float("nan"))]:
                 if a is not None and not fmt.isna(v):
@@ -438,9 +467,11 @@ def _geo(nome: str) -> dict:
 class Mapa(Flowable):
     """Mapa simples em vetor: {código: cor} sobre os polígonos de uf.json ou mun.json."""
 
-    def __init__(self, base: str, cores: dict, w: float, h: float, contorno=colors.white, espessura=.3):
+    def __init__(self, base: str, cores: dict, w: float, h: float, contorno=colors.white, espessura=.3,
+                 apagados=frozenset()):
         super().__init__()
         self.base, self.cores, self.w, self.h, self.contorno, self.esp = base, cores, w, h, contorno, espessura
+        self.apagados = apagados  # códigos desenhados em tom claro (ex.: municípios fora da Amazônia Legal)
 
     def wrap(self, *_):
         return self.w, self.h
@@ -462,6 +493,7 @@ class Mapa(Flowable):
         c.setLineJoin(1)
         for cod, anel in aneis:
             c.setFillColor(self.cores[cod])
+            c.setFillAlpha(.28 if cod in self.apagados else 1)
             p = c.beginPath()
             for i, (lon, lat) in enumerate(anel):
                 xy = (dx + (lon * k - x0) * esc, dy + (lat - y0) * esc)
@@ -493,7 +525,7 @@ def _desc_eixo(D: dict, eixo: str) -> str:
 
 def _sit_brasil(ik, ln) -> int:
     """Melhor (1) ou pior (−1) que o Brasil, para taxas e médias com polaridade; 0 sem juízo."""
-    if ik.additive or not ik.polarity:
+    if ik.magnitude or not ik.polarity:
         return 0
     return ik.situacao(ik.diff(ln.valor, ln.refs.get(perfil.BRASIL, float("nan"))))
 
@@ -595,10 +627,10 @@ class Territorio:
             out += [self.uf, f"Região {self.regiao}"]
             if self.uf in D["al_parcial"]:
                 a, t = D["al_parcial"][self.uf]
-                out.append(f"Amazônia Legal só em parte: {a} de {t} municípios")
+                out.append(f"Amazônia Legal só em parte: {a} de {t} municípios")  # já diz quantos municípios
             else:
                 out.append("Amazônia Legal" if self.uf in D["al_ufs"] else "Fora da Amazônia Legal")
-            out.append(f"{n_mun} municípios")
+                out.append(f"{n_mun} municípios")
         elif self.plvl == "Município":
             out += [self.uf, f"Região {self.regiao}", "Amazônia Legal" if self.al else "Fora da Amazônia Legal"]
             if D["porte"] is not None:
@@ -718,18 +750,20 @@ class Documento(BaseDocTemplate):
             for nome, pg in itens:
                 if pg is None:
                     continue
+                linhas = _quebra_palavras(nome, "Mont", 7.8, larg - 24)  # nome longo: quebra a linha, sem cortar
                 yy -= 13.5
-                c.setStrokeColor(LINHA)
-                c.setLineWidth(.4)
-                c.line(MX, yy - 4, MX + larg, yy - 4)
-                c.setFillColor(TEXT)
-                c.setFont("Mont", 7.8)
-                while pdfmetrics.stringWidth(nome, "Mont", 7.8) > larg - 24 and len(nome) > 10:
-                    nome = nome[:-2].rstrip() + "…"  # corta até caber, terminando em reticências
-                c.drawString(MX, yy, nome)
                 c.setFont("Mont-B", 7.8)
                 c.setFillColor(INK)
                 c.drawRightString(MX + larg, yy, str(pg))
+                c.setFillColor(TEXT)
+                c.setFont("Mont", 7.8)
+                for i, linha in enumerate(linhas):
+                    if i:
+                        yy -= 9.5
+                    c.drawString(MX, yy, linha)
+                c.setStrokeColor(LINHA)
+                c.setLineWidth(.4)
+                c.line(MX, yy - 4, MX + larg, yy - 4)
         # mapa de localização: o estado entre os da Amazônia Legal, ou o município no seu estado
         D = t.D
         if t.plvl == "Estado":
@@ -806,6 +840,19 @@ def _quebra(texto: str, fonte: str, tam: float, largura: float) -> list[str]:
     return linhas + [atual] if atual else linhas
 
 
+def _quebra_palavras(texto: str, fonte: str, tam: float, largura: float) -> list[str]:
+    """Quebra o texto em linhas que caibam na largura, entre palavras."""
+    linhas, atual = [], ""
+    for palavra in texto.split():
+        prox = f"{atual} {palavra}" if atual else palavra
+        if pdfmetrics.stringWidth(prox, fonte, tam) > largura and atual:
+            linhas.append(atual)
+            atual = palavra
+        else:
+            atual = prox
+    return linhas + [atual] if atual else linhas
+
+
 def _codigos_uf(D: dict, ufs) -> list[int]:
     L = D["long"]
     e = L[(L.nivel == "Estado") & L.uf.isin(list(ufs))].drop_duplicates("cod")
@@ -831,7 +878,7 @@ def _fmt_var(ik, ln) -> str:
 
 def _fmt_comp(ik, ln) -> str:
     if ln.comp_tipo == "participacao":
-        return "—" if ln.comp is None else f"{_pct(ln.comp)} do total{_e(ln.comp_sufixo)}"
+        return "—" if ln.comp is None else f"{_participacao(ln.comp)} do total{_e(ln.comp_sufixo)}"
     if ln.comp_tipo == "diferenca":
         cor = {1: theme.MELHOR, -1: theme.PIOR}.get(ln.situacao, theme.TEXT)
         return f'<font color="{cor}"><b>{_e(ik.fmt_diff(ln.comp))}</b></font>'
@@ -853,7 +900,8 @@ def _como_ler(t: Territorio) -> list:
         ("Desempenho", theme.MELHOR,
          f'<font color="{theme.MELHOR}"><b>Verde</b></font> e <font color="{theme.PIOR}"><b>vermelho</b></font> aparecem '
          "só quando o indicador tem direção desejável definida (maior ou menor é melhor). A posição vem como "
-         "“3º de 9 em desempenho”, e o 1º é sempre a melhor situação."),
+         "“3º de 9 em desempenho”, e o 1º é sempre a melhor situação. O sinal “=” antes da posição (“=3º”) indica "
+         "empate com outro território."),
         ("Sem polaridade", theme.MUTED,
          f"Indicadores descritivos (população, área, composição etc.) não têm melhor nem pior. A posição vem como "
          f"“1º maior valor entre 9” e indica apenas a magnitude entre {pos}, sem avaliar desempenho. Ficam fora do "
@@ -862,10 +910,12 @@ def _como_ler(t: Territorio) -> list:
          f"Nos indicadores de soma, a comparação com {_e(com_artigo(t.comp_nome))} é a <b>participação</b> do território no "
          "total, e as referências ficam fora dos gráficos, porque a escala delas é muito maior. A posição dos totais "
          "é sempre de magnitude (“1º maior valor entre 9”), mesmo quando o indicador tem direção desejável, porque "
-         "cresce com o tamanho do território."),
+         "cresce com o tamanho do território. Contagens que cruzam territórios (rotas aéreas, hidrovias) e participações "
+         "no total do país têm a mesma leitura de magnitude, sem comparação com as referências."),
         ("Evolução", theme.INK,
          "Mostra a variação do primeiro ano com dado até o ano do valor, na série disponível. Quando há mudança de "
-         "método, só se compara dentro do mesmo trecho."),
+         "método, só se compara dentro do mesmo trecho, e o gráfico marca a mudança com uma linha pontilhada. Valores "
+         "em reais estão a preços correntes: a variação inclui a inflação do período."),
     ]
     if t.D["al_parcial"]:
         itens.append(("Amazônia Legal", theme.INK,
@@ -906,7 +956,8 @@ def _resumo(t: Territorio) -> list:
         ln = t.por_k[k]
         ik = REG[k]
         if ik.additive and ln.comp is not None:
-            sub = f"{ik.ano(ln.ano)} · {_pct(ln.comp)} do total {de(t.comp_nome)}"
+            sub = (f"{ik.ano(ln.ano)} · {_participacao(ln.comp)} do total {de(t.comp_nome)}"
+                   + (" (só os municípios na região)" if _so_parte(t, ln) else ""))
         else:
             refs = [f"{n.replace('Amazônia Legal', 'AL')}: {_fv(ik, ln.refs[tt])}" for n, tt in t.refs
                     if n in ("Amazônia Legal", "Brasil") and not fmt.isna(ln.refs.get(tt, float("nan")))]
@@ -964,8 +1015,9 @@ def _resumo(t: Territorio) -> list:
                             ("LINEBEFORE", (6, 0), (6, -1), .6, colors.white)]))
     out += [_p("Placar por eixo", "h2"),
             _p("Balanço de desempenho: <b>melhor situação</b>, <b>pior situação</b> e <b>sem classificação de "
-               "desempenho</b>. Esta última reúne os totais e os indicadores sem polaridade definida (população, área, "
-               "composição etc.) e também os indicadores <b>sem valor da referência</b> (ex.: os da PNAD Contínua, "
+               "desempenho</b>. Esta última reúne os totais, as contagens e participações de leitura de magnitude, os "
+               "indicadores sem polaridade definida (população, área, composição etc.) e também os indicadores <b>sem "
+               "valor da referência</b> (ex.: os da PNAD Contínua, "
                "que não têm valor agregado para a Amazônia Legal) ou que não diferem dela. Todos continuam analisados "
                "nas fichas de cada eixo, mas não entram no balanço.", "pm"),
             Spacer(1, 4), tp]
@@ -974,10 +1026,12 @@ def _resumo(t: Territorio) -> list:
 
 def _destaques(t: Territorio) -> list:
     REG = t.D["registry"]
+    desde = dt.date.today().year - ANOS_DESTAQUE  # dado mais antigo que isso não vira destaque (série encerrada etc.)
     cand = []
     for ln in t.linhas:
         ik, pos = REG[ln.k], t.pos(ln)
-        if not ln.tem_dado or ik.additive or not ik.polarity or not pos or pos[2] < 3 or pos[1] / pos[2] > .2:
+        if (not ln.tem_dado or not _desempenho(ik) or not pos or pos[2] < 3 or pos[1] / pos[2] > .2
+                or ln.ano < desde):
             continue
         cand.append(((pos[0] - 1) / (pos[2] - 1), ln, pos))
     fortes = [x for x in sorted(cand, key=lambda x: (x[0], x[2][0])) if x[0] <= 1 / 3][:5]
@@ -997,8 +1051,9 @@ def _destaques(t: Territorio) -> list:
                             ("RIGHTPADDING", (0, 0), (0, -1), 12)]))
     return [KeepTogether([_p("Destaques", "h2"),
                           _p(f"Taxas e médias em que {_e(t.nome_art)} está entre as melhores ou as piores posições "
-                             f"{_e(t.pos_nome)} (terço de cima e de baixo do ranking). Totais e indicadores sem sentido "
-                             "definido não entram.", "pm"), Spacer(1, 2), td])]
+                             f"{_e(t.pos_nome)} (terço de cima e de baixo do ranking), com dado de {desde} em diante. "
+                             "Totais, contagens, participações e indicadores sem sentido definido não entram.", "pm"),
+                          Spacer(1, 2), td])]
 
 
 def _colunas(t: Territorio):
@@ -1013,7 +1068,9 @@ def _colunas(t: Territorio):
 def _eixo(t: Territorio, eixo: str) -> list:
     D, REG = t.D, t.D["registry"]
     ls = t.do_eixo(eixo)
-    com = [ln for ln in ls if ln.tem_dado]
+    # zero em toda a série do território (ex.: petróleo em mar num estado sem produção no mar): vai para uma nota, sem ficha
+    nulos = [ln for ln in ls if ln.tem_dado and ln.serie is not None and (ln.serie.valor == 0).all()]
+    com = [ln for ln in ls if ln.tem_dado and ln not in nulos]
     sem = [REG[ln.k].label for ln in ls if not ln.tem_dado]
     fora = t.fora_do_nivel(eixo)
     cor = _cor_eixo(D, eixo)
@@ -1027,8 +1084,9 @@ def _eixo(t: Territorio, eixo: str) -> list:
                                ("TOPPADDING", (0, 1), (-1, 1), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), 0)]))
     out = [Marca(f"eixo:{eixo}"), faixa, Spacer(1, 6)]
     desc = _desc_eixo(D, eixo)
-    sa = [ln.situacao for ln in com]
-    resumo = (f"{len(com)} indicador{'es' if len(com) != 1 else ''} com dado para {_e(t.nome_art)}"
+    sa = [ln.situacao for ln in com + nulos]
+    n_com = len(com) + len(nulos)  # como no placar: os que só registram zero também têm dado
+    resumo = (f"{n_com} indicador{'es' if n_com != 1 else ''} com dado para {_e(t.nome_art)}"
               + (f' · <font color="{theme.MELHOR}"><b>{sa.count(1)}</b> melhor{"es" if sa.count(1) != 1 else ""}</font> e '
                  f'<font color="{theme.PIOR}"><b>{sa.count(-1)}</b> pior{"es" if sa.count(-1) != 1 else ""}</font> que '
                  f"{_e(com_artigo(t.comp_nome))}" if any(sa) else "") + ".")
@@ -1061,8 +1119,12 @@ def _eixo(t: Territorio, eixo: str) -> list:
     if set(FICHA) & set(t.op.secoes):
         out += [_ficha(t, ln) for ln in com]
     notas = []
+    if nulos:
+        notas.append(f"<b>Zero em todos os anos para {_e(t.nome_art)}</b>: "
+                     + _e("; ".join(f"{REG[ln.k].label} ({ln.serie.ano.min()}–{REG[ln.k].ano(ln.serie.ano.max())})"
+                                    for ln in nulos)) + ".")
     if sem:
-        notas.append(f"<b>Sem dado para {_e(t.nome_art)}</b>: {_e('; '.join(sem))}.")
+        notas.append(f"<b>Sem registro na fonte para {_e(t.nome_art)}</b>: {_e('; '.join(sem))}.")
     if fora:
         nivel = {"Estado": "estados", "Município": "municípios", "Grande Região": "Grandes Regiões"}.get(t.plvl, "este nível")
         notas.append(f"<b>Não existem para {nivel}</b>: {_e('; '.join(fora))}.")
@@ -1072,10 +1134,11 @@ def _eixo(t: Territorio, eixo: str) -> list:
 
 
 def _desempenho(ik) -> bool:
-    """O ranking do indicador é de desempenho: tem direção desejável e não é um total (soma). Nos totais, a posição
-    acompanha o tamanho do território (o estado mais populoso tem mais leitos, vínculos, casos...), então é lida como
-    magnitude, mesmo quando o indicador tem polaridade."""
-    return bool(ik.polarity) and not ik.additive
+    """O ranking do indicador é de desempenho: tem direção desejável e não é de leitura de magnitude. Nos totais, a
+    posição acompanha o tamanho do território (o estado mais populoso tem mais leitos, vínculos, casos...); nas
+    contagens e participações marcadas como magnitude (rotas, participação nas exportações), também. Nos dois casos a
+    posição é lida como magnitude, mesmo quando o indicador tem polaridade."""
+    return bool(ik.polarity) and not ik.magnitude
 
 
 def _pos(ik, pos) -> str:
@@ -1096,6 +1159,8 @@ def _categoria(ik) -> tuple[str, str]:
     polaridade (descritivo)."""
     if ik.additive:
         return "Total (soma) · leitura de magnitude", theme.MUTED
+    if ik.magnitude:
+        return "Contagem ou participação · leitura de magnitude", theme.MUTED
     if ik.polarity > 0:
         return "Maior valor = melhor situação", theme.MELHOR
     if ik.polarity < 0:
@@ -1133,64 +1198,113 @@ def _ao(nome: str) -> str:
     return {"a": "à", "o": "ao"}.get(art, "a") + " " + nome
 
 
+def _so_parte(t: Territorio, ln) -> bool:
+    """O valor mostrado é do estado inteiro, mas a participação no total da Amazônia Legal conta só os municípios dele
+    que ficam na região (estado só em parte nela)."""
+    return bool(ln.comp_sufixo) and (ln.estado_inteiro or not t.parte)
+
+
+def _participacao(comp: float) -> str:
+    """Participação no total: "12,4%", ou "menos de 0,1%" quando não é zero mas arredondaria para 0,0%."""
+    return "menos de 0,1%" if 0 < comp < .05 else _pct(comp)
+
+
+def _nominal(ik) -> bool:
+    """Valor em reais correntes: a variação no tempo inclui a inflação."""
+    return ik.kind == "moeda" and "constante" not in ik.unit.lower()
+
+
+def _pares(t: Territorio) -> tuple[str, str]:
+    """(plural, complemento) dos territórios do ranking: ("estados", "da Amazônia Legal"), ("municípios", "do estado")."""
+    return {"Estado": ("estados", "da Amazônia Legal"), "Município": ("municípios", "do estado")
+            }.get(t.plvl, ("territórios", "do mesmo tipo no Brasil"))
+
+
 def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
     """Frases sobre o indicador: comparação com as referências, posição, variação e territórios comparados."""
     cor = lambda sit: {1: theme.MELHOR, -1: theme.PIOR}.get(sit, theme.TEXT)  # noqa: E731
     frases = []
+    zero = ln.valor == 0
     if ln.estado_inteiro:
-        frases.append("Valor do estado inteiro: o indicador não existe só para a parte na Amazônia Legal.")
+        frases.append("Valor do estado inteiro: " + (f"a estimativa só para a parte na Amazônia Legal não é usada, "
+                                                     f"porque {_e(ln.motivo_inteiro)}." if ln.motivo_inteiro else
+                                                     "o indicador não existe só para a parte na Amazônia Legal."))
     if ik.additive:
-        if ln.comp is not None and _tipo_ref(t.comp_tid or "") in t.op.refs:
-            frases.append(f"Corresponde a <b>{_pct(ln.comp)} do total</b> {_e(de(t.comp_nome))}"
-                          f"{_e(ln.comp_sufixo)}.")
-    else:
-        partes = []
-        for n, tt in t.refs_vis:
-            vr = ln.refs.get(tt, float("nan"))
-            if fmt.isna(vr):
-                continue
-            dif = _dif(ik, ln.valor, vr)
-            if dif is None:
-                partes.append(f"igual {_e(t.ao(n))} ({_e(_fv(ik, vr))})")
+        if ln.comp is not None and not zero and _tipo_ref(t.comp_tid or "") in t.op.refs:
+            if _so_parte(t, ln):  # valor do estado inteiro, participação só dos municípios dele na região
+                frases.append(f"Os municípios {_e(t.de_nome)} na Amazônia Legal "
+                              + (f"não somam nada ao total {_e(de(t.comp_nome))}." if ln.comp == 0 else
+                                 f"somam <b>{_participacao(ln.comp)} do total</b> {_e(de(t.comp_nome))}."))
             else:
-                txt, d = dif
-                if txt.startswith("com valor"):  # a referência registra zero: sem % sobre base nula
+                frases.append(f"Corresponde a <b>{_participacao(ln.comp)} do total</b> {_e(de(t.comp_nome))}"
+                              f"{_e(ln.comp_sufixo)}.")
+    elif not ik.magnitude:  # contagens e participações de leitura de magnitude não se comparam com as referências
+        refs = [(n, ln.refs.get(tt, float("nan"))) for n, tt in t.refs_vis]
+        refs = [(n, vr) for n, vr in refs if not fmt.isna(vr)]
+        if zero and any(vr != 0 for _, vr in refs):  # sem "100% abaixo": o valor zero e o das referências
+            frases.append("Registra zero, contra " + lista(f"{_e(_fv(ik, vr))} {_e(t.de(n))}" for n, vr in refs) + ".")
+        else:
+            partes = []
+            for n, vr in refs:
+                dif = _dif(ik, ln.valor, vr)
+                if dif is None:
+                    partes.append(f"igual {_e(t.ao(n))} ({_e(_fv(ik, vr))})")
+                elif dif[0].startswith("com valor"):  # a referência registra zero: sem % sobre base nula
                     partes.append(f"com valor, enquanto {_e(com_artigo(n))} registra zero")
                 else:
+                    txt, d = dif
                     partes.append(f'<font color="{cor(ik.situacao(d))}"><b>{_e(txt)}</b></font> {_e(t.de(n))} '
                                   f'({_e(_fv(ik, vr))})')
-        if partes:
-            frases.append("Está " + lista(partes) + ".")
+            if partes:
+                frases.append("Está " + lista(partes) + ".")
     pos = t.pos(ln)
     if pos:
-        if _desempenho(ik):
+        plural, compl = _pares(t)
+        if zero and pos[1] > 1 and not _desempenho(ik):  # empate no zero: a "posição" não diz nada
+            frases.append(f"Valor zero, como o de mais {pos[1] - 1} dos {pos[2]} {plural} {compl}.")
+        elif _desempenho(ik):
             frases.append(f"Posição <b>{_e(_pos(ik, pos))}</b> {_e(t.pos_nome)} (1º = melhor situação).")
-        else:  # descritivo ou total: a posição é só de tamanho, sem juízo de desempenho
+        else:  # descritivo, total ou contagem: a posição é só de tamanho, sem juízo de desempenho
             frases.append(f"Posição <b>{_e(_pos(ik, pos))}</b>, comparando {_e(t.pos_nome.replace('entre ', '', 1))}: "
                           "indica só a magnitude, não melhor ou pior desempenho"
                           + (", porque os totais crescem com o tamanho do território." if ik.additive else "."))
+    # variação desde o primeiro ano comparável; em reais correntes, avisa que inclui a inflação
+    corrente = " em valores correntes, sem descontar a inflação" if _nominal(ik) else ""
+    q = data.QUEBRAS.get(ln.k)
+    quebrou = bool(q) and ln.ano >= q[0] and ln.serie is not None and bool((ln.serie.ano < q[0]).any())
     if not fmt.isna(ln.variacao):
         r = round(ln.variacao, ik.diff_decimals)
         sit = cor(ik.situacao(ln.variacao))
         if r == 0:
-            frases.append(f"Desde {ln.ano0}, ficou estável ({_e(ik.fmt_diff(0))}).")
+            frases.append(f"Em {ln.ano0}, também era zero." if zero and ln.valor0 == 0
+                          else f"Desde {ln.ano0}, ficou estável ({_e(ik.fmt_diff(0))}).")
         elif ik.delta == "pct" and (ln.valor0 <= 0 or ln.valor < 0):  # % sobre base nula/negativa: os dois valores
             sit = cor(ik.situacao(1 if ln.valor > ln.valor0 else -1))
             frases.append(f'Desde {ln.ano0}, passou de {_e(_fv(ik, ln.valor0))} para <font color="{sit}"><b>'
-                          f"{_e(_fv(ik, ln.valor))}</b></font>.")
+                          f"{_e(_fv(ik, ln.valor))}</b></font>{corrente}.")
         elif ik.delta == "pct" and ln.valor0 > 0 and ln.valor / ln.valor0 >= 10:  # base quase nula: em vezes
             frases.append(f'Desde {ln.ano0}, <font color="{sit}"><b>multiplicou-se por '
-                          f"{fmt.num(ln.valor / ln.valor0, 0 if ln.valor / ln.valor0 >= 100 else 1)}</b></font>.")
+                          f"{fmt.num(ln.valor / ln.valor0, 0 if ln.valor / ln.valor0 >= 100 else 1)}</b></font>"
+                          f"{corrente}.")
         else:
             seta = "▲" if r > 0 else "▼"
             frases.append(f'Desde {ln.ano0}, variou <font color="{sit}"><b>{seta} '
-                          f"{_e(ik.fmt_diff(ln.variacao).replace('-', '−'))}</b></font>.")
+                          f"{_e(ik.fmt_diff(ln.variacao).replace('-', '−'))}</b></font>{corrente}.")
+        if quebrou:
+            frases.append(f"Os anos antes de {q[0]} ficam fora da comparação: {_e(q[2])}.")
     elif ln.ano0 is not None and ln.ano0 < ln.ano and ik.no_change:  # a série não se compara entre os anos
         frases.append(f"A variação desde {ln.ano0} não se compara: {_e(ik.no_change)}.")
     elif ln.ano0 is not None and ln.ano0 < ln.ano and ln.valor0 == 0:  # base zero: sem %, os dois valores
-        frases.append(f"Desde {ln.ano0}, passou de {_e(_fv(ik, 0))} para <b>{_e(_fv(ik, ln.valor))}</b>.")
+        frases.append(f"Em {ln.ano0}, também era zero." if zero
+                      else f"Desde {ln.ano0}, passou de {_e(_fv(ik, 0))} para <b>{_e(_fv(ik, ln.valor))}</b>{corrente}.")
     elif ln.ano0 == ln.ano:
-        frases.append("Só há um ano com dado comparável para o território.")
+        frases.append(f"Só há um ano com dado comparável: {_e(q[2])}." if quebrou
+                      else "Só há um ano com dado comparável para o território.")
+    # anos tirados da base por erro na fonte (`descartar` no config) que valem para o território
+    nivel = "Município" if t.parte and not ln.estado_inteiro else t.plvl
+    for x in t.D["meta"][ln.k].get("discarded", []):
+        if (not x["uf"] or x["uf"] == t.uf) and (not x["nivel"] or x["nivel"] == nivel):
+            frases.append(f"Sem o dado de {x['anos']}: {_e(x['motivo'])}.")
     comp = {n: v for n, v in valores.items() if not fmt.isna(v)}
     if len(comp) > 2:
         hi, lo = max(comp, key=comp.get), min(comp, key=comp.get)
@@ -1199,16 +1313,19 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
     elif len(comp) == 2:
         (n1, v1), (n2, v2) = comp.items()
         dif = _dif(ik, v1, v2)
+        nome2 = com_artigo_uf(n2, t._uf_estado.get(n2))
         if dif is None:
             frases.append(f"Igual {_e(t.ao(n2))} ({_e(_fv(ik, v2))}).")
         elif dif[0].startswith("com valor"):
-            frases.append(f"{_e(n2)} registra zero.")
+            frases.append(f"{_e(nome2[:1].upper() + nome2[1:])} registra zero.")
+        elif v1 == 0:  # sem "100% abaixo": o valor do comparado
+            frases.append(f"{_e(nome2[:1].upper() + nome2[1:])} registra {_e(_fv(ik, v2))}.")
         elif " vezes " in dif[0] or dif[0].endswith(" do valor"):
             frases.append(f"Equivale a <b>{_e(dif[0])}</b> {_e(t.de(n2))} ({_e(_fv(ik, v2))}).")
         else:
             frases.append(f"Em relação {_e(t.ao(n2))} ({_e(_fv(ik, v2))}), está <b>{_e(dif[0])}</b>.")
     if ik.caveat:
-        frases.append(f"<b>Atenção:</b> {_e(ik.caveat)}.")
+        frases.append(f"<b>Atenção.</b> {_e(ik.caveat)}.")
     texto = " ".join(frases)
     return re.sub(r"(p\.p\.)((?:</[a-z]+>)*)\.", r"\1\2", texto)  # sem "p.p.." no fim das frases
 
@@ -1218,10 +1335,10 @@ def _ficha(t: Territorio, ln) -> Flowable:
     REG, sec = t.D["registry"], t.op.secoes
     ik = REG[ln.k]
     principal, s = t.series(ln.k)
-    # quem entra nos gráficos: o território, os comparados e, fora dos totais, as referências
+    # quem entra nos gráficos: o território, os comparados e, fora das leituras de magnitude, as referências
     quem = [(t.titulo if not t.parte else t.nome, principal, theme.INK, True, False)]
     quem += [(n, c, PALETA_COMP[i % len(PALETA_COMP)], False, False) for i, (n, c) in enumerate(t.comparar)]
-    if not ik.additive:
+    if not ik.magnitude:
         quem += [(n, r, COR_REF[_tipo_ref(r)], False, _tipo_ref(r) == "brasil") for n, r in t.refs_vis]
     ult = s[s.ano == ln.ano]
     no_ano = dict(zip(ult.tid, ult.valor))  # valor de cada um no ano do relatório
@@ -1250,12 +1367,13 @@ def _ficha(t: Territorio, ln) -> Flowable:
             if sx.valor.notna().any():
                 linhas.append({"anos": list(sx.ano), "vals": list(sx.valor), "cor": cor, "grossa": grossa,
                                "tracejada": trac})
-        graficos.append([_p("Evolução", "fg"), GraficoEvolucao(linhas, ik, LARG * .56, 86)])
+        q = data.QUEBRAS.get(ln.k)
+        graficos.append([_p("Evolução", "fg"), GraficoEvolucao(linhas, ik, LARG * .56, 86, q[0] if q else None)])
         largs.append(LARG * .56 + 4)
     if "comparacao" in sec and len(quem) > 1:
         itens = [(nome, no_ano.get(tid, float("nan")), cor, grossa) for nome, tid, cor, grossa, _ in quem]
         w = LARG - 24 - sum(largs) - (8 if largs else 0)
-        graficos.append([_p(f"Comparação em {ln.ano}", "fg"),
+        graficos.append([_p(f"Comparação em {_e(ik.ano(ln.ano))}", "fg"),
                          GraficoBarras(itens, ik, w, max(40, min(86, 12 * len(itens) + 6)))])
         largs.append(w)
     if graficos:
@@ -1267,6 +1385,11 @@ def _ficha(t: Territorio, ln) -> Flowable:
         if ik.additive and t.refs_vis:
             corpo.append(_p("Total (soma): " + _e(lista(n for n, _ in t.refs_vis)) + " ficam fora dos gráficos, porque a "
                             "escala é muito maior.", "fu"))
+        elif ik.magnitude and t.refs_vis:
+            corpo.append(_p("Leitura de magnitude: " + _e(lista(n for n, _ in t.refs_vis)) + " ficam fora dos gráficos e "
+                            "da comparação, porque o valor delas não se compara diretamente com o de um "
+                            f"{'estado' if t.plvl == 'Estado' else 'território'} (ex.: rotas que cruzam territórios, "
+                            "participação no total do país).", "fu"))
     elif "evolucao" in sec and not serie_ok and "texto" not in sec:
         corpo.append(_p("Só há um ano com dado para o território.", "fu"))
     caixa = Table([[x] for x in corpo], colWidths=[LARG])
@@ -1281,6 +1404,11 @@ def _mapas_municipios(t: Territorio) -> list:
     """Relatório de estado: quatro mapas dos municípios, em faixas de valor (mais escuro = maior)."""
     D, REG = t.D, t.D["registry"]
     paineis = []
+    fora_al = frozenset()  # estado só em parte na região: os municípios de fora ficam em tom claro
+    if t.uf in D["al_parcial"]:
+        L = D["long"]
+        mu = L[(L.nivel == "Município") & (L.uf == t.uf)].drop_duplicates("cod")
+        fora_al = frozenset(int(c) for c in mu.loc[~mu.al.fillna(False).astype(bool), "cod"])
     for k in MAPAS:
         if k not in REG or "Município" not in D["meta"][k]["levels"]:
             continue
@@ -1306,7 +1434,8 @@ def _mapas_municipios(t: Territorio) -> list:
         tl = Table(leg, colWidths=[12, LARG / 2 - 40])
         tl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                 ("TOPPADDING", (0, 0), (-1, -1), .5), ("BOTTOMPADDING", (0, 0), (-1, -1), .5)]))
-        paineis.append([_p(f"<b>{_e(ik.label)}</b> · {ano}", "cel"), Mapa("mun", cores, LARG / 2 - 20, 175), tl])
+        paineis.append([_p(f"<b>{_e(ik.label)}</b> · {_e(ik.ano(ano))}", "cel"),
+                        Mapa("mun", cores, LARG / 2 - 20, 175, apagados=fora_al), tl])
     if not paineis:
         return []
     cel = []
@@ -1320,7 +1449,10 @@ def _mapas_municipios(t: Territorio) -> list:
     return [Marca("mapas"), _p(f"Municípios {_e(t.de_nome)}", "h1"),
             _p("Como os indicadores se distribuem dentro do estado: cada mapa divide os municípios em faixas de "
                "valor com número parecido de municípios (entre parênteses, quantos em cada faixa); mais escuro = "
-               "valor maior. Cinza: sem dado.", "p"), Spacer(1, 6), tg]
+               "valor maior. Cinza: sem dado."
+               + (f" Em tom mais claro, os {t.D['al_parcial'][t.uf][1] - t.D['al_parcial'][t.uf][0]} municípios fora "
+                  "da Amazônia Legal, que não entram nos valores deste relatório."
+                  if t.uf in t.D["al_parcial"] else ""), "p"), Spacer(1, 6), tg]
 
 
 def _anexo(t: Territorio) -> list:

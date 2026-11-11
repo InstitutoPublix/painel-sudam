@@ -87,6 +87,19 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
 - **Ano incompleto (`ano_parcial`):** quando a fonte já traz o ano corrente com só parte do total (ex.: Bolsas do
   ProUni em 2026), `ano_parcial = 2026` tira esse ano do indicador; sem isso, o total parcial vira o "último ano" dos
   cartões e parece uma queda. Indicadores de estoque (posição no mês, como CadÚnico) não precisam.
+- **Parcela dos estados só em parte na região:** o build calcula a parte do Maranhão na Amazônia Legal com a mesma
+  regra de cada indicador e, para conferir, aplica essa regra a todos os municípios do estado: se o resultado não
+  reproduz o valor publicado do estado (desvio mediano acima de 5%, e acima de 1 p.p. nos percentuais), a parcela é
+  descartada e o relatório usa o estado inteiro, dizendo por quê. `sem_parte_al = "<motivo>"` descarta por decisão
+  (ex.: as quatro parcelas do valor adicionado, que se leem juntas).
+- **Valores errados na planilha (`descartar`):** `descartar = [{ anos = [...], motivo = "...", nivel = "...", uf = "...",
+  cod = [...] }]` tira esses valores antes de qualquer agregação (ex.: zeros que são falta de dado, um ano com
+  classificação trocada na RAIS). O motivo aparece na ficha do Sobre o Painel e no texto do relatório.
+- **Quebra de método (`quebra`):** `quebra = { ano = 2025, trecho = "...", motivo = "..." }` faz a variação comparar só
+  anos do mesmo trecho; os gráficos do relatório não ligam os dois trechos e o texto explica o motivo.
+- **Leitura de magnitude (`leitura = "magnitude"`):** contagens que cruzam territórios (rotas, hidrovias) e
+  participações no total do país não se comparam com as referências como uma taxa. No relatório, ficam fora do placar
+  e dos destaques, e a posição é lida como magnitude, como nos totais.
 - **Peso do ano inicial (`peso_ano_anterior`):** nas taxas de transição do INEP, cada ano é um par (a evasão de 2022 é
   a de 2021/2022), e a ficha pesa pelas matrículas do ano inicial. Com `peso_ano_anterior = true`, a média ponderada
   usa o peso do ano anterior. Em 2015, sem as matrículas de 2014 na planilha, vale o ano mais próximo (o build avisa).
