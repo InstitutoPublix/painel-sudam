@@ -59,6 +59,13 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   publicados (diferença até 0,1, das linhas de município ignorado). Ao atualizar a série, exporte as duas tabulações
   com todos os anos e rode o script de novo (ele refaz o arquivo inteiro). Para outra fonte de totais, acrescente-a em
   `TOTAIS_EXTERNOS` (`scripts/build_data.py`).
+- **Valor adicionado (`peso_pib = "va_total"`):** a planilha traz a participação de cada setor só em %. A Amazônia
+  Legal é a soma do VA do setor ÷ a soma do VA total dos municípios (o cálculo do IBGE para as UFs), com o VA total
+  de `assets/valor_adicionado_municipios.csv`, que `python scripts/valor_adicionado_ibge.py` baixa do SIDRA (tabela
+  5938). Reproduz as 27 UFs, e as quatro participações somam 100%. Rode o script quando sair um ano novo do PIB dos
+  Municípios.
+- **Denominador implícito (`peso_implicito`):** para o PIB per capita, o peso de cada município é PIB ÷ PIB per capita,
+  a população que o IBGE usou. A Amazônia Legal vira soma do PIB ÷ soma dessa população e reproduz as 27 UFs.
 - **Média de razões (`agregacao = "media_razoes"`, `razoes_de`):** para a cobertura vacinal (IND-038), a ficha tira a
   média simples das coberturas das vacinas. Na Amazônia Legal, cada vacina tem a sua cobertura da região (doses
   aplicadas ÷ população-alvo, somadas nos municípios) e o valor é a média entre elas. Os totais vêm de
