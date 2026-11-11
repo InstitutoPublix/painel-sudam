@@ -2930,7 +2930,12 @@ with T["Sobre o Painel"]:
                     f"- **Periodicidade / série:** {m['periodicity']} · {m['series']}\n"
                     f"- **Unidade:** {m['unit']} · **Polaridade:** {m['polarity']}\n"
                     f"- **Regra de agregação (ficha):** {m['aggregation']} · **Menor unidade:** {m['minTerritory']}\n"
-                    f"- **Amazônia Legal no painel:** {m.get('aggregationApplied', '—')}")
+                    f"- **Amazônia Legal no painel:** {m.get('aggregationApplied', '—')}"
+                    + (f"\n- **Parcela dos estados só em parte na região:** não calculada — {m['parteAL']}"
+                       if m.get("parteAL") else "")
+                    + "".join(f"\n- **Fora do painel:** {x['anos']}"
+                              + (f" ({' '.join(v for v in (x['nivel'], x['uf']) if v)})" if x["nivel"] or x["uf"] else "")
+                              + f": {x['motivo']}" for x in m.get("discarded", [])))
                 nota = D["meta"][ik.key].get("note")  # bloco HTML: o "$" não vira fórmula, vai sem escape
                 if nota and nota != "—":
                     st.markdown(f'<div class="note"><b>Observação.</b> {nota}</div>', unsafe_allow_html=True)

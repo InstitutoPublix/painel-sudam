@@ -189,6 +189,12 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
         "yearLabels": {str(a): str(t) for a, t in item.get("rotulo_ano", {}).items()},
         "noChange": item.get("sem_variacao", ""),
         "caveat": item.get("ressalva", ""),
+        # leitura de magnitude: contagens e participações que não se comparam com as referências como taxas (ex.: rotas
+        # do estado × rotas da região; participação do estado × Brasil = 100%); sem desempenho, como os totais
+        "magnitude": somavel or item.get("leitura") == "magnitude",
+        # quebra de método: a variação só compara anos do mesmo trecho (ano em que o trecho novo começa e o motivo)
+        **({"break": {"ano": int(item["quebra"]["ano"]), "trecho": item["quebra"].get("trecho", ""),
+                      "motivo": item["quebra"]["motivo"]}} if item.get("quebra") else {}),
     }
 
 
@@ -379,6 +385,27 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     return out
 
 
+# desvio relativo (mediana dos anos) tolerado entre a estimativa do estado inteiro e o valor publicado: o mesmo limite
+# da conferência das aproximações da Amazônia Legal (README, "Conferência da regra": mediana até 1,5%)
+TOL_PARTE = 0.015
+
+
+def desvio_estimativa(estimado: pd.Series, publicado: pd.Series, formato: str) -> tuple[bool, str] | None:
+    """Compara, ano a ano, o valor do estado inteiro estimado pela regra de agregação com o publicado. Devolve
+    (descartar, descrição) ou None sem ano em comum. O desvio é a mediana das diferenças absolutas sobre a mediana do
+    valor publicado (robusto a anos isolados e a valores perto de zero)."""
+    a = pd.concat([estimado.rename("e"), publicado.rename("p")], axis=1).dropna()
+    if a.empty:
+        return None
+    dif = (a.e - a.p).abs().median()
+    base = a.p.abs().median()
+    rel = dif / base if base > 0 else (0 if dif == 0 else float("inf"))
+    descartar = rel > TOL_PARTE
+    num = lambda x: f"{x:.3g}".replace(".", ",") + ("%" if formato == "percentual" else "")  # noqa: E731
+    return descartar, (f"desvio mediano de {rel:.0%} em {len(a)} ano{'s' if len(a) != 1 else ''}; em "
+                       f"{int(a.index[-1])}, {num(a.e.iloc[-1])} estimado contra {num(a.p.iloc[-1])} publicado")
+
+
 # --------------------------------------------------------------------------- #
 # Principal
 # --------------------------------------------------------------------------- #
@@ -461,6 +488,13 @@ def main():
                         "razao_totais", "media_razoes", "publicado"):
             rep.error(f"{i}: regra de agregação '{ficha['aggregation']}' não reconhecida — defina `agregacao` "
                       "em config/indicadores.toml.")
+            continue
+        if it.get("leitura") not in (None, "magnitude"):
+            rep.error(f"{i}: leitura '{it['leitura']}' desconhecida (o único valor aceito é \"magnitude\").")
+            continue
+        if it.get("quebra") is not None and not (isinstance(it["quebra"], dict) and it["quebra"].get("ano")
+                                                 and it["quebra"].get("motivo")):
+            rep.error(f"{i}: `quebra` precisa de `ano` e `motivo` (ex.: {{ ano = 2025, trecho = \"…\", motivo = \"…\" }}).")
             continue
         if rule == "media_ponderada" and not peso:
             rep.error(f"{i}: média ponderada exige `peso` em config/indicadores.toml "
@@ -595,6 +629,34 @@ def main():
     est["uf"] = est.cod.map(code2uf)
     est["al"] = est.uf.isin(al_ufs)
     est["regiao"] = (est.cod // 10).map(REGIONS)
+    # valores sabidamente errados na planilha (`descartar`): saem antes de qualquer agregação, e o motivo vai para a ficha
+    niveis = {"Município": mun, "Estado": est, "Grande Região": reg, "Brasil": bra}
+    for it in items:
+        i = it["chave"]
+        for regra in it.get("descartar", []):
+            if not regra.get("motivo") or not regra.get("anos"):
+                rep.error(f"{i}: cada item de `descartar` precisa de `anos` e `motivo`.")
+                continue
+            if regra.get("nivel") and regra["nivel"] not in niveis:
+                rep.error(f"{i}: `descartar.nivel` '{regra['nivel']}' desconhecido (use um de {', '.join(niveis)}).")
+                continue
+            n = 0
+            for nivel, df in niveis.items():
+                if i not in df or regra.get("nivel", nivel) != nivel:
+                    continue
+                m = df.ano.isin(regra["anos"]) & df[i].notna()
+                if regra.get("uf"):
+                    m &= df.uf.eq(regra["uf"]) if "uf" in df else False
+                if regra.get("cod"):
+                    m &= df.cod.isin(regra["cod"] if isinstance(regra["cod"], list) else [regra["cod"]])
+                n += int(m.sum())
+                df.loc[m, i] = np.nan
+            if not n:
+                rep.warn(f"{i}: `descartar` ({regra['motivo'][:60]}…) não encontrou nenhum valor.")
+            ficha = next((f for f in fichas if f["id"] == i), None)
+            if ficha is not None:
+                ficha.setdefault("discarded", []).append({"anos": years_text(regra["anos"]), "nivel": regra.get("nivel", ""),
+                                                          "uf": regra.get("uf", ""), "motivo": regra["motivo"]})
     amz = amazonia_legal(mun, rules, minimos, rep, razoes=razoes)
     bra0 = bra.copy()  # valores do Recorte Brasil antes de qualquer ajuste (`al_de` lê daqui)
     # soma dos estados: o indicador só é divulgado para parte dos municípios, então o total da Amazônia Legal é a soma dos
@@ -638,6 +700,7 @@ def main():
     # dos municípios marcados como Amazônia Legal, com a mesma regra de agregação de cada indicador. Entra como o
     # nível "Estado (parte AL)"; o valor publicado do estado inteiro continua no nível "Estado".
     parciais = []
+    fichas_por_chave = {f["id"]: f for f in fichas}
     for uf in sorted(al_ufs):
         mu = mun[mun.uf == uf]
         if mu.al.all():
@@ -648,6 +711,27 @@ def main():
             if rule == "taxa_censo" and i in mu:
                 ano_i = int(mun.loc[mun[i].notna(), "ano"].max())
                 p[i] = p.ano.map({ano_i: taxa_censo(mu.loc[mu.al, "cod"], censo)})
+        # orientação da SUDAM (Clique): com dado municipal, o Maranhão entra só com os municípios da Amazônia Legal, e a
+        # regra é definida por indicador. Por isso a parcela só sai por decisão no config (`sem_parte_al`, com o motivo).
+        # Como conferência, a mesma regra aplicada a TODOS os municípios do estado deveria reproduzir o valor publicado
+        # dele; quando não reproduz, o build avisa (ex.: média ponderada por um peso que não é o da fonte)
+        inteiro = amazonia_legal(mu.assign(al=True), rules, minimos, Report(), e.nome, razoes).set_index("ano")
+        pub = est[est.uf == uf].set_index("ano")
+        for i, (rule, _) in rules.items():
+            if i not in p or p[i].isna().all():
+                continue
+            motivo = cfg_by_key.get(i, {}).get("sem_parte_al")  # decisão no config (ex.: série que se lê em conjunto)
+            if motivo:
+                p[i] = np.nan
+                fichas_por_chave[i]["parteAL"] = motivo
+                continue
+            if i not in pub or i not in inteiro:
+                continue
+            dif = desvio_estimativa(inteiro[i], pub[i], fichas_por_chave[i]["display"]["format"])
+            if dif is not None and dif[0]:  # só avisa: a parcela é o que a orientação manda usar quando há dado municipal
+                rep.warn(f"{i}: a regra de agregação aplicada a todos os municípios do estado ({e.nome}) não reproduz o valor "
+                         f"publicado do estado ({dif[1]}). Confira o peso; se a parcela não valer, marque `sem_parte_al` "
+                         "com o motivo.")
         p["cod"], p["nome"], p["uf"], p["regiao"], p["al"] = (int(e.cod), f"{e.nome} (parte na Amazônia Legal)", uf,
                                                            e.regiao, True)
         parciais.append(p)
