@@ -1257,6 +1257,12 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
                                   f'({_e(_fv(ik, vr))})')
             if partes:
                 frases.append("Está " + lista(partes) + ".")
+    # Amazônia Legal pela soma dos estados (dado só estadual): o Maranhão entra inteiro, e isso precisa ficar dito
+    usa_al = (ik.additive and ln.comp is not None and not zero) or (
+        not ik.magnitude and not fmt.isna(ln.refs.get(perfil.AMZ, float("nan"))) and "al" in t.op.refs)
+    if usa_al and perfil.al_por_estados(t.D, ln.k) and t.D["al_parcial"]:
+        frases.append("Aqui, a Amazônia Legal é a soma dos nove estados, com o Maranhão inteiro, porque o dado só existe "
+                      "por estado.")
     pos = t.pos(ln)
     if pos:
         plural, compl = _pares(t)

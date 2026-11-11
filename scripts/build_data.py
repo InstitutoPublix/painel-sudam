@@ -56,6 +56,12 @@ TOTAIS_EXTERNOS = {
     "ana": (ROOT / "assets" / "seguranca_hidrica_ana_municipios.csv",
             "python scripts/seguranca_hidrica_ana.py",
             {"pop_urbana": "população urbana de 2020 da planilha da ANA (Atlas Águas)"}),
+    "sinisa": (ROOT / "assets" / "populacao_urbana_sinisa_municipios.csv",
+               "python scripts/populacao_urbana_sinisa.py",
+               {"pop_urbana": "população urbana do SINISA (Diagnóstico de Resíduos Sólidos)"}),
+    "pib": (ROOT / "assets" / "valor_adicionado_municipios.csv",
+            "python scripts/valor_adicionado_ibge.py",
+            {"va_total": "valor adicionado bruto total do município (PIB dos Municípios/IBGE)"}),
 }
 # totais por grupo (ex.: uma razão por vacina) para a regra "media_razoes": a razão de cada grupo é a soma do
 # numerador ÷ a soma do denominador nos municípios do recorte, e o valor é a média simples entre os grupos
@@ -445,6 +451,7 @@ def main():
     razoes: dict[str, tuple[str, float]] = {}  # razao_totais: chave -> (indicador do numerador, fator)
     medias_razoes: dict[str, tuple[str, float]] = {}  # media_razoes: chave -> (fonte de TOTAIS_POR_GRUPO, fator)
     campos_ext: dict[str, tuple[str, str]] = {}  # totais de TOTAIS_EXTERNOS (`numerador_rais`, `peso_sim`...): chave -> (fonte, campo)
+    pesos_implicitos: dict[str, tuple[str, str]] = {}  # `peso_implicito`: peso -> (numerador, indicador); peso = numerador ÷ valor
     for it in items:
         i, ref = it["chave"], it["id"]
         if ref not in lista.index:
@@ -469,6 +476,11 @@ def main():
                 continue
             peso = f"{i}#censo"
             pesos_censo[peso] = it["peso_censo"]
+        if it.get("peso_implicito"):
+            # denominador implícito de cada município: numerador ÷ valor da razão (ex.: PIB ÷ PIB per capita = a população
+            # que o IBGE usou); a média ponderada por ele é a soma dos numeradores ÷ a soma dos denominadores
+            peso = f"{i}#implicito"
+            pesos_implicitos[peso] = (it["peso_implicito"], i)
         # totais externos: numerador e denominador da razão vêm do arquivo da fonte, só nos anos que ele tem (sem interpolar)
         for fonte, (_, _, campos) in TOTAIS_EXTERNOS.items():
             for papel in ("numerador", "peso"):
@@ -511,7 +523,7 @@ def main():
                 continue
             medias_razoes[i] = (it["razoes_de"], float(it.get("fator", 1)))
         if (peso and peso not in lista.index and peso not in chaves and peso not in pesos_coluna
-                and peso not in pesos_censo and peso not in campos_ext):
+                and peso not in pesos_censo and peso not in campos_ext and peso not in pesos_implicitos):
             rep.error(f"{i}: peso {peso} não existe na aba '{LISTA}' nem em config/indicadores.toml.")
             continue
         rules[i] = (rule, peso if rule in ("media_ponderada", "razao_totais") else None)
@@ -523,6 +535,8 @@ def main():
     weights = {p for _, p in rules.values() if p and p not in pesos_censo}  # os do Censo não vêm da planilha
     weights |= {num for num, _ in razoes.values()}  # numeradores das razões também precisam ser lidos
     weights -= set(campos_ext)  # os totais externos também não
+    weights -= set(pesos_implicitos)  # calculados depois, a partir do numerador
+    weights |= {num for num, _ in pesos_implicitos.values()}
 
     def coluna(i: str) -> str:
         """Coluna de cada entrada: `coluna` explícita, a `categoria` da ficha ("Nome — Categoria"), todas as
@@ -542,6 +556,9 @@ def main():
     wanted = {i: coluna(i) for i in [*rules, *sorted(weights - set(rules))]}
 
     def nome_peso(p: str) -> str:
+        if p in pesos_implicitos:
+            num, ind = pesos_implicitos[p]
+            return f"denominador implícito de cada município ({nome_peso(num)} ÷ {lista.loc[cfg_by_key[ind]['id'], 'Indicador']})"
         if p in pesos_censo:
             return CAMPOS_CENSO[pesos_censo[p]] + " (SIDRA/IBGE)"
         if p in campos_ext:
@@ -612,6 +629,11 @@ def main():
             p = rules[it["chave"]][1]
             anterior = mun.set_index(["cod", "ano"])[p]
             mun[p] = anterior.reindex(pd.MultiIndex.from_arrays([mun.cod, mun.ano - 1])).to_numpy()
+
+    # pesos implícitos (`peso_implicito`): numerador ÷ valor de cada município, nos anos em que os dois existem
+    for p, (num, ind) in pesos_implicitos.items():
+        if num in mun and ind in mun:
+            mun[p] = mun[num] / mun[ind].where(mun[ind] > 0)
 
     # municípios fora da malha do IBGE usada nos mapas
     try:
