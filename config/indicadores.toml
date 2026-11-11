@@ -43,9 +43,9 @@
 #                motivo = "<por que não se compara com o anterior>" }; a variação só compara anos do mesmo trecho
 #   leitura = "magnitude"  contagem ou participação que não se compara com as referências como uma taxa (ex.: rotas do
 #                estado × rotas da região; participação do estado × Brasil = 100%): sem desempenho nem placar, como os totais
-#   sem_parte_al motivo para não calcular a parcela dos estados só em parte na Amazônia Legal (o relatório usa o estado
-#                inteiro). O build já descarta sozinho a parcela quando a mesma conta, feita com todos os municípios do
-#                estado, não reproduz o valor publicado dele (desvio mediano acima de 1,5%, o limite da conferência das aproximações)
+#   sem_parte_al motivo para não calcular a parcela dos estados só em parte na Amazônia Legal (o painel e o relatório
+#                usam o estado inteiro, sinalizado). Decisão por indicador: o build só avisa quando a mesma conta, feita com
+#                todos os municípios do estado, não reproduz o valor publicado dele (desvio mediano acima de 1,5%)
 #   descartar    valores sabidamente errados na planilha, que saem antes de qualquer agregação; lista de tabelas com
 #                `anos` e `motivo` (obrigatórios) e, para restringir, `nivel` ("Município", "Estado", "Grande Região" ou
 #                "Brasil"), `uf` e `cod`. O motivo aparece na ficha do indicador (Sobre o Painel)
@@ -1044,7 +1044,6 @@ unidade = "% do valor adicionado"
 agregacao = "media_ponderada"
 peso = "IND-068"
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,3%"
-sem_parte_al = "as quatro parcelas do valor adicionado se leem juntas, e a da agropecuária só existe para o estado inteiro"
 
 [[indicador]]
 # aproximação conferida: diferença mediana 1.2% e até 2.3% em 9 de cada 10 estados-ano
@@ -1054,7 +1053,6 @@ unidade = "% do valor adicionado"
 agregacao = "media_ponderada"
 peso = "IND-068"
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,2%"
-sem_parte_al = "as quatro parcelas do valor adicionado se leem juntas, e a da agropecuária só existe para o estado inteiro"
 
 [[indicador]]
 # aproximação conferida: diferença mediana 1.1% e até 2.9% em 9 de cada 10 estados-ano
@@ -1064,7 +1062,6 @@ unidade = "% do valor adicionado"
 agregacao = "media_ponderada"
 peso = "IND-068"
 nota_agregacao = "estimativa: a planilha não traz o denominador exato; nos estados, a diferença para o valor publicado fica em torno de 1,1%"
-sem_parte_al = "as quatro parcelas do valor adicionado se leem juntas, e a da agropecuária só existe para o estado inteiro"
 
 [[indicador]]
 # soma conferida com os totais estaduais

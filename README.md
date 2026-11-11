@@ -91,9 +91,10 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   cartões e parece uma queda. Indicadores de estoque (posição no mês, como CadÚnico) não precisam.
 - **Parcela dos estados só em parte na região:** o build calcula a parte do Maranhão na Amazônia Legal com a mesma
   regra de cada indicador e, para conferir, aplica essa regra a todos os municípios do estado: se o resultado não
-  reproduz o valor publicado do estado com o mesmo limite da conferência da regra (desvio mediano até 1,5%), a
-  parcela é descartada e o painel e o relatório usam o estado inteiro, dizendo por quê. `sem_parte_al = "<motivo>"` descarta por decisão
-  (ex.: as quatro parcelas do valor adicionado, que se leem juntas).
+  reproduz o valor publicado do estado (desvio mediano acima de 1,5%, o limite da conferência da regra), o build
+  avisa. A parcela só deixa de ser usada por decisão no config, indicador a indicador: `sem_parte_al = "<motivo>"`
+  (ex.: IDEB anos finais, cujo peso inclui as outras redes); o painel e o relatório passam ao estado inteiro e dizem por
+  quê.
 - **Valores errados na planilha (`descartar`):** `descartar = [{ anos = [...], motivo = "...", nivel = "...", uf = "...",
   cod = [...] }]` tira esses valores antes de qualquer agregação (ex.: zeros que são falta de dado, um ano com
   classificação trocada na RAIS). O motivo aparece na ficha do Sobre o Painel e no texto do relatório.
@@ -174,9 +175,8 @@ Hoje, o Maranhão: 181 dos 217 municípios fazem parte da região. Além do valo
 o valor da **parcela do estado na Amazônia Legal** (nível `Estado (parte AL)`). O painel usa a parcela nas telas com
 abrangência Amazônia Legal e o estado inteiro na abrangência Brasil inteiro; a aba Perfil do Território permite alternar. Os
 indicadores publicados só para o estado todo (regra `publicado`, ex.: IDHM) ficam sem parcela e mantêm o valor do estado
-inteiro, com aviso. O mesmo vale para os indicadores em que a regra, aplicada a todos os municípios do estado, não
-reproduz o valor publicado dele (desvio mediano acima de 1,5%), e para os marcados com `sem_parte_al`. Toda tela com
-esses estados traz uma nota dizendo qual valor está em uso. Quem muda a lista de
+inteiro, com aviso. O mesmo vale para os marcados com `sem_parte_al` (decisão por indicador, como pede a orientação
+da SUDAM). Toda tela com esses estados traz uma nota dizendo qual valor está em uso. Quem muda a lista de
 municípios da região deve rodar de novo `scripts/geo_al_parcial.py` (contorno no mapa) e `scripts/build_data.py`.
 
 ## Catálogo dos indicadores (fora do repositório)

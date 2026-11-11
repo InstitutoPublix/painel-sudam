@@ -711,9 +711,10 @@ def main():
             if rule == "taxa_censo" and i in mu:
                 ano_i = int(mun.loc[mun[i].notna(), "ano"].max())
                 p[i] = p.ano.map({ano_i: taxa_censo(mu.loc[mu.al, "cod"], censo)})
-        # a mesma regra, aplicada a TODOS os municípios do estado, tem de reproduzir o valor publicado do estado inteiro;
-        # quando não reproduz (ex.: média ponderada por um peso que não é o da fonte), a estimativa da parcela também não
-        # merece confiança, e o relatório volta a mostrar o valor do estado inteiro
+        # orientação da SUDAM (Clique): com dado municipal, o Maranhão entra só com os municípios da Amazônia Legal, e a
+        # regra é definida por indicador. Por isso a parcela só sai por decisão no config (`sem_parte_al`, com o motivo).
+        # Como conferência, a mesma regra aplicada a TODOS os municípios do estado deveria reproduzir o valor publicado
+        # dele; quando não reproduz, o build avisa (ex.: média ponderada por um peso que não é o da fonte)
         inteiro = amazonia_legal(mu.assign(al=True), rules, minimos, Report(), e.nome, razoes).set_index("ano")
         pub = est[est.uf == uf].set_index("ano")
         for i, (rule, _) in rules.items():
@@ -727,12 +728,10 @@ def main():
             if i not in pub or i not in inteiro:
                 continue
             dif = desvio_estimativa(inteiro[i], pub[i], fichas_por_chave[i]["display"]["format"])
-            if dif is not None and dif[0]:
-                p[i] = np.nan
-                fichas_por_chave[i]["parteAL"] = ("a mesma conta feita com todos os municípios do estado não reproduz o "
-                                                  f"valor publicado dele ({dif[1]})")
-                rep.warn(f"{i}: parcela de {e.nome} na Amazônia Legal descartada — a regra de agregação aplicada a todos "
-                         f"os municípios do estado não reproduz o valor publicado ({dif[1]}).")
+            if dif is not None and dif[0]:  # só avisa: a parcela é o que a orientação manda usar quando há dado municipal
+                rep.warn(f"{i}: a regra de agregação aplicada a todos os municípios do estado ({e.nome}) não reproduz o valor "
+                         f"publicado do estado ({dif[1]}). Confira o peso; se a parcela não valer, marque `sem_parte_al` "
+                         "com o motivo.")
         p["cod"], p["nome"], p["uf"], p["regiao"], p["al"] = (int(e.cod), f"{e.nome} (parte na Amazônia Legal)", uf,
                                                            e.regiao, True)
         parciais.append(p)
