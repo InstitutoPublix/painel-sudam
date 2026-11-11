@@ -15,7 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src import charts, data, fmt, theme
+from src import charts, data, fmt, perfil, relatorio, theme
 from src.data import AGRUPAMENTOS, AGRUPAMENTOS_SN, LEVELS, ORDEM_CLASSES, PARTE_AL, PORTES
 
 ICON = data.ASSETS / "logos" / "emblema.png"
@@ -138,14 +138,17 @@ def state(key: str, default, options=None) -> str:
 # Abas e filtros da barra lateral (só os que a aba aberta usa)
 # --------------------------------------------------------------------------- #
 MODOS_ANO = ["Mais recente de cada indicador", "Ano específico"]
-ABAS = ["Visão Geral", "Mapa e Ranking", "Perfil do Território", "Séries Temporais", "Comparações", "Sobre o Painel"]
+ABAS = ["Visão Geral", "Mapa e Ranking", "Perfil do Território", "Séries Temporais", "Comparações", "Relatório",
+        "Sobre o Painel"]
 TERRIT = {"recorte", "uf", "porte", "grupos"}
 FILTROS = {"Visão Geral": {"ind", "ano"} | TERRIT, "Mapa e Ranking": {"ind", "ano"} | TERRIT,
            "Perfil do Território": {"ind", "ano"}, "Séries Temporais": {"ind"},
-           "Comparações": {"ind", "ano"} | TERRIT, "Sobre o Painel": set()}
+           "Comparações": {"ind", "ano"} | TERRIT, "Relatório": set(), "Sobre o Painel": set()}
 NOTAS = {"Perfil do Território": "O território é escolhido na própria página; o indicador e o ano valem nas seções Evolução, "
                       "Posição e Municípios do estado.",
          "Séries Temporais": "Os territórios são escolhidos na própria página; as séries mostram todos os anos.",
+         "Relatório": "O relatório tem as próprias opções, na página: território, comparações, indicadores e "
+                      "partes que entram.",
          "Sobre o Painel": "Esta página não usa filtros."}
 
 theme.header()
@@ -1071,58 +1074,31 @@ def comparativo(tid: str, plvl: str, uf: str | None, ref_tids: tuple, versao: st
     Amazônia Legal, Brasil) e da posição entre os pares. Devolve a tabela e a cor da última coluna.
     parte: num estado só em parte na Amazônia Legal, usa o valor da parcela na região (os indicadores que só existem
     para o estado inteiro mantêm esse valor e ganham a marca 'estado inteiro')."""
-    nomes_ref = {t: n for n, t in ref_tids}
-    comp_tid = AMZ if AMZ in nomes_ref else (ref_tids[0][1] if ref_tids else None)
-    comp_nome = nomes_ref.get(comp_tid, "")
+    # os números vêm de src/perfil.py, os mesmos do relatório em PDF; aqui só a formatação da tabela
+    comp_tid, comp_nome = perfil.referencia_principal(ref_tids)
     col_comp = f"{plvl} × {comp_nome}" if comp_tid else ""
     rows, cores = [], []
-    for k in inds or D["indicators"]:  # inds: os indicadores do eixo escolhido
-        if plvl not in D["meta"][k]["levels"]:
-            continue
-        ik = REG[k]
-        na_parcela = parte and k in D["al_parte_ind"]
-        s = data.series(D, [f"{PARTE_AL}:{tid.split(':')[1]}" if na_parcela else tid], k).dropna(subset=["valor"])
+    for ln in perfil.linhas(D, tid, plvl, uf, ref_tids, parte, inds):
+        ik = REG[ln.k]
         row = {"Indicador": charts.axis_label(ik)}
-        if s.empty:
+        if not ln.tem_dado:
             rows.append(row | {"Ano": "—"})
             cores.append("")
             continue
-        y, v = int(s.ano.iloc[-1]), float(s.valor.iloc[-1])
-        refs = data.series(D, [t for _, t in ref_tids], k)
-        refs = refs[refs.ano == y]
-        val = dict(zip(refs.tid, refs.valor))
-        row |= {"Ano": str(y), "Valor": ik.fmt(v) + (" (estado inteiro)" if parte and not na_parcela else "")}
-        if plvl in ("Estado", "Município", "Grande Região"):
-            peers = data.snapshot(D, plvl, k, y, parte_al=parte)
-            if len(peers):
-                if plvl == "Estado" and uf in D["al_ufs"]:
-                    # entre os estados da região, o Maranhão entra com a parcela (menos quando se olha o estado inteiro)
-                    pa = data.snapshot(D, plvl, k, y, parte_al=parte or uf not in PARCIAL)
-                    al = pa[pa.al.fillna(False).astype(bool)]
-                    row["Posição na Amazônia Legal"] = data.position_txt(al.valor, v, ik.polarity)
-                if plvl == "Município":
-                    no_uf = peers[peers.uf == uf]
-                    row["Posição no estado"] = data.position_txt(no_uf.valor, v, ik.polarity)
-                row["Posição no Brasil"] = data.position_txt(peers.valor, v, ik.polarity)
+        row |= {"Ano": str(ln.ano), "Valor": ik.fmt(ln.valor) + (" (estado inteiro)" if ln.estado_inteiro else "")}
+        for col, pos in (("Posição na Amazônia Legal", ln.pos_al), ("Posição no estado", ln.pos_uf),
+                         ("Posição no Brasil", ln.pos_br)):
+            if pos:
+                row[col] = perfil.pos_txt(pos)
         for n, t in ref_tids:
-            row[n] = ik.fmt(val.get(t, float("nan")))
+            row[n] = ik.fmt(ln.refs.get(t, float("nan")))
         cor = ""
-        v_ref = val.get(comp_tid, float("nan")) if comp_tid else float("nan")
         if comp_tid:
-            if ik.additive:
-                num, sufixo = v, ""
-                if plvl == "Estado" and comp_tid == AMZ and uf in PARCIAL and not al_por_estados(k):
-                    # estado só em parte na região: a participação usa só a parcela que fica nela
-                    sufixo = " (só a parte na AL)"
-                    if not na_parcela:
-                        mm = L[(L.nivel == "Município") & (L.uf == uf) & (L.ind == k) & (L.ano == y)
-                               & L.al.fillna(False).astype(bool) & L.valor.notna()]
-                        num = float(mm.valor.sum())
-                row[col_comp] = f"{fmt.pct(num / v_ref * 100)} do total{sufixo}" if v_ref and not fmt.isna(v_ref) else "—"
+            if ln.comp_tipo == "participacao":
+                row[col_comp] = f"{fmt.pct(ln.comp)} do total{ln.comp_sufixo}" if ln.comp is not None else "—"
             else:
-                dif = change(v, v_ref, ik)  # p.p. para proporções, pontos para índices, % nos demais
-                row[col_comp] = ik.fmt_diff(dif)
-                cor = {1: theme.MELHOR, -1: theme.PIOR}.get(ik.situacao(dif), "")
+                row[col_comp] = ik.fmt_diff(ln.comp)
+                cor = {1: theme.MELHOR, -1: theme.PIOR}.get(ln.situacao, "")
         rows.append(row)
         cores.append(cor)
     return pd.DataFrame(rows).fillna("—"), cores, col_comp, comp_nome
@@ -1130,6 +1106,7 @@ def comparativo(tid: str, plvl: str, uf: str | None, ref_tids: tuple, versao: st
 
 def voltar_origem():
     st.session_state["aba"] = st.session_state.pop("tr_origem", "Mapa e Ranking")
+
 
 
 with T["Perfil do Território"]:
@@ -2739,7 +2716,127 @@ with T["Comparações"]:
                            f"{visto} (correlação de Spearman = {rho_txt(rho)}, numa escala de −1 a 1).{poucos}")
 
 # =========================================================================== #
-# 8. SOBRE
+# 8. RELATÓRIO EM PDF
+# =========================================================================== #
+@st.cache_data(show_spinner=False, max_entries=16)
+def relatorio_pdf(tid: str, parte: bool, comparar: tuple, refs: tuple, inds: tuple, secoes: tuple,
+                  versao: str) -> bytes:
+    """PDF montado por src/relatorio.py; a versão da base entra na chave do cache para um PDF antigo não sobreviver a
+    uma base nova."""
+    return relatorio.gerar(D, relatorio.Opcoes(tid, parte, comparar, refs, inds, secoes))
+
+
+def ordem_eixo(e: str) -> int:
+    return int(e.split(".", 1)[0]) if e.split(".", 1)[0].isdigit() else 99
+
+
+with T["Relatório"]:
+    if T["Relatório"].open:
+        barra_filtros()
+        st.caption("Monte um relatório em PDF de um estado ou município, para imprimir ou anexar a documentos: escolha o "
+                   "território, com quem comparar, quais indicadores e quais partes entram, e gere o arquivo. Cada "
+                   "indicador vira uma ficha com o valor, um texto de leitura e gráficos da evolução e da comparação.")
+
+        # 1. território
+        theme.title("1. Território", "O relatório é sobre um estado ou um município, no último ano com dado de cada "
+                                      "indicador.")
+        r1, r2, r3 = st.columns([1, 1, 2])
+        niveis_r = ["Estado", "Município"]
+        rlvl = r1.selectbox("Tipo de território", niveis_r, key=state("w_rel_lvl", "Estado", niveis_r))
+        terr_r = data.territories(D, rlvl)
+        if rlvl == "Município":
+            ruf = r2.selectbox("UF", D["ufs"], key=state("w_rel_uf", "PA" if "PA" in D["ufs"] else D["ufs"][0], D["ufs"]))
+            lista_r = terr_r[terr_r.uf == ruf]
+        else:
+            fora_r = r2.checkbox("Incluir estados fora da Amazônia Legal", key=state("w_rel_fora", False),
+                                 help=f"Por padrão a lista traz só os {len(D['al_ufs'])} estados da Amazônia Legal.")
+            lista_r = terr_r if fora_r else terr_r[terr_r.uf.isin(D["al_ufs"])]
+        labels_r = lista_r.label.tolist()
+        pref_r = {"Município": "Belém", "Estado": "Pará"}[rlvl]
+        rsel = r3.selectbox("Território", labels_r, key=state("w_rel_terr", next(
+            (x for x in labels_r if x.startswith(pref_r)), labels_r[0]), labels_r))
+        rrow = lista_r[lista_r.label == rsel].iloc[0]
+        rtid, rcod, ruf_t = rrow.tid, int(rrow.cod), str(rrow.uf)
+        rparte = False
+        if rlvl == "Estado" and ruf_t in PARCIAL and D["al_parte_ind"]:
+            rparte = st.radio(f"{rsel} considerado como", PARTE_OPCOES, horizontal=True,
+                              key=state("w_rel_parte", PARTE_OPCOES[0], PARTE_OPCOES),
+                              help="Só uma parte do estado faz parte da Amazônia Legal. Parte na Amazônia Legal: valores "
+                                   "só dos municípios da região. Estado inteiro: o valor do estado todo.") == PARTE_OPCOES[0]
+
+        # 2. comparações
+        theme.title("2. Comparar com", "Uma "
+                    + ("UF" if rlvl == "Estado" else "município") + " à sua escolha, além das referências fixas. Ela "
+                    "aparece nos gráficos e nos textos de cada indicador, no mesmo ano. Nos totais (somas), as "
+                    "referências ficam fora dos gráficos, porque a escala delas é muito maior.")
+        c1, c2 = st.columns([2, 1])
+        pool_c = [x for x in terr_r.label.tolist() if x != rsel]
+        sem_comp = "Nenhuma (sem comparação)"
+        comp_lbl = c1.selectbox("UF selecionada para comparação" if rlvl == "Estado"
+                                else "Município selecionado para comparação (de qualquer UF)",
+                                [sem_comp, *pool_c], key=state("w_rel_comp1", sem_comp, [sem_comp, *pool_c]))
+        comp_tids = (terr_r.set_index("label").loc[comp_lbl, "tid"],) if comp_lbl != sem_comp else ()
+        refs_r = perfil.referencias(D, rlvl, rcod)
+        tipo_ref = {perfil.AMZ: "al", perfil.BRASIL: "brasil"}
+        with c2:
+            st.markdown('<div style="font-size:.875rem; margin-bottom:.35rem">Referências</div>', unsafe_allow_html=True)
+            refs_on = tuple(tipo_ref.get(t_, "acima") for n_, t_ in refs_r
+                            if st.checkbox(n_, key=state(f"w_rel_ref_{tipo_ref.get(t_, 'acima')}", True)))
+
+        # 3. indicadores
+        theme.title("3. Indicadores", "Por padrão entram todos os indicadores dos eixos escolhidos que existem para "
+                                      f"{'estados' if rlvl == 'Estado' else 'municípios'}.")
+        eixos_r = sorted({REG[k].axis for k in D["indicators"] if rlvl in D["meta"][k]["levels"]}, key=ordem_eixo)
+        sel_eixos = st.multiselect("Eixos temáticos", eixos_r, placeholder="Escolha ao menos um eixo",
+                                   key=state("w_rel_eixos", eixos_r, eixos_r))
+        modos_r = ["Todos dos eixos escolhidos", "Escolher um a um"]
+        modo_r = st.radio("Indicadores", modos_r, horizontal=True, key=state("w_rel_modo", modos_r[0], modos_r))
+        pool_i = [k for k in sorted(D["indicators"], key=lambda k: ordem_eixo(REG[k].axis))
+                  if REG[k].axis in sel_eixos and rlvl in D["meta"][k]["levels"]]
+        if modo_r == modos_r[1]:
+            inds_r = st.multiselect("Escolha os indicadores", pool_i, placeholder="Nenhum indicador escolhido",
+                                    format_func=lambda k: f"{REG[k].label} · eixo {REG[k].axis.split('.', 1)[0]}",
+                                    key=state("w_rel_inds", [], pool_i))
+        else:
+            inds_r = pool_i
+
+        # 4. partes
+        theme.title("4. O que entra no relatório", "A capa, com sumário e mapa de localização, entra sempre.")
+        cols_s = st.columns(3)
+        secoes_r = tuple(k for i, (k, (rot, ligada)) in enumerate(relatorio.SECOES.items())
+                         if cols_s[i % 3].checkbox(rot, key=state(f"w_rel_sec_{k}", ligada),
+                                                   disabled=k == "mapas" and rlvl != "Estado"))
+        if not set(relatorio.FICHA) & set(secoes_r) and "tabela" not in secoes_r:
+            st.warning("Sem texto, gráficos nem tabela, os capítulos dos eixos ficam só com o título.")
+
+        # 5. gerar e baixar
+        por_eixo = [n for n in (sum(REG[k].axis == e for k in inds_r) for e in sel_eixos) if n]
+        n_pag = relatorio.estimar_paginas(por_eixo, secoes_r, rlvl == "Estado")
+        theme.title("5. Gerar o PDF", f"{len(inds_r)} indicador{'es' if len(inds_r) != 1 else ''} em {len(por_eixo)} "
+                                      f"eixo{'s' if len(por_eixo) != 1 else ''} · cerca de {n_pag} página"
+                                      f"{'s' if n_pag != 1 else ''}. Indicadores sem dado para o território ficam "
+                                      "listados ao fim de cada eixo.")
+        chave = (rtid, rparte, comp_tids, refs_on, tuple(inds_r), secoes_r, D["manifest"]["versao"])
+        g1, g2, _ = st.columns([1, 1.6, 1.4], vertical_alignment="center")
+        if g1.button("Gerar relatório", type="primary", icon=":material/description:", disabled=not inds_r,
+                     key="rel_gerar", width="stretch"):
+            with st.spinner("Montando o relatório…"):
+                st.session_state["rel_pdf"] = (chave, relatorio_pdf(*chave))
+        guardado = st.session_state.get("rel_pdf")
+        if guardado and guardado[0] == chave:
+            pdf = guardado[1]
+            arq = re.sub(r"[^A-Za-z0-9]+", "_", unicodedata.normalize("NFKD", rsel).encode("ascii", "ignore").decode())
+            kb = f"{len(pdf) // 1024:,}".replace(",", ".")
+            g2.download_button(f"Baixar PDF · {relatorio.n_paginas(pdf)} páginas, {kb} KB",
+                               data=pdf, file_name=f"Relatorio_{arq.strip('_')}{'_parte_AL' if rparte else ''}.pdf",
+                               mime="application/pdf", on_click="ignore", icon=":material/download:", key="rel_baixar",
+                               width="stretch")
+        elif guardado:
+            g2.caption("As opções mudaram depois do último relatório gerado: clique em Gerar relatório de novo.")
+
+
+# =========================================================================== #
+# 9. SOBRE
 # =========================================================================== #
 with T["Sobre o Painel"]:
     if T["Sobre o Painel"].open:
