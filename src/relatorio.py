@@ -40,7 +40,10 @@ LARG = W - 2 * MX       # largura útil
 TOPO, RODAPE = 70, 44   # alturas reservadas ao cabeçalho e ao rodapé das páginas internas
 
 # indicadores dos números-chave do resumo (os que existirem para o território)
-CHAVE = ["IND-001", "IND-013", "IND-002", "IND-003", "IND-069", "IND-007"]
+# (uma tupla = alternativas em ordem de preferência: entra a primeira com dado para o território. IDHM: o Radar, da
+# PNAD Contínua, é mais recente, mas só existe para Brasil e estados; nos municípios entra o do Censo)
+CHAVE = ["IND-001", "IND-013", "IND-002", "IND-003", "IND-069", ("IND-007-radar", "IND-007")]
+CHAVE_IDS = {k for c in CHAVE for k in (c if isinstance(c, tuple) else (c,))}
 # indicadores dos mapas dos municípios (relatório de estado)
 MAPAS = ["IND-001", "IND-069", "IND-003", "IND-036"]
 # partes do relatório que a pessoa liga e desliga na aba Relatório: chave → (rótulo, ligada por padrão)
@@ -63,7 +66,7 @@ REFS = ("acima", "al", "brasil")  # nível acima do território (região ou esta
 class Opcoes:
     tid: str                                  # território do relatório (ex.: 'Estado:15', 'Município:1504208')
     parte: bool = False                       # estado só em parte na Amazônia Legal: usa a parcela na região
-    comparar: tuple[str, ...] = ()            # outros territórios do mesmo tipo, lado a lado nos gráficos e textos
+    comparar: tuple[str, ...] = ()            # um território do mesmo tipo, escolhido livremente (só o 1º vale)
     refs: tuple[str, ...] = REFS              # referências mostradas (ver REFS)
     inds: tuple[str, ...] | None = None       # indicadores (None: todos com dado para o território)
     secoes: tuple[str, ...] = tuple(k for k, (_, ligada) in SECOES.items() if ligada)
@@ -96,6 +99,12 @@ def de(nome: str, uf: str | None = None) -> str:
         return f"{PREP_UF.get(uf, 'de')} {nome}"
     art = ARTIGO.get(nome) or ("a" if nome.startswith("Região ") else "")
     return {"a": "da", "o": "do"}.get(art, "de") + " " + nome
+
+
+def com_artigo_uf(nome: str, uf: str | None) -> str:
+    """Nome de estado com artigo ("o Pará", "a Bahia"); estados sem artigo e municípios ficam como estão."""
+    art = {"do": "o", "da": "a"}.get(PREP_UF.get(uf, "de")) if uf else None
+    return f"{art} {nome}" if art else nome
 
 
 def lista(nomes) -> str:
@@ -244,6 +253,15 @@ class Amostra(Flowable):
         self.canv.rect(0, 0, self.lado, self.lado, stroke=0, fill=1)
 
 
+def _pct(v, *a) -> str:
+    return fmt.pct(v, *a).replace("-", "−")
+
+
+def _fv(ik, v) -> str:
+    """Valor formatado como no painel, com o sinal de menos tipográfico (−2,1%, não -2,1%)."""
+    return re.sub(r"(^|\s|\$)-(?=\d)", "\\1−", ik.fmt(v))
+
+
 def _ticks(lo: float, hi: float, n: int = 4) -> list[float]:
     """Marcas 'redondas' do eixo de valores (1, 2, 2,5 ou 5 × potência de 10) cobrindo de lo a hi."""
     if hi == lo:
@@ -283,7 +301,7 @@ class GraficoEvolucao(Flowable):
         anos = sorted({int(a) for a, _ in pts})
         vs = [v for _, v in pts]
         ticks = _ticks(min(vs), max(vs))
-        rot = [re.sub(r",0+(?!\d)", "", ik.fmt(t)) for t in ticks]  # "90%" em vez de "90,00%"
+        rot = [re.sub(r",0+(?!\d)", "", _fv(ik, t)) for t in ticks]  # "90%" em vez de "90,00%"
         esq = max(pdfmetrics.stringWidth(r, "Mont", 6) for r in rot) + 5
         x0, x1, y0, y1 = esq, self.w - 6, 12, self.h - 4
         lo, hi = ticks[0], ticks[-1]
@@ -342,7 +360,7 @@ class GraficoBarras(Flowable):
         vs = [v for _, v, _, _ in itens if not fmt.isna(v)]
         if not vs:
             return
-        rots = [ik.fmt(v) for _, v, _, _ in itens]
+        rots = [_fv(ik, v) for _, v, _, _ in itens]
         nome_w = min(90, max(pdfmetrics.stringWidth(n, "Mont-B", 6.4) for n, *_ in itens) + 8)
         val_w = max(pdfmetrics.stringWidth(r, "Mont-B", 6.4) for r in rots) + 4
         x0, x1 = nome_w, self.w - val_w
@@ -506,7 +524,10 @@ class Territorio:
         self.comp_tid, self.comp_nome = perfil.referencia_principal(self.refs)
         self.refs_vis = [(n, tt) for n, tt in self.refs if _tipo_ref(tt) in op.refs]  # as mostradas
         nomes = L[L.tid.isin(list(op.comparar))].drop_duplicates("tid").set_index("tid").label.astype(str)
-        self.comparar = [(nomes[c], c) for c in op.comparar if c in nomes.index and c != tid]
+        self.comparar = [(nomes[c], c) for c in op.comparar[:1] if c in nomes.index and c != tid]
+        # "UF selecionada para comparação": deixa claro que é uma escolha de quem monta o relatório, não um benchmark
+        self.rot_comp = ("UF selecionada para comparação" if self.plvl == "Estado"
+                         else "Município selecionado para comparação")
         # UF de cada estado citado nos textos, para a preposição ("do Pará", "de Rondônia")
         self._uf_estado = {self.nome if self.plvl == "Estado" else self.refs[0][0]: self.uf} if self.uf else {}
         if self.plvl == "Estado":
@@ -518,7 +539,7 @@ class Territorio:
         if not sel:
             raise ValueError("Nenhum indicador escolhido existe para este tipo de território.")
         self.sel = set(sel)
-        calc = tuple(k for k in D["indicators"] if k in self.sel or k in CHAVE)  # números-chave entram sempre
+        calc = tuple(k for k in D["indicators"] if k in self.sel or k in CHAVE_IDS)  # números-chave entram sempre
         self.por_k = {ln.k: ln for ln in perfil.linhas(D, tid, self.plvl, self.uf, self.refs, parte, calc)}
         self.linhas = [self.por_k[k] for k in sel]
         self.eixos = sorted({REG[k].axis for k in sel}, key=_num_eixo)
@@ -527,6 +548,18 @@ class Territorio:
         self.pos_nome = {"Estado": "entre os estados da Amazônia Legal",
                          "Município": f"entre os municípios {de(self.estado_nome, self.uf)}"
                          }.get(self.plvl, "entre os territórios do mesmo tipo no Brasil")
+
+    @property
+    def nome_art(self) -> str:
+        """Nome com artigo, para o meio de frases: "o Pará", "o Amazonas", "Rondônia", "Marabá (PA)"."""
+        return com_artigo_uf(self.titulo, self.uf if self.plvl == "Estado" else None)
+
+    def ao(self, nome: str) -> str:
+        """'ao Ceará', 'à Bahia', 'a Rondônia', 'à Amazônia Legal', 'a Marabá (PA)'."""
+        uf = self._uf_estado.get(nome)
+        if uf:
+            return {"do": "ao", "da": "à"}.get(PREP_UF.get(uf, "de"), "a") + " " + nome
+        return _ao(nome)
 
     def de(self, nome: str) -> str:
         """'do Pará', 'da Amazônia Legal', 'de Marabá (PA)'."""
@@ -666,7 +699,7 @@ class Documento(BaseDocTemplate):
         if t.comparar:
             c.setFont("Mont-B", 8.5)
             c.setFillColor(INK)
-            for linha in _quebra("Comparado com: " + " · ".join(n for n, _ in t.comparar), "Mont-B", 8.5, LARG * .55):
+            for linha in _quebra(f"{t.rot_comp}: " + t.comparar[0][0], "Mont-B", 8.5, LARG * .55):
                 c.drawString(MX, yy, linha)
                 yy -= 12
         # sumário, com as páginas da montagem anterior
@@ -717,7 +750,7 @@ class Documento(BaseDocTemplate):
             c.setFillColor(MUTED)
             c.setFont("Mont", 7)
             c.drawRightString(W - MX, RODAPE + 58, f"{rotulo} · em destaque: {t.nome}"
-                              + (" (verde-escuro) e os comparados" if t.comparar else ""))
+                              + (" (verde-escuro) e a UF selecionada" if t.comparar else ""))
         # rodapé da capa
         c.setFillColor(MUTED)
         c.setFont("Mont", 7.5)
@@ -796,7 +829,7 @@ def _fmt_var(ik, ln) -> str:
 
 def _fmt_comp(ik, ln) -> str:
     if ln.comp_tipo == "participacao":
-        return "—" if ln.comp is None else f"{fmt.pct(ln.comp)} do total{_e(ln.comp_sufixo)}"
+        return "—" if ln.comp is None else f"{_pct(ln.comp)} do total{_e(ln.comp_sufixo)}"
     if ln.comp_tipo == "diferenca":
         cor = {1: theme.MELHOR, -1: theme.PIOR}.get(ln.situacao, theme.TEXT)
         return f'<font color="{cor}"><b>{_e(ik.fmt_diff(ln.comp))}</b></font>'
@@ -804,35 +837,45 @@ def _fmt_comp(ik, ln) -> str:
 
 
 def _como_ler(t: Territorio) -> list:
-    pos = {"Estado": "entre os estados da Amazônia Legal", "Município": f"entre os municípios do estado ({t.uf})"
-           }.get(t.plvl, "entre os territórios do mesmo tipo no Brasil")
-    outros = [n for n, _ in t.comparar] + [n for n, _ in t.refs_vis]
+    """Quadro curto com cinco orientações: comparação, desempenho, indicadores sem polaridade, totais e evolução."""
+    pos = {"Estado": "os estados", "Município": "os municípios do estado"}.get(t.plvl, "os territórios do mesmo tipo")
+    refs = [com_artigo(n) for n, _ in t.refs_vis]
+    quem = ([f"uma {t.rot_comp.split(' selecionad')[0]} escolhida" if t.plvl == "Estado" else "um município escolhido"]
+            if t.comparar else []) + refs
+    comp = (f"o {'estado' if t.plvl == 'Estado' else 'território'} é comparado com {_e(lista(quem))}."
+            if quem else "o relatório não traz referências de comparação.")
+    if t.comparar:
+        comp += (f" <b>{_e(t.rot_comp)}</b> é uma escolha de quem monta o relatório, não um benchmark.")
     itens = [
-        "<b>Valor</b>: o do último ano com dado do território para cada indicador"
-        + (f"; {_e(lista(outros))} aparecem no mesmo ano." if outros else "."),
-        f"<b>Posição</b>: {pos}; 1º é a melhor situação conforme o sentido do indicador (sem sentido definido, 1º é o "
-        "maior valor). \"=\" indica empate.",
-        f"<b>Comparação</b>: para totais (somas), a participação do território no total {_e(de(t.comp_nome))}; "
-        "para taxas e médias, quanto está acima ou abaixo de cada referência, em pontos percentuais (p.p.), pontos de "
-        "índice ou %.",
-        "<b>Gráficos</b>: a linha mais grossa é o território do relatório; o Brasil aparece tracejado. Nos totais "
-        "(somas), as referências ficam fora dos gráficos, porque a escala delas é muito maior; o texto traz a "
-        "participação.",
-        "<b>Variação</b>: do primeiro ano com dado até o ano do valor. Em séries com mudança de método, só dentro do "
-        "mesmo trecho.",
-        f'<font color="{theme.MELHOR}"><b>Verde</b></font> = situação melhor; <font color="{theme.PIOR}"><b>vermelho</b>'
-        "</font> = pior, conforme o sentido do indicador. Sem cor: totais e indicadores sem sentido definido.",
+        ("Comparação", theme.INK, comp[0].upper() + comp[1:]),
+        ("Desempenho", theme.MELHOR,
+         f'<font color="{theme.MELHOR}"><b>Verde</b></font> e <font color="{theme.PIOR}"><b>vermelho</b></font> aparecem '
+         "só quando o indicador tem direção desejável definida (maior ou menor é melhor). A posição vem como "
+         "“3º de 9 em desempenho”, e o 1º é sempre a melhor situação."),
+        ("Sem polaridade", theme.MUTED,
+         f"Indicadores descritivos (população, área, composição etc.) não têm melhor nem pior. A posição vem como "
+         f"“1º maior valor entre 9” e indica apenas a magnitude entre {pos}, sem avaliar desempenho. Ficam fora do "
+         "balanço, dos destaques e das cores."),
+        ("Totais", theme.INK,
+         f"Nos indicadores de soma, a comparação com {_e(com_artigo(t.comp_nome))} é a <b>participação</b> do território no "
+         "total, e as referências ficam fora dos gráficos, porque a escala delas é muito maior. A posição dos totais "
+         "é sempre de magnitude (“1º maior valor entre 9”), mesmo quando o indicador tem direção desejável, porque "
+         "cresce com o tamanho do território."),
+        ("Evolução", theme.INK,
+         "Mostra a variação do primeiro ano com dado até o ano do valor, na série disponível. Quando há mudança de "
+         "método, só se compara dentro do mesmo trecho."),
     ]
     if t.D["al_parcial"]:
-        itens.append("<b>Amazônia Legal</b>: soma ou média dos seus municípios; "
-                     + "; ".join(f"{_e(u)} entra com {a} de {n} municípios" for u, (a, n) in t.D["al_parcial"].items())
-                     + ".")
-    caixa = Table([[_p("Como ler este relatório", "h2")]] + [[_p("• " + i, "pm")] for i in itens],
-                  colWidths=[LARG])
-    caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C("#F3EFDE")), ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                               ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-                               ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
-                               ("TOPPADDING", (0, 0), (-1, 0), 2)]))
+        itens.append(("Amazônia Legal", theme.INK,
+                      "Soma ou média dos seus municípios; " + "; ".join(
+                          f"{_e(u)} entra com {a} de {n} municípios" for u, (a, n) in t.D["al_parcial"].items()) + "."))
+    linhas = [[_p(f'<font color="{c}"><b>{_e(r)}</b></font>', "celb"), _p(x, "pm")] for r, c, x in itens]
+    caixa = Table([[_p("Como ler este relatório", "h2"), ""]] + linhas, colWidths=[78, LARG - 78])
+    caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C("#F3EFDE")), ("SPAN", (0, 0), (1, 0)),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 1), (-1, -1), 3),
+                               ("BOTTOMPADDING", (0, 1), (-1, -1), 3), ("BOTTOMPADDING", (0, -1), (-1, -1), 9),
+                               ("LINEBELOW", (0, 1), (-1, -2), .4, C("#E3DDC5"))]))
     return [Spacer(1, 8), KeepTogether([caixa])]
 
 
@@ -842,28 +885,33 @@ def _resumo(t: Territorio) -> list:
     if not {"resumo", "destaques", "como_ler"} & set(sec):
         return []
     com = [ln for ln in t.linhas if ln.tem_dado]
-    outros = [n for n, _ in t.comparar] + [com_artigo(n) for n, _ in t.refs_vis]
+    outros = [com_artigo(n) for n, _ in t.refs_vis]
     out = [Marca("resumo"), _p("Resumo", "h1"),
            _p(f"Este relatório reúne <b>{len(com)} indicador{'es' if len(com) != 1 else ''}</b> do painel com dado "
-              f"para <b>{_e(t.titulo)}</b>, em {len(t.eixos)} eixo{'s' if len(t.eixos) != 1 else ''} temático"
+              f"para <b>{_e(t.nome_art)}</b>, em {len(t.eixos)} eixo{'s' if len(t.eixos) != 1 else ''} temático"
               f"{'s' if len(t.eixos) != 1 else ''} do PRDA. Cada indicador aparece no último ano com dado do território"
-              + (f" e é comparado com {_e(lista(outros))}." if outros else "."))]
+              + (f" e é comparado com {_e(lista(outros))}." if outros else ".")
+              + (f" <b>{_e(t.rot_comp)}: {_e(t.comparar[0][0])}</b>, escolha de quem montou o relatório, e não um "
+                 "benchmark nem um território considerado semelhante." if t.comparar else ""))]
     if "resumo" not in sec:
         return out + (_destaques(t) if "destaques" in sec else []) + (_como_ler(t) if "como_ler" in sec else [])
     # números-chave
     cartoes = []
-    for k in CHAVE:
-        ln = t.por_k.get(k)
-        if not ln or not ln.tem_dado:
+    for c in CHAVE:
+        k = next((x for x in (c if isinstance(c, tuple) else (c,)) if t.por_k.get(x) and t.por_k[x].tem_dado), None)
+        if k is None:
             continue
+        ln = t.por_k[k]
         ik = REG[k]
         if ik.additive and ln.comp is not None:
-            sub = f"{ln.ano} · {fmt.pct(ln.comp)} do total {de(t.comp_nome)}"
+            sub = f"{ln.ano} · {_pct(ln.comp)} do total {de(t.comp_nome)}"
         else:
-            refs = [f"{n.replace('Amazônia Legal', 'AL')}: {ik.fmt(ln.refs[tt])}" for n, tt in t.refs
+            refs = [f"{n.replace('Amazônia Legal', 'AL')}: {_fv(ik, ln.refs[tt])}" for n, tt in t.refs
                     if n in ("Amazônia Legal", "Brasil") and not fmt.isna(ln.refs.get(tt, float("nan")))]
             sub = f"{ln.ano} · " + " · ".join(refs)
-        cartoes.append([_p(_e(ik.label.upper()), "kl"), _p(_e(ik.fmt(ln.valor)), "kv"), _p(_e(sub), "ks")])
+        if ln.estado_inteiro:  # parte na Amazônia Legal pedida, mas o indicador só existe para o estado todo
+            sub += " · estado inteiro"
+        cartoes.append([_p(_e(ik.label.upper()), "kl"), _p(_e(_fv(ik, ln.valor)), "kv"), _p(_e(sub), "ks")])
     if cartoes:
         n_col = 3
         cel = [Table([[x] for x in c], colWidths=[LARG / n_col - 14]) for c in cartoes]
@@ -880,9 +928,13 @@ def _resumo(t: Territorio) -> list:
         tg.setStyle(TableStyle(estilo))
         out += [_p("Números-chave", "h2"), tg]
 
-    # placar por eixo
-    linhas = [[_p("Eixo temático", "cab"), _p("Indicadores com dado", "cabr"),
-               _p(f"Melhor / pior que {_e(t.comp_nome)}", "cab"), "", _p("Melhor / pior que o Brasil", "cab"), ""]]
+    # placar por eixo: melhor | pior | sem classificação de desempenho, para a Amazônia Legal e para o Brasil
+    sem = _p("Sem classif.", "cabr")
+    cab1 = [_p("Eixo temático", "cab"), _p("Indic. com dado", "cabr"),
+            _p(f"Em relação {_e(_ao(t.comp_nome))}", "cab"), "", "", "",
+            _p("Em relação ao Brasil", "cab"), "", "", ""]
+    cab2 = ["", "", "", _p("Melhor", "cabr"), _p("Pior", "cabr"), sem, "", _p("Melhor", "cabr"), _p("Pior", "cabr"), sem]
+    linhas = [cab1, cab2]
     for eixo in t.eixos:
         ls = [ln for ln in t.do_eixo(eixo) if ln.tem_dado]
         if not ls:
@@ -890,22 +942,31 @@ def _resumo(t: Territorio) -> list:
         sa = [ln.situacao for ln in ls]
         sb = [_sit_brasil(REG[ln.k], ln) for ln in ls]
         linha = [_p(_e(eixo), "cel"), _p(str(len(ls)), "celr")]
-        for s in (sa, sb):
-            m, p = s.count(1), s.count(-1)
-            linha += [BarraPlacar(m, p, len(s) - m - p, 70),
-                      _p(f'<font color="{theme.MELHOR}"><b>{m}</b></font> / <font color="{theme.PIOR}"><b>{p}</b></font>',
-                         "cel")]
+        for sit in (sa, sb):
+            m, pi = sit.count(1), sit.count(-1)
+            n0 = len(sit) - m - pi
+            linha += [BarraPlacar(m, pi, n0, 52),
+                      _p(f'<font color="{theme.MELHOR}"><b>{m}</b></font>', "celr"),
+                      _p(f'<font color="{theme.PIOR}"><b>{pi}</b></font>', "celr"),
+                      _p(f'<font color="{theme.MUTED}"><b>{n0}</b></font>', "celr")]
         linhas.append(linha)
-    tp = Table(linhas, colWidths=[LARG - 62 - 2 * 118, 62, 78, 40, 78, 40], repeatRows=1)
-    tp.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), INK), ("SPAN", (2, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
-                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+    larg_g = 52 + 3 * 30
+    tp = Table(linhas, colWidths=[LARG - 44 - 2 * larg_g, 44] + [52, 30, 30, 30] * 2, repeatRows=2)
+    tp.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 1), INK), ("SPAN", (2, 0), (5, 0)), ("SPAN", (6, 0), (9, 0)),
+                            ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)),
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ROWBACKGROUNDS", (0, 2), (-1, -1),
                                                                      [colors.white, C("#FBF8EE")]),
-                            ("LINEBELOW", (0, 1), (-1, -1), .4, LINHA), ("TOPPADDING", (0, 0), (-1, -1), 3),
-                            ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+                            ("LINEBELOW", (0, 2), (-1, -1), .4, LINHA), ("TOPPADDING", (0, 0), (-1, -1), 3),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 3), ("LINEBEFORE", (2, 0), (2, -1), .6, colors.white),
+                            ("LINEBEFORE", (6, 0), (6, -1), .6, colors.white)]))
     out += [_p("Placar por eixo", "h2"),
-            _p("Quantos indicadores do eixo estão em situação melhor ou pior que a referência, conforme o sentido de "
-               "cada um. A parte bege da barra são os totais e os indicadores sem sentido definido, que não entram "
-               "nessa conta.", "pm"), Spacer(1, 4), tp]
+            _p("Balanço de desempenho: <b>melhor situação</b>, <b>pior situação</b> e <b>sem classificação de "
+               "desempenho</b>. Esta última reúne os totais e os indicadores sem polaridade definida (população, área, "
+               "composição etc.) e também os indicadores <b>sem valor da referência</b> (ex.: os da PNAD Contínua, "
+               "que não têm valor agregado para a Amazônia Legal) ou que não diferem dela. Todos continuam analisados "
+               "nas fichas de cada eixo, mas não entram no balanço.", "pm"),
+            Spacer(1, 4), tp]
     return out + (_destaques(t) if "destaques" in sec else []) + (_como_ler(t) if "como_ler" in sec else [])
 
 
@@ -923,8 +984,8 @@ def _destaques(t: Territorio) -> list:
     def destaques(itens, vazio):
         if not itens:
             return [_p(vazio, "pm")]
-        return [_p(f"<b>{_e(REG[ln.k].label)}</b>: {_e(REG[ln.k].fmt(ln.valor))} em {ln.ano} · "
-                   f"{_e(perfil.pos_txt(pos))}", "cel") for _, ln, pos in itens]
+        return [_p(f"<b>{_e(REG[ln.k].label)}</b>: {_e(_fv(REG[ln.k], ln.valor))} em {ln.ano} · "
+                   f"{_e(_pos(REG[ln.k], pos))}", "cel") for _, ln, pos in itens]
 
     td = Table([[_p(f'<font color="{theme.MELHOR}">Pontos fortes</font>', "h2"),
                  _p(f'<font color="{theme.PIOR}">Pontos de atenção</font>', "h2")],
@@ -933,7 +994,7 @@ def _destaques(t: Territorio) -> list:
     td.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                             ("RIGHTPADDING", (0, 0), (0, -1), 12)]))
     return [KeepTogether([_p("Destaques", "h2"),
-                          _p(f"Taxas e médias em que {_e(t.titulo)} está entre as melhores ou as piores posições "
+                          _p(f"Taxas e médias em que {_e(t.nome_art)} está entre as melhores ou as piores posições "
                              f"{_e(t.pos_nome)} (terço de cima e de baixo do ranking). Totais e indicadores sem sentido "
                              "definido não entram.", "pm"), Spacer(1, 2), td])]
 
@@ -942,7 +1003,7 @@ def _colunas(t: Territorio):
     """(cabeçalho, largura, alinhamento) de cada coluna da tabela dos eixos."""
     refs = [(n.replace("Região ", ""), 46) for n, _ in t.refs_vis]
     pos = {"Estado": "Posição na AL", "Município": "Posição no estado"}.get(t.plvl, "Posição no Brasil")
-    fixas = [("Ano", 27)] + [("Valor", 49)] + refs + [(pos, 47), (f"× {t.comp_nome}", 52), ("Variação", 52),
+    fixas = [("Ano", 27)] + [("Valor", 49)] + refs + [(pos, 58), (f"× {t.comp_nome}", 52), ("Variação", 52),
                                                        ("Evolução", 38)]
     return [("Indicador", LARG - sum(w for _, w in fixas))] + fixas
 
@@ -965,7 +1026,7 @@ def _eixo(t: Territorio, eixo: str) -> list:
     out = [Marca(f"eixo:{eixo}"), faixa, Spacer(1, 6)]
     desc = _desc_eixo(D, eixo)
     sa = [ln.situacao for ln in com]
-    resumo = (f"{len(com)} indicador{'es' if len(com) != 1 else ''} com dado para {_e(t.titulo)}"
+    resumo = (f"{len(com)} indicador{'es' if len(com) != 1 else ''} com dado para {_e(t.nome_art)}"
               + (f' · <font color="{theme.MELHOR}"><b>{sa.count(1)}</b> melhor{"es" if sa.count(1) != 1 else ""}</font> e '
                  f'<font color="{theme.PIOR}"><b>{sa.count(-1)}</b> pior{"es" if sa.count(-1) != 1 else ""}</font> que '
                  f"{_e(com_artigo(t.comp_nome))}" if any(sa) else "") + ".")
@@ -976,13 +1037,13 @@ def _eixo(t: Territorio, eixo: str) -> list:
         linhas = [cab]
         for ln in com:
             ik = REG[ln.k]
-            valor = _e(ik.fmt(ln.valor)) + ('<br/><font size="5.6" color="%s">estado inteiro</font>' % theme.MUTED
+            valor = _e(_fv(ik, ln.valor)) + ('<br/><font size="5.6" color="%s">estado inteiro</font>' % theme.MUTED
                                             if ln.estado_inteiro else "")
             pos = t.pos(ln)
             linha = [[_p(f"<b>{_e(ik.label)}</b>", "cel"), _p(_e(ik.unit), "celm")], _p(str(ln.ano), "celr"),
                      _p(f"<b>{valor}</b>", "celr")]
-            linha += [_p(_e(ik.fmt(ln.refs.get(tt, float("nan")))), "celr") for _, tt in t.refs_vis]
-            linha += [_p(_e(perfil.pos_txt(pos)) if pos else "—", "celr"), _p(_fmt_comp(ik, ln), "celr"),
+            linha += [_p(_e(_fv(ik, ln.refs.get(tt, float("nan")))), "celr") for _, tt in t.refs_vis]
+            linha += [_p(_e(_pos(ik, pos)) if pos else "—", "celr"), _p(_fmt_comp(ik, ln), "celr"),
                       _p(_fmt_var(ik, ln), "celr"),
                       Minigrafico(ln.serie.ano, ln.serie.valor, cols[-1][1] - 6) if len(ln.serie) > 1
                       else _p("—", "celc")]
@@ -999,13 +1060,70 @@ def _eixo(t: Territorio, eixo: str) -> list:
         out += [_ficha(t, ln) for ln in com]
     notas = []
     if sem:
-        notas.append(f"<b>Sem dado para {_e(t.titulo)}</b>: {_e('; '.join(sem))}.")
+        notas.append(f"<b>Sem dado para {_e(t.nome_art)}</b>: {_e('; '.join(sem))}.")
     if fora:
         nivel = {"Estado": "estados", "Município": "municípios", "Grande Região": "Grandes Regiões"}.get(t.plvl, "este nível")
         notas.append(f"<b>Não existem para {nivel}</b>: {_e('; '.join(fora))}.")
     if notas:
         out += [Spacer(1, 6)] + [_p(x, "pm") for x in notas]
     return out
+
+
+def _desempenho(ik) -> bool:
+    """O ranking do indicador é de desempenho: tem direção desejável e não é um total (soma). Nos totais, a posição
+    acompanha o tamanho do território (o estado mais populoso tem mais leitos, vínculos, casos...), então é lida como
+    magnitude, mesmo quando o indicador tem polaridade."""
+    return bool(ik.polarity) and not ik.additive
+
+
+def _pos(ik, pos) -> str:
+    """Posição conforme a natureza do indicador: de desempenho, "3º de 9 em desempenho"; descritivos e totais, só de
+    magnitude ("1º maior valor entre 9"), para não ser lida como "melhor". A ordem de magnitude é sempre do maior para
+    o menor valor."""
+    p, emp, n = pos
+    n_txt = f"{n:,}".replace(",", ".")
+    if _desempenho(ik):
+        return f"{'=' if emp > 1 else ''}{p}º de {n_txt} em desempenho"
+    if ik.polarity < 0:  # a posição do perfil conta do menor para o maior: reordena do maior para o menor
+        p = n - p - emp + 2
+    return f"{'=' if emp > 1 else ''}{p}º maior valor entre {n_txt}"
+
+
+def _categoria(ik) -> tuple[str, str]:
+    """(rótulo curto, cor) da leitura do indicador: maior = melhor, menor = melhor, total (magnitude) ou sem
+    polaridade (descritivo)."""
+    if ik.additive:
+        return "Total (soma) · leitura de magnitude", theme.MUTED
+    if ik.polarity > 0:
+        return "Maior valor = melhor situação", theme.MELHOR
+    if ik.polarity < 0:
+        return "Menor valor = melhor situação", theme.MELHOR
+    return "Sem polaridade · leitura descritiva", theme.MUTED
+
+
+def _dif(ik, v: float, vr: float) -> tuple[str, float] | None:
+    """Texto da diferença de v para vr ("3,3 p.p. acima", "23,1% abaixo", "12 vezes o valor") e o sinal dela, para a
+    cor; None quando os dois aparecem iguais no relatório. A variação % fica de fora quando a base é quase nula: com o
+    valor 10 vezes maior (ou mais), vira "N vezes o valor"; com base zero, "sem registro"."""
+    if fmt.isna(v) or fmt.isna(vr) or _fv(ik, v) == _fv(ik, vr):
+        return None
+    d = ik.diff(v, vr)
+    if ik.delta == "pct" and (v < 0 or vr < 0):  # % sobre base negativa não tem leitura: diferença em valor
+        return f"{_fv(ik, abs(v - vr))} {'acima' if v > vr else 'abaixo'}", v - vr
+    if ik.delta == "pct":
+        if vr == 0:
+            return ("com valor, onde a referência registra zero", d if not fmt.isna(d) else 1)
+        if v > 0 and vr > 0 and v / vr >= 10:
+            return (f"{fmt.num(v / vr, 0 if v / vr >= 100 else 1)} vezes o valor", 1)
+        if v > 0 and vr > 0 and vr / v >= 10:
+            return (f"{_pct(v / vr * 100)} do valor", -1)
+    # casas decimais suficientes para a diferença não sair "0,0" quando os valores mostrados diferem
+    dec = ik.diff_decimals
+    while round(abs(d), dec) == 0 and dec < 4:
+        dec += 1
+    num = fmt.num(abs(d), dec)
+    txt = f"{num}%" if ik.delta == "pct" else f"{num}\u00a0{ik.delta_unit}"
+    return f"{txt} {'acima' if d > 0 else 'abaixo'}", d
 
 
 def _ao(nome: str) -> str:
@@ -1021,7 +1139,7 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
         frases.append("Valor do estado inteiro: o indicador não existe só para a parte na Amazônia Legal.")
     if ik.additive:
         if ln.comp is not None and _tipo_ref(t.comp_tid or "") in t.op.refs:
-            frases.append(f"Corresponde a <b>{fmt.pct(ln.comp)} do total</b> {_e(de(t.comp_nome))}"
+            frases.append(f"Corresponde a <b>{_pct(ln.comp)} do total</b> {_e(de(t.comp_nome))}"
                           f"{_e(ln.comp_sufixo)}.")
     else:
         partes = []
@@ -1029,37 +1147,64 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
             vr = ln.refs.get(tt, float("nan"))
             if fmt.isna(vr):
                 continue
-            d = ik.diff(ln.valor, vr)
-            if fmt.isna(d) or round(d, ik.diff_decimals) == 0:
-                partes.append(f"igual {_e(_ao(n))} ({_e(ik.fmt(vr))})")
+            dif = _dif(ik, ln.valor, vr)
+            if dif is None:
+                partes.append(f"igual {_e(t.ao(n))} ({_e(_fv(ik, vr))})")
             else:
-                partes.append(f'<font color="{cor(ik.situacao(d))}"><b>{_e(ik.fmt_diff(abs(d)).lstrip("+"))} '
-                              f'{"acima" if d > 0 else "abaixo"}</b></font> {_e(t.de(n))} ({_e(ik.fmt(vr))})')
+                txt, d = dif
+                if txt.startswith("com valor"):  # a referência registra zero: sem % sobre base nula
+                    partes.append(f"com valor, enquanto {_e(com_artigo(n))} registra zero")
+                else:
+                    partes.append(f'<font color="{cor(ik.situacao(d))}"><b>{_e(txt)}</b></font> {_e(t.de(n))} '
+                                  f'({_e(_fv(ik, vr))})')
         if partes:
             frases.append("Está " + lista(partes) + ".")
     pos = t.pos(ln)
     if pos:
-        regra = "1º = melhor situação" if ik.polarity else "1º = maior valor"
-        frases.append(f"Posição <b>{_e(perfil.pos_txt(pos))}</b> {_e(t.pos_nome)} ({regra}).")
+        if _desempenho(ik):
+            frases.append(f"Posição <b>{_e(_pos(ik, pos))}</b> {_e(t.pos_nome)} (1º = melhor situação).")
+        else:  # descritivo ou total: a posição é só de tamanho, sem juízo de desempenho
+            frases.append(f"Posição <b>{_e(_pos(ik, pos))}</b>, comparando {_e(t.pos_nome.replace('entre ', '', 1))}: "
+                          "indica só a magnitude, não melhor ou pior desempenho"
+                          + (", porque os totais crescem com o tamanho do território." if ik.additive else "."))
     if not fmt.isna(ln.variacao):
         r = round(ln.variacao, ik.diff_decimals)
-        seta = "▲" if r > 0 else "▼" if r < 0 else "="
-        frases.append(f'Desde {ln.ano0}, variou <font color="{cor(ik.situacao(ln.variacao))}"><b>{seta} '
-                      f"{_e(ik.fmt_diff(ln.variacao))}</b></font>.")
+        sit = cor(ik.situacao(ln.variacao))
+        if r == 0:
+            frases.append(f"Desde {ln.ano0}, ficou estável ({_e(ik.fmt_diff(0))}).")
+        elif ik.delta == "pct" and (ln.valor0 <= 0 or ln.valor < 0):  # % sobre base nula/negativa: os dois valores
+            sit = cor(ik.situacao(1 if ln.valor > ln.valor0 else -1))
+            frases.append(f'Desde {ln.ano0}, passou de {_e(_fv(ik, ln.valor0))} para <font color="{sit}"><b>'
+                          f"{_e(_fv(ik, ln.valor))}</b></font>.")
+        elif ik.delta == "pct" and ln.valor0 > 0 and ln.valor / ln.valor0 >= 10:  # base quase nula: em vezes
+            frases.append(f'Desde {ln.ano0}, <font color="{sit}"><b>multiplicou-se por '
+                          f"{fmt.num(ln.valor / ln.valor0, 0 if ln.valor / ln.valor0 >= 100 else 1)}</b></font>.")
+        else:
+            seta = "▲" if r > 0 else "▼"
+            frases.append(f'Desde {ln.ano0}, variou <font color="{sit}"><b>{seta} '
+                          f"{_e(ik.fmt_diff(ln.variacao).replace('-', '−'))}</b></font>.")
+    elif ln.ano0 is not None and ln.ano0 < ln.ano and ln.valor0 == 0:  # base zero: sem %, os dois valores
+        frases.append(f"Desde {ln.ano0}, passou de {_e(_fv(ik, 0))} para <b>{_e(_fv(ik, ln.valor))}</b>.")
     elif ln.ano0 == ln.ano:
         frases.append("Só há um ano com dado comparável para o território.")
     comp = {n: v for n, v in valores.items() if not fmt.isna(v)}
     if len(comp) > 2:
         hi, lo = max(comp, key=comp.get), min(comp, key=comp.get)
-        frases.append(f"Entre os territórios comparados, o maior valor é {_e(t.de(hi))} ({_e(ik.fmt(comp[hi]))}) e o "
-                      f"menor, {_e(t.de(lo))} ({_e(ik.fmt(comp[lo]))}).")
+        frases.append(f"Entre os territórios comparados, o maior valor é {_e(t.de(hi))} ({_e(_fv(ik, comp[hi]))}) e o "
+                      f"menor, {_e(t.de(lo))} ({_e(_fv(ik, comp[lo]))}).")
     elif len(comp) == 2:
         (n1, v1), (n2, v2) = comp.items()
-        d = ik.diff(v1, v2)
-        if not fmt.isna(d) and round(d, ik.diff_decimals):
-            frases.append(f"Em relação a {_e(n2)} ({_e(ik.fmt(v2))}), está <b>{_e(ik.fmt_diff(abs(d)).lstrip('+'))} "
-                          f"{'acima' if d > 0 else 'abaixo'}</b>.")
-    return " ".join(frases)
+        dif = _dif(ik, v1, v2)
+        if dif is None:
+            frases.append(f"Igual {_e(t.ao(n2))} ({_e(_fv(ik, v2))}).")
+        elif dif[0].startswith("com valor"):
+            frases.append(f"{_e(n2)} registra zero.")
+        elif " vezes " in dif[0] or dif[0].endswith(" do valor"):
+            frases.append(f"Equivale a <b>{_e(dif[0])}</b> {_e(t.de(n2))} ({_e(_fv(ik, v2))}).")
+        else:
+            frases.append(f"Em relação {_e(t.ao(n2))} ({_e(_fv(ik, v2))}), está <b>{_e(dif[0])}</b>.")
+    texto = " ".join(frases)
+    return re.sub(r"(p\.p\.)((?:</[a-z]+>)*)\.", r"\1\2", texto)  # sem "p.p.." no fim das frases
 
 
 def _ficha(t: Territorio, ln) -> Flowable:
@@ -1076,8 +1221,10 @@ def _ficha(t: Territorio, ln) -> Flowable:
     no_ano = dict(zip(ult.tid, ult.valor))  # valor de cada um no ano do relatório
     valores = {n: no_ano.get(tid, float("nan")) for n, tid, *_ in quem[:1 + len(t.comparar)]}
 
-    valor = _e(ik.fmt(ln.valor))
-    cab = Table([[[_p(f"<b>{_e(ik.label)}</b>", "fn"), _p(_e(ik.unit), "fu")],
+    valor = _e(_fv(ik, ln.valor))
+    cat, cat_cor = _categoria(ik)
+    cab = Table([[[_p(f"<b>{_e(ik.label)}</b>", "fn"),
+                   _p(f'{_e(ik.unit)} · <font color="{cat_cor}"><b>{cat}</b></font>', "fu")],
                   _p(f'<font name="Mont-XB" size="15" color="{theme.INK}">{valor}</font>'
                      f'<font size="7" color="{theme.MUTED}">  {ln.ano}</font>', "fv")]],
                 colWidths=[LARG - 24 - 150, 150])
@@ -1148,7 +1295,7 @@ def _mapas_municipios(t: Territorio) -> list:
         faixas = data.band_ranges(s)
         n_f = max(int(b.max()), 1)
         leg = [[Amostra(SEQ[min(i * (len(SEQ) - 1) // n_f, len(SEQ) - 1)]),
-                _p(f"{_e(ik.fmt(lo))} a {_e(ik.fmt(hi))} <font color='{theme.MUTED}'>({n})</font>", "celm")]
+                _p(f"{_e(_fv(ik, lo))} a {_e(_fv(ik, hi))} <font color='{theme.MUTED}'>({n})</font>", "celm")]
                for i, (lo, hi, n) in enumerate(faixas)]
         tl = Table(leg, colWidths=[12, LARG / 2 - 40])
         tl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),

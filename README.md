@@ -240,8 +240,8 @@ indicadores municipais de um eixo:
 ### Relatório: PDF de um estado ou município (protótipo)
 A aba **Relatório** monta um PDF A4 para imprimir ou anexar. A pessoa escolhe:
 1. **Território:** um estado (o Maranhão pode ser só a parte na Amazônia Legal) ou um município;
-2. **Comparar com:** até 4 outros territórios do mesmo tipo, e quais referências entram (nível acima, Amazônia
-   Legal, Brasil);
+2. **Comparar com:** uma única UF (ou município) à escolha, rotulada "UF selecionada para comparação", e quais
+   referências entram (nível acima, Amazônia Legal, Brasil);
 3. **Indicadores:** os eixos e, se quiser, os indicadores um a um;
 4. **Partes:** resumo (números-chave e placar por eixo), pontos fortes e de atenção, "Como ler", texto de leitura,
    gráfico da evolução e gráfico de comparação de cada indicador, tabela-resumo do eixo (desligada por padrão),
@@ -254,7 +254,7 @@ segundos) e fica em cache pelas opções escolhidas e pela versão da base.
 - Os números vêm de `src/perfil.py`, o mesmo cálculo da tabela do Resumo do Perfil do Território: o painel e o PDF
   mostram os mesmos valores. O layout está em `src/relatorio.py` (reportlab, só Python: gráficos e mapas em vetor,
   fonte Montserrat de `assets/fonts/`).
-- Pelo terminal: `python scripts/relatorio.py "Pará" --comparar "Amazonas" "Tocantins" --eixos 1 4`,
+- Pelo terminal: `python scripts/relatorio.py "Pará" --comparar "Amazonas" --eixos 1 4`,
   `python scripts/relatorio.py "Marabá (PA)" --tabela -o maraba.pdf` ou `python scripts/relatorio.py "Maranhão" --parte`.
 
 ## Estrutura

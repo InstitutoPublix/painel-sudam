@@ -2,7 +2,7 @@
 
 Exemplos:
   python scripts/relatorio.py "Pará"
-  python scripts/relatorio.py "Pará" --comparar "Amazonas" "Tocantins" --eixos 1 4
+  python scripts/relatorio.py "Pará" --comparar "Amazonas" --eixos 1 4
   python scripts/relatorio.py "Marabá (PA)" -o maraba.pdf --tabela
   python scripts/relatorio.py "Maranhão" --parte        # só a parte do estado na Amazônia Legal
   python scripts/relatorio.py Estado:15                 # pelo código
@@ -42,7 +42,7 @@ def main():
     ap.add_argument("territorio")
     ap.add_argument("-o", "--saida")
     ap.add_argument("--parte", action="store_true", help="estado só em parte na Amazônia Legal: usa a parcela na região")
-    ap.add_argument("--comparar", nargs="*", default=[], help="outros territórios do mesmo tipo (até 4)")
+    ap.add_argument("--comparar", default=None, help="um território do mesmo tipo para comparar (ex.: outra UF)")
     ap.add_argument("--eixos", nargs="*", type=int, default=[], help="números dos eixos (padrão: todos)")
     ap.add_argument("--tabela", action="store_true", help="inclui a tabela-resumo no início de cada eixo")
     a = ap.parse_args()
@@ -51,7 +51,7 @@ def main():
     REG = D["registry"]
     inds = (tuple(k for k in D["indicators"] if int(REG[k].axis.split(".")[0]) in a.eixos) if a.eixos else None)
     secoes = relatorio.Opcoes(tid).secoes + (("tabela",) if a.tabela else ())
-    op = relatorio.Opcoes(tid, a.parte, tuple(achar(D, c) for c in a.comparar[:4]), inds=inds, secoes=secoes)
+    op = relatorio.Opcoes(tid, a.parte, ((achar(D, a.comparar),) if a.comparar else ()), inds=inds, secoes=secoes)
     t0 = time.time()
     pdf = relatorio.gerar(D, op)
     saida = Path(a.saida or f"relatorio_{tid.replace(':', '_').replace(' ', '_')}.pdf")

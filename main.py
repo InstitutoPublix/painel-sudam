@@ -2765,15 +2765,17 @@ with T["Relatório"]:
                                    "só dos municípios da região. Estado inteiro: o valor do estado todo.") == PARTE_OPCOES[0]
 
         # 2. comparações
-        theme.title("2. Comparar com", "Os territórios escolhidos aparecem nos gráficos e nos textos de cada indicador, "
-                                       "no mesmo ano. Nos totais (somas), as referências ficam fora dos gráficos, porque "
-                                       "a escala delas é muito maior.")
+        theme.title("2. Comparar com", "Uma "
+                    + ("UF" if rlvl == "Estado" else "município") + " à sua escolha, além das referências fixas. Ela "
+                    "aparece nos gráficos e nos textos de cada indicador, no mesmo ano. Nos totais (somas), as "
+                    "referências ficam fora dos gráficos, porque a escala delas é muito maior.")
         c1, c2 = st.columns([2, 1])
         pool_c = [x for x in terr_r.label.tolist() if x != rsel]
-        tipo_c = "estados" if rlvl == "Estado" else "municípios (de qualquer UF)"
-        comp_lbl = c1.multiselect(f"Outros {tipo_c}, até 4", pool_c, max_selections=4, placeholder="Nenhum",
-                                  key=state("w_rel_comp", [], pool_c))
-        comp_tids = tuple(terr_r.set_index("label").loc[comp_lbl, "tid"]) if comp_lbl else ()
+        sem_comp = "Nenhuma (sem comparação)"
+        comp_lbl = c1.selectbox("UF selecionada para comparação" if rlvl == "Estado"
+                                else "Município selecionado para comparação (de qualquer UF)",
+                                [sem_comp, *pool_c], key=state("w_rel_comp1", sem_comp, [sem_comp, *pool_c]))
+        comp_tids = (terr_r.set_index("label").loc[comp_lbl, "tid"],) if comp_lbl != sem_comp else ()
         refs_r = perfil.referencias(D, rlvl, rcod)
         tipo_ref = {perfil.AMZ: "al", perfil.BRASIL: "brasil"}
         with c2:
