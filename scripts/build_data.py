@@ -385,21 +385,22 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
     return out
 
 
-TOL_PARTE = 0.05  # desvio relativo (mediana dos anos) tolerado entre a estimativa do estado inteiro e o valor publicado
+# desvio relativo (mediana dos anos) tolerado entre a estimativa do estado inteiro e o valor publicado: o mesmo limite
+# da conferência das aproximações da Amazônia Legal (README, "Conferência da regra": mediana até 1,5%)
+TOL_PARTE = 0.015
 
 
 def desvio_estimativa(estimado: pd.Series, publicado: pd.Series, formato: str) -> tuple[bool, str] | None:
     """Compara, ano a ano, o valor do estado inteiro estimado pela regra de agregação com o publicado. Devolve
     (descartar, descrição) ou None sem ano em comum. O desvio é a mediana das diferenças absolutas sobre a mediana do
-    valor publicado (robusto a anos isolados e a valores perto de zero); nos percentuais, a diferença também precisa
-    passar de 1 p.p., para não descartar taxas pequenas por diferenças de arredondamento."""
+    valor publicado (robusto a anos isolados e a valores perto de zero)."""
     a = pd.concat([estimado.rename("e"), publicado.rename("p")], axis=1).dropna()
     if a.empty:
         return None
     dif = (a.e - a.p).abs().median()
     base = a.p.abs().median()
     rel = dif / base if base > 0 else (0 if dif == 0 else float("inf"))
-    descartar = rel > TOL_PARTE and (formato != "percentual" or dif > 1)
+    descartar = rel > TOL_PARTE
     num = lambda x: f"{x:.3g}".replace(".", ",") + ("%" if formato == "percentual" else "")  # noqa: E731
     return descartar, (f"desvio mediano de {rel:.0%} em {len(a)} ano{'s' if len(a) != 1 else ''}; em "
                        f"{int(a.index[-1])}, {num(a.e.iloc[-1])} estimado contra {num(a.p.iloc[-1])} publicado")

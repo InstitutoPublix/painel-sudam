@@ -35,7 +35,9 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   (ex.: `IND-185-soja`), e a ficha no Sobre o Painel mostra o ID original e a categoria.
 - **Amazônia Legal:** calculada a partir dos municípios com `Amazônia Legal = SIM`, pela regra da ficha: soma, ou
   média ponderada (razão entre totais) com o `peso` do config. Brasil, Regiões e Estados vêm prontos da planilha.
-  O peso pode ser outro indicador (`peso`) ou uma coluna da planilha que não está no painel (`peso_coluna`).
+  O peso pode ser outro indicador (`peso`) ou uma coluna da planilha que não está no painel (`peso_coluna`). As
+  exceções, sempre com o motivo no config e na ficha, são `ano_parcial`, `sem_brasil` e `descartar`; quando um valor
+  da planilha está errado, o `descartar` é provisório: a correção vai para a planilha e a linha sai do config.
 - **Peso do Censo (`peso_censo`):** indicadores dos Censos (urbanização, razão de dependência, população indígena e
   quilombola) vêm na planilha só como taxa de cada município, sem a população que os originou. Para a Amazônia Legal
   bater com o IBGE (somar os municípios e recalcular a razão, como manda a ficha), o build usa como peso a população dos
@@ -89,8 +91,8 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
   cartões e parece uma queda. Indicadores de estoque (posição no mês, como CadÚnico) não precisam.
 - **Parcela dos estados só em parte na região:** o build calcula a parte do Maranhão na Amazônia Legal com a mesma
   regra de cada indicador e, para conferir, aplica essa regra a todos os municípios do estado: se o resultado não
-  reproduz o valor publicado do estado (desvio mediano acima de 5%, e acima de 1 p.p. nos percentuais), a parcela é
-  descartada e o relatório usa o estado inteiro, dizendo por quê. `sem_parte_al = "<motivo>"` descarta por decisão
+  reproduz o valor publicado do estado com o mesmo limite da conferência da regra (desvio mediano até 1,5%), a
+  parcela é descartada e o painel e o relatório usam o estado inteiro, dizendo por quê. `sem_parte_al = "<motivo>"` descarta por decisão
   (ex.: as quatro parcelas do valor adicionado, que se leem juntas).
 - **Valores errados na planilha (`descartar`):** `descartar = [{ anos = [...], motivo = "...", nivel = "...", uf = "...",
   cod = [...] }]` tira esses valores antes de qualquer agregação (ex.: zeros que são falta de dado, um ano com
@@ -113,7 +115,8 @@ data/<planilha>.xlsx  ──  scripts/build_data.py  ──►  build/          
 - **Metadados por série:** quando uma ficha reúne fontes distintas, cada entrada pode usar `[indicador.ficha]`
   no `config/indicadores.toml`, com os nomes exatos dos campos da `Lista de Indicadores` (por exemplo,
   `"Fonte dos Dados"`, `"Periodicidade"` e `"Série Histórica Disponível"`). Esses campos substituem apenas os metadados
-  da entrada; o ID da ficha de origem e a planilha são preservados. Campos desconhecidos interrompem o build.
+  da entrada; o ID da ficha de origem e a planilha são preservados. Campos desconhecidos interrompem o build. Não
+  use esse recurso para mudar o método da ficha (polaridade, regra de agregação): isso se decide na planilha.
 - **Base enxuta:** `dados.parquet` guarda só as células com valor; o painel recompõe os anos vazios nas séries.
 - **Validação:** coluna ausente, ID sem ficha, regra de agregação desconhecida, texto em coluna numérica ou
   território repetido interrompem a geração; nada é gravado.
@@ -171,7 +174,9 @@ Hoje, o Maranhão: 181 dos 217 municípios fazem parte da região. Além do valo
 o valor da **parcela do estado na Amazônia Legal** (nível `Estado (parte AL)`). O painel usa a parcela nas telas com
 abrangência Amazônia Legal e o estado inteiro na abrangência Brasil inteiro; a aba Perfil do Território permite alternar. Os
 indicadores publicados só para o estado todo (regra `publicado`, ex.: IDHM) ficam sem parcela e mantêm o valor do estado
-inteiro, com aviso. Toda tela com esses estados traz uma nota dizendo qual valor está em uso. Quem muda a lista de
+inteiro, com aviso. O mesmo vale para os indicadores em que a regra, aplicada a todos os municípios do estado, não
+reproduz o valor publicado dele (desvio mediano acima de 1,5%), e para os marcados com `sem_parte_al`. Toda tela com
+esses estados traz uma nota dizendo qual valor está em uso. Quem muda a lista de
 municípios da região deve rodar de novo `scripts/geo_al_parcial.py` (contorno no mapa) e `scripts/build_data.py`.
 
 ## Catálogo dos indicadores (fora do repositório)

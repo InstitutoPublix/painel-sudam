@@ -45,7 +45,7 @@
 #                estado × rotas da região; participação do estado × Brasil = 100%): sem desempenho nem placar, como os totais
 #   sem_parte_al motivo para não calcular a parcela dos estados só em parte na Amazônia Legal (o relatório usa o estado
 #                inteiro). O build já descarta sozinho a parcela quando a mesma conta, feita com todos os municípios do
-#                estado, não reproduz o valor publicado dele (desvio mediano acima de 5%)
+#                estado, não reproduz o valor publicado dele (desvio mediano acima de 1,5%, o limite da conferência das aproximações)
 #   descartar    valores sabidamente errados na planilha, que saem antes de qualquer agregação; lista de tabelas com
 #                `anos` e `motivo` (obrigatórios) e, para restringir, `nivel` ("Município", "Estado", "Grande Região" ou
 #                "Brasil"), `uf` e `cod`. O motivo aparece na ficha do indicador (Sobre o Painel)
@@ -249,8 +249,6 @@ peso = "IND-102"
 # Existência de plano, lei, fundo ou consórcio: 0/1 por município; Estados e regiões trazem o % de municípios.
 # Média simples x 100 reproduz o valor estadual da planilha (IND-064/066/067 exato; IND-061 com até 1,8 pp,
 # por um município sem dado).
-# mais famílias de baixa renda entre as cadastradas pode ser mais pobreza ou cadastro mais focalizado: sem juízo
-ficha = { "Polaridade" = "Neutra / Não se aplica" }
 [[indicador]]
 id = "IND-061"
 rotulo = "Municípios com Plano Diretor"
@@ -1181,6 +1179,7 @@ id = "IND-138"
 rotulo = "Organizações da sociedade civil"
 agregacao = "soma"
 cobertura_minima = 0
+# pendente na planilha: a "Fonte dos Dados" atribui o CEMPRE (IBGE) à Receita Federal
 ficha = { "Fonte dos Dados" = "Mapa das Organizações da Sociedade Civil (Mapa das OSCs) — IPEA, a partir do Cadastro Nacional da Pessoa Jurídica (CNPJ) da Receita Federal" }
 
 [[indicador]]
@@ -1301,6 +1300,7 @@ cobertura_minima = 0
 
 # IND-092 (Poupança corrente municipal) fora do painel até a planilha ser corrigida: há municípios com valores
 # absurdos (ex.: Nova Ubiratã/MT com 2 x 10^18 % em 2021), de divisão por quase zero na fonte.
+# pendente na planilha: a "Fonte dos Dados" da Lista de Indicadores traz uma nota interna de revisão
 ficha = { "Fonte dos Dados" = "Siconfi/Tesouro Nacional — RREO, Anexo 6 (Demonstrativo dos Resultados Primário e Nominal)" }
 
 [[indicador]]
@@ -1363,6 +1363,7 @@ unidade = "% dos municípios obrigados a ter o plano"
 agregacao = "media_ponderada"
 peso_coluna = "Municípios com Plano de Mobilidade Urbana elaborado (%) — município obrigado a ter o plano (1 = sim)"
 fator_municipal = 100
+# pendente na planilha: a "Fonte dos Dados" descreve onde o painel da fonte está hospedado
 ficha = { "Fonte dos Dados" = "Ministério das Cidades — Levantamento sobre a situação dos Planos de Mobilidade Urbana (planilha de 03/09/2026)" }
 
 [[indicador]]
@@ -1371,9 +1372,6 @@ id = "IND-170"
 rotulo = "Dependência de transferências estaduais"
 agregacao = "publicado"
 nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
-# a cota estadual (ICMS, IPVA) pesa menos onde a União pesa mais (Maranhão: 1º aqui, 9º na dependência da União):
-# a parcela de transferências estaduais sozinha não indica melhor ou pior situação
-ficha = { "Polaridade" = "Neutra / Não se aplica" }
 
 [[indicador]]
 # aproximação conferida: diferença mediana 0.4% e até 1.7% em 9 de cada 10 estados-ano
@@ -1559,8 +1557,6 @@ categorias = ["Ótimo", "Bom"]
 unidade = "% da extensão pesquisada"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
-# a ficha é neutra porque traz as 5 categorias; o painel mostra só "bom ou ótimo", em que maior é melhor
-ficha = { "Polaridade" = "Maior melhor" }
 
 [[indicador]]
 id = "IND-181"
