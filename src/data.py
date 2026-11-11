@@ -87,6 +87,13 @@ class Indicator:
     axis: str = ""
     icon: str = "●"
     agg_note: str = ""
+    year_labels: tuple = ()  # pares (ano, rótulo) de anos que não fecham em dezembro (ex.: (2026, "set./2026"))
+    no_change: str = ""      # motivo para não mostrar a variação no período (vazio: mostra)
+    caveat: str = ""         # aviso curto sobre o que o número conta
+
+    def ano(self, y) -> str:
+        """Ano como exibido: o número, ou o rótulo do ano parcial ("set./2026")."""
+        return dict(self.year_labels).get(int(y), str(int(y))) if not fmt.isna(y) else "—"
 
     def fmt(self, v, compact: bool = True) -> str:
         if fmt.isna(v):
@@ -177,7 +184,9 @@ class Indicator:
 def make_indicator(f: dict) -> Indicator:
     d = f["display"]
     return Indicator(f["id"], d["label"], d["unit"], d["format"], d["decimals"], d["scale"], d["additive"],
-                     d["log"], d["polarity"], f["axis"], d["icon"], f.get("aggregationApplied", ""))
+                     d["log"], d["polarity"], f["axis"], d["icon"], f.get("aggregationApplied", ""),
+                     tuple(sorted((int(a), t) for a, t in d.get("yearLabels", {}).items())),
+                     d.get("noChange", ""), d.get("caveat", ""))
 
 
 # --------------------------------------------------------------------------- #

@@ -819,6 +819,8 @@ def _fmt_var(ik, ln) -> str:
     if fmt.isna(ln.variacao):
         if ln.ano0 is not None and ln.ano0 < ln.ano and ln.valor0 == 0:
             return f'<font color="{theme.MUTED}">era zero em {ln.ano0}</font>'
+        if ln.ano0 is not None and ln.ano0 < ln.ano and ik.no_change:
+            return f'<font color="{theme.MUTED}">não comparável</font>'
         return f'<font color="{theme.MUTED}">só um ano</font>' if ln.ano0 == ln.ano else "—"
     r = round(ln.variacao, ik.diff_decimals)
     seta = "▲" if r > 0 else "▼" if r < 0 else "="
@@ -904,11 +906,11 @@ def _resumo(t: Territorio) -> list:
         ln = t.por_k[k]
         ik = REG[k]
         if ik.additive and ln.comp is not None:
-            sub = f"{ln.ano} · {_pct(ln.comp)} do total {de(t.comp_nome)}"
+            sub = f"{ik.ano(ln.ano)} · {_pct(ln.comp)} do total {de(t.comp_nome)}"
         else:
             refs = [f"{n.replace('Amazônia Legal', 'AL')}: {_fv(ik, ln.refs[tt])}" for n, tt in t.refs
                     if n in ("Amazônia Legal", "Brasil") and not fmt.isna(ln.refs.get(tt, float("nan")))]
-            sub = f"{ln.ano} · " + " · ".join(refs)
+            sub = f"{ik.ano(ln.ano)} · " + " · ".join(refs)
         if ln.estado_inteiro:  # parte na Amazônia Legal pedida, mas o indicador só existe para o estado todo
             sub += " · estado inteiro"
         cartoes.append([_p(_e(ik.label.upper()), "kl"), _p(_e(_fv(ik, ln.valor)), "kv"), _p(_e(sub), "ks")])
@@ -984,7 +986,7 @@ def _destaques(t: Territorio) -> list:
     def destaques(itens, vazio):
         if not itens:
             return [_p(vazio, "pm")]
-        return [_p(f"<b>{_e(REG[ln.k].label)}</b>: {_e(_fv(REG[ln.k], ln.valor))} em {ln.ano} · "
+        return [_p(f"<b>{_e(REG[ln.k].label)}</b>: {_e(_fv(REG[ln.k], ln.valor))} em {REG[ln.k].ano(ln.ano)} · "
                    f"{_e(_pos(REG[ln.k], pos))}", "cel") for _, ln, pos in itens]
 
     td = Table([[_p(f'<font color="{theme.MELHOR}">Pontos fortes</font>', "h2"),
@@ -1040,7 +1042,7 @@ def _eixo(t: Territorio, eixo: str) -> list:
             valor = _e(_fv(ik, ln.valor)) + ('<br/><font size="5.6" color="%s">estado inteiro</font>' % theme.MUTED
                                             if ln.estado_inteiro else "")
             pos = t.pos(ln)
-            linha = [[_p(f"<b>{_e(ik.label)}</b>", "cel"), _p(_e(ik.unit), "celm")], _p(str(ln.ano), "celr"),
+            linha = [[_p(f"<b>{_e(ik.label)}</b>", "cel"), _p(_e(ik.unit), "celm")], _p(_e(ik.ano(ln.ano)).replace("/", "/<br/>"), "celr"),
                      _p(f"<b>{valor}</b>", "celr")]
             linha += [_p(_e(_fv(ik, ln.refs.get(tt, float("nan")))), "celr") for _, tt in t.refs_vis]
             linha += [_p(_e(_pos(ik, pos)) if pos else "—", "celr"), _p(_fmt_comp(ik, ln), "celr"),
@@ -1183,6 +1185,8 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
             seta = "▲" if r > 0 else "▼"
             frases.append(f'Desde {ln.ano0}, variou <font color="{sit}"><b>{seta} '
                           f"{_e(ik.fmt_diff(ln.variacao).replace('-', '−'))}</b></font>.")
+    elif ln.ano0 is not None and ln.ano0 < ln.ano and ik.no_change:  # a série não se compara entre os anos
+        frases.append(f"A variação desde {ln.ano0} não se compara: {_e(ik.no_change)}.")
     elif ln.ano0 is not None and ln.ano0 < ln.ano and ln.valor0 == 0:  # base zero: sem %, os dois valores
         frases.append(f"Desde {ln.ano0}, passou de {_e(_fv(ik, 0))} para <b>{_e(_fv(ik, ln.valor))}</b>.")
     elif ln.ano0 == ln.ano:
@@ -1203,6 +1207,8 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
             frases.append(f"Equivale a <b>{_e(dif[0])}</b> {_e(t.de(n2))} ({_e(_fv(ik, v2))}).")
         else:
             frases.append(f"Em relação {_e(t.ao(n2))} ({_e(_fv(ik, v2))}), está <b>{_e(dif[0])}</b>.")
+    if ik.caveat:
+        frases.append(f"<b>Atenção:</b> {_e(ik.caveat)}.")
     texto = " ".join(frases)
     return re.sub(r"(p\.p\.)((?:</[a-z]+>)*)\.", r"\1\2", texto)  # sem "p.p.." no fim das frases
 
@@ -1226,7 +1232,7 @@ def _ficha(t: Territorio, ln) -> Flowable:
     cab = Table([[[_p(f"<b>{_e(ik.label)}</b>", "fn"),
                    _p(f'{_e(ik.unit)} · <font color="{cat_cor}"><b>{cat}</b></font>', "fu")],
                   _p(f'<font name="Mont-XB" size="15" color="{theme.INK}">{valor}</font>'
-                     f'<font size="7" color="{theme.MUTED}">  {ln.ano}</font>', "fv")]],
+                     f'<font size="7" color="{theme.MUTED}">  {_e(ik.ano(ln.ano))}</font>', "fv")]],
                 colWidths=[LARG - 24 - 150, 150])
     cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                              ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))

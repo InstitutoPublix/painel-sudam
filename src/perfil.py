@@ -154,6 +154,6 @@ def linhas(D: dict, tid: str, plvl: str, uf: str | None, refs, parte: bool = Fal
         # variação desde o primeiro ano comparável (quebras de método: só o mesmo trecho da série)
         s0 = s[s.ano >= (data.inicio_comparavel(k, y) or 0)]
         ln.ano0, ln.valor0 = int(s0.ano.iloc[0]), float(s0.valor.iloc[0])
-        if ln.ano0 < y and not (ln.valor0 == 0 and ik.delta == "pct"):
+        if ln.ano0 < y and not (ln.valor0 == 0 and ik.delta == "pct") and not ik.no_change:
             ln.variacao = ik.diff(v, ln.valor0)
     return out
