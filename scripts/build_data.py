@@ -608,6 +608,13 @@ def main():
             src = cfg_by_key[i]["al_de"]
             if src in bra0:
                 amz[i] = amz.ano.map(bra0.set_index("ano")[src])
+        if cfg_by_key.get(i, {}).get("al_soma_menos"):
+            # contagem de pares com ao menos uma ponta na região (ex.: rotas aéreas): soma dos municípios da região menos os
+            # pares com as duas pontas nela (coluna do Recorte Brasil), que a soma conta duas vezes
+            src = cfg_by_key[i]["al_soma_menos"]
+            if src in bra0 and i in mun:
+                s_mun = mun[mun.al].groupby("ano")[i].sum(min_count=1)
+                amz[i] = amz.ano.map(s_mun - bra0.set_index("ano")[src])
 
     for i in rules:
         if cfg_by_key.get(i, {}).get("sem_brasil"):
@@ -690,8 +697,13 @@ def main():
         if rule == "media_ponderada" and cfg_by_key.get(i, {}).get("peso_ano_anterior"):
             f["aggregationApplied"] += " do ano inicial de cada par (o ano anterior)"
         al_de = cfg_by_key.get(i, {}).get("al_de")
+        al_soma_menos = cfg_by_key.get(i, {}).get("al_soma_menos")
         if al_de:
             f["aggregationApplied"] = "Valor do Recorte Brasil para as rotas com as duas pontas na Amazônia Legal, como manda a ficha"
+        elif al_soma_menos:
+            f["aggregationApplied"] = ("Soma dos municípios da Amazônia Legal menos as rotas com as duas pontas na região "
+                                       "(Recorte Brasil), que a soma conta duas vezes")
+            al_de = al_soma_menos  # a Amazônia Legal tem valor próprio, como no al_de
         if rule not in ("publicado", "soma_estados", "soma_com_sem_municipio", "razao_totais", "media_razoes", "taxa_censo"):
             # na soma, município sem dado não soma nada (vale zero); na média, fica fora da conta
             f["aggregationApplied"] += (f" · exige cobertura mínima de {minimos[i]:g}% dos municípios" if minimos[i]
