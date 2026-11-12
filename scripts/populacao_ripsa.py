@@ -3,6 +3,7 @@ assets/populacao_ripsa_municipios.csv.
 
 Uso:
     python scripts/populacao_ripsa.py <populacao-residente.csv>
+    (hoje: assets/IND-040+041+048+062+113+188+190+197_populacao-residente_ripsa_municipios.csv, 2015–2025)
 
 Por que existe: as emissões de CO2e per capita (IND-056) de cada município foram calculadas com a população da RIPSA
 (Estudo de Estimativas Populacionais por Município, Idade e Sexo 2000-2025), não com a "População Total" do Recorte
@@ -40,7 +41,7 @@ def main() -> None:
     df.index = df.pop(df.columns[0]).str[:6].astype(int).rename("cod6")
     df = df.drop(columns="Total", errors="ignore")
     df.columns = df.columns.astype(int).rename("ano")
-    tab = df.stack().astype(int).rename("pop")
+    tab = df.stack().dropna().astype(int).rename("pop")  # município criado depois (ex.: Boa Esperança do Norte, 2025) fica sem os anos anteriores
 
     # código de 6 dígitos (sem o verificador) -> 7 dígitos
     cods = pd.read_csv(MUNICIPIOS, usecols=["cod"]).cod

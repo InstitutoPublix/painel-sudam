@@ -59,6 +59,10 @@ TOTAIS_EXTERNOS = {
     "sinisa": (ROOT / "assets" / "populacao_urbana_sinisa_municipios.csv",
                "python scripts/populacao_urbana_sinisa.py",
                {"pop_urbana": "população urbana do SINISA (Diagnóstico de Resíduos Sólidos)"}),
+    "rgf": (ROOT / "assets" / "rgf_pessoal_municipios.csv",
+            "python scripts/rgf_pessoal.py",
+            {"rcl": "receita corrente líquida ajustada (RGF, Anexo 1)",
+             "despesa_pessoal": "despesa total com pessoal (RGF, Anexo 1)"}),
     "pib": (ROOT / "assets" / "valor_adicionado_municipios.csv",
             "python scripts/valor_adicionado_ibge.py",
             {"va_total": "valor adicionado bruto total do município (PIB dos Municípios/IBGE)"}),
@@ -341,14 +345,25 @@ def amazonia_legal(mun: pd.DataFrame, rules: dict[str, tuple[str, str | None]], 
                 cols[i] = pd.Series(np.nan, index=out.index)
                 continue
             s_num = al.groupby("ano")[num].sum(min_count=1)
-            w = interpolated(al, peso)
-            s_peso = w.sum(min_count=1).reindex(s_num.index)
-            # só os anos em que a razão sai (com numerador): nos demais, o peso interpolado não é usado
-            filled = sorted(int(y) for y in w.columns if al.pivot(index="cod", columns="ano", values=peso)[y].isna().any()
-                            and w[y].notna().any() and pd.notna(s_num.get(y)))
+            n_piv = al.pivot(index="cod", columns="ano", values=num)
+            w = interpolated(al, peso).reindex(index=n_piv.index, columns=n_piv.columns)
+            # o denominador só soma os municípios que têm numerador no ano: quem não informou (ex.: não entregou o RGF)
+            # não pode entrar só de um lado da razão
+            s_peso = w.where(n_piv.notna()).sum(min_count=1).reindex(s_num.index)
+            # anos em que algum município com numerador ficou sem o peso original e usou o interpolado
+            p_piv = al.pivot(index="cod", columns="ano", values=peso).reindex(index=n_piv.index, columns=n_piv.columns)
+            filled = sorted(int(y) for y in n_piv.columns if (n_piv[y].notna() & p_piv[y].isna() & w[y].notna()).any())
             if filled:
                 rep.warn(f"{i}: peso {peso} interpolado para calcular a {rotulo} em {years_text(filled)}.")
-            cols[i] = out.ano.map((s_num / s_peso.where(s_peso > 0) * fator))
+            r = s_num / s_peso.where(s_peso > 0) * fator
+            # cobertura mínima, como nas demais regras: municípios com numerador no ano ÷ municípios do recorte
+            cover = (al.groupby("ano")[num].count() / n_al * 100).reindex(r.index).fillna(0)
+            low = r.notna() & (cover < minimos[i])
+            if low.any():
+                rep.warn(f"{i}: {rotulo} não calculada em {years_text(r.index[low])}: cobertura municipal abaixo de "
+                         f"{minimos[i]:g}% ({', '.join(f'{int(y)} ({cover[y]:.0f}%)' for y in r.index[low][:6])}).")
+                r = r.mask(low)
+            cols[i] = out.ano.map(r)
             continue
         if rule == "media_razoes":
             pares, fator = (razoes or {}).get(i, ([], 1))
