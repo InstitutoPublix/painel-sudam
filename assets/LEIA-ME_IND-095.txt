@@ -1,0 +1,19 @@
+IND-095 — Comprometimento da Receita Corrente Líquida com Despesa de Pessoal
+Arquivo: IND-095_componentes_despesa-pessoal_rcl_municipios_2015-2025.csv (UTF-8, separador vírgula, decimal com ponto)
+Gerado em 12/11/2026 a partir dos arquivos do RGF, Anexo 01, Poder Executivo (Dados Brutos\IND-095_comprometimento-rcl-pessoal_siconfi_<ano>_quadrimestral.csv e _semestral.csv).
+
+Colunas
+- codigo_ibge, municipio, uf, amazonia_legal (SIM/NÃO, como na aba Recorte Municipal), ano
+- arquivo_rgf: de qual arquivo veio o dado (município nos dois arquivos do ano: vale o quadrimestral)
+- despesa_total_pessoal: linha "DESPESA TOTAL COM PESSOAL - DTP", coluna "Valor" (R$)
+- rcl_ajustada: linha "= RECEITA CORRENTE LÍQUIDA AJUSTADA", coluna "Valor" (R$); em 2015 e 2016, "RECEITA CORRENTE LIQUIDA - RCL"
+- percentual_publicado: "% sobre a RCL Ajustada" publicado no RGF (é o valor gravado na planilha para o município)
+- entra_no_calculo: SIM quando o percentual publicado está entre 0 e 100 e há despesa e RCL
+
+Cálculo da Amazônia Legal (método da ficha: razão entre totais)
+  AL = soma(despesa_total_pessoal) / soma(rcl_ajustada) x 100
+  filtrando amazonia_legal = SIM e entra_no_calculo = SIM, ano a ano.
+Resultados: 2015 51,01% | 2016 50,00% | 2017 53,44% | 2018 52,17% | 2019 50,22% | 2020 48,58% | 2021 47,89% | 2022 48,01% | 2023 48,69% | 2024 46,27% | 2025 46,20%.
+O mesmo cálculo por UF (todos os municípios da UF com entra_no_calculo = SIM) reproduz os valores da aba Recorte Estadual.
+Não usar a média das porcentagens ponderada pela população (dá 46,66% em 2025 e 52,84% em 2018).
+Obs.: de 2015 a 2017, poucos municípios entregaram o RGF no Siconfi (entre 327 e 473 municípios da Amazônia Legal, contra mais de 740 de 2018 em diante); comparações com esses anos devem levar isso em conta.
