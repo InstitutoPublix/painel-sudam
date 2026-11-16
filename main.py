@@ -2780,8 +2780,9 @@ with T["Relatório"]:
 
         # 2. comparações
         theme.title("2. Comparar com", "Uma "
-                    + ("UF" if rlvl == "Estado" else "município") + " à sua escolha, além das referências fixas. Ela "
-                    "aparece nos gráficos e nos textos de cada indicador, no mesmo ano. Nos totais (somas), as "
+                    + ("UF" if rlvl == "Estado" else "município") + " à sua escolha, além das referências fixas, "
+                    "apenas como referência de comparação: não representa benchmark nem indicação de similaridade. "
+                    "Ela aparece nos gráficos e nos textos de cada indicador, no mesmo ano. Nos totais (somas), as "
                     "referências ficam fora dos gráficos, porque a escala delas é muito maior.")
         c1, c2 = st.columns([2, 1])
         pool_c = [x for x in terr_r.label.tolist() if x != rsel]
