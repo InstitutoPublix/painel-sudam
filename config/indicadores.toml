@@ -1351,7 +1351,6 @@ id = "IND-097"
 rotulo = "Receita de convênios"
 agregacao = "publicado"
 nota_agregacao = "precisa das receitas municipais, que a planilha não traz"
-descartar = [{ anos = [2018, 2019, 2020, 2021], motivo = "a planilha grava zero em todos os territórios nesses anos, por falta de dado, não por captação zero" }]
 quebra = { ano = 2018, trecho = "nova classificação das receitas", motivo = "a classificação das receitas mudou em 2018" }
 
 [[indicador]]
