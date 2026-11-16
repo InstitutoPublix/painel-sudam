@@ -1592,6 +1592,9 @@ id = "IND-054"
 rotulo = "Desmatamento anual (PRODES)"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+# área desmatada no ano (km²), não taxa: cresce com o tamanho do estado, como os totais
+leitura = "magnitude"
+casas = 0
 
 [[indicador]]
 id = "IND-058"
