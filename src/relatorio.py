@@ -290,6 +290,22 @@ def _fv(ik, v) -> str:
     return re.sub(r"(^|\s|\$)-(?=\d)", "\\1−", txt)
 
 
+UNIDADE_CHAVE = ("km²", "hab/km²")  # unidades curtas que vão junto do número nos cartões (o resto já se lê no rótulo)
+
+
+def _valor_chave(ik, v) -> str:
+    """Valor dos cartões de números-chave, por extenso e com a unidade curta: "1,25 milhão km²", "8,7 milhões",
+    "7,0 hab/km²" (o "mi" do painel pode ser lido como milhas, e o número sem unidade fica solto)."""
+    if ik.kind == "numero" and abs(v) >= 1e6:
+        m = v / 1e6
+        num = fmt.num(m, 2 if abs(m) < 10 else 1)
+        txt = f"{num} {'milhão' if num.startswith('1,') and abs(m) < 2 else 'milhões'}"
+    else:
+        txt = _fv(ik, v)
+    un = ik.unit if ik.unit in UNIDADE_CHAVE else ""
+    return _e(txt) + (f'<font size="9"> {_e(un)}</font>' if un else "")
+
+
 def _ticks(lo: float, hi: float, n: int = 4, inteiro: bool = False) -> list[float]:
     """Marcas 'redondas' do eixo de valores (1, 2, 2,5 ou 5 × potência de 10) cobrindo de lo a hi. inteiro: o
     indicador é uma contagem exibida sem casas decimais, então o passo é de pelo menos 1 (sem "1, 2, 2, 2, 3")."""
@@ -556,9 +572,10 @@ ABERTURA_EIXO = {
        "composição das receitas e a dependência de transferências, o equilíbrio fiscal, o investimento, o quadro de "
        "pessoal das prefeituras, os instrumentos de planejamento, a transparência, os conselhos de políticas públicas e a "
        "cooperação entre municípios.",
-    9: "Esta dimensão analisa a segurança pública, os conflitos territoriais e a proteção das fronteiras: a violência "
-       "letal, incluídos os homicídios de jovens e de mulheres e os feminicídios, as apreensões de drogas e de armas, os "
-       "conflitos no campo, a fiscalização dos ilícitos ambientais e a segurança viária.",
+    # só o que os indicadores do eixo medem: não há série de homicídios de jovens nem de proteção das fronteiras
+    9: "Esta dimensão analisa a segurança pública e os conflitos territoriais: a violência letal (mortes violentas "
+       "intencionais, homicídios e feminicídios), as apreensões de drogas e de armas, os conflitos no campo, a "
+       "fiscalização dos ilícitos ambientais e a segurança viária.",
 }
 
 
@@ -853,7 +870,8 @@ class Documento(BaseDocTemplate):
             c.setFillColor(MUTED)
             c.setFont("Mont", 7)
             c.drawRightString(W - MX, RODAPE + 58, f"{rotulo} · em destaque: {t.nome}"
-                              + (" (verde-escuro) e a UF selecionada" if t.comparar else ""))
+                              + (f" (verde-escuro) e {re.sub(r' \([A-Z]{2}\)$', '', t.comparar[0][0])} (laranja)" if t.comparar
+                                 else ""))
         # rodapé da capa
         c.setFillColor(MUTED)
         c.setFont("Mont", 7.5)
@@ -963,8 +981,10 @@ def _como_ler(t: Territorio) -> list:
     comp = (f"o {'estado' if t.plvl == 'Estado' else 'território'} é comparado com {_e(lista(quem))}."
             if quem else "o relatório não traz referências de comparação.")
     if t.comparar:
-        comp += (f" <b>{_e(t.rot_comp)}</b> é escolha do usuário, apenas como referência de comparação: não "
-                 "representa benchmark ou indicação de similaridade.")
+        nome_c = t.com_art(t.comparar[0][0])
+        comp += (f" {_e(nome_c[:1].upper() + nome_c[1:])}, <b>{_e(t.rot_comp.replace('Município', 'município'))}</b>, é "
+                 "escolha do usuário, apenas como referência de comparação: não representa benchmark ou indicação de "
+                 "similaridade.")
     itens = [
         ("Comparação", theme.INK, comp[0].upper() + comp[1:]),
         ("Desempenho", theme.MELHOR,
@@ -980,8 +1000,9 @@ def _como_ler(t: Territorio) -> list:
          f"Nos indicadores de soma, a comparação com {_e(com_artigo(t.comp_nome))} é a <b>participação</b> do território no "
          "total, e as referências ficam fora dos gráficos, porque a escala delas é muito maior. A posição dos totais "
          "é sempre de magnitude (“1º maior valor entre 9”), mesmo quando o indicador tem direção desejável, porque "
-         "cresce com o tamanho do território. Contagens que cruzam territórios (rotas aéreas, hidrovias) e participações "
-         "no total do país têm a mesma leitura de magnitude, sem comparação com as referências."),
+         "cresce com o tamanho do território. Contagens que cruzam territórios (rotas aéreas, hidrovias), participações "
+         "no total do país e quantidades que crescem com o território (como a área desmatada no ano) têm a mesma "
+         "leitura de magnitude, sem comparação com as referências."),
         ("Evolução", theme.INK,
          "Mostra a variação do primeiro ano com dado até o ano do valor, na série disponível. A linha do gráfico fica "
          "interrompida onde a série não continua (anos sem dado ou mudança de método). Quando há mudança de método, a "
@@ -998,6 +1019,20 @@ def _como_ler(t: Territorio) -> list:
         itens.append(("Amazônia Legal", theme.INK,
                       "Soma ou média dos seus municípios; " + "; ".join(
                           f"{_e(u)} entra com {a} de {n} municípios" for u, (a, n) in t.D["al_parcial"].items()) + "."))
+    # Amazônia Legal sem valor: explica os "sem classificação" do balanço e as frases sem a região
+    com = [ln for ln in t.linhas if ln.tem_dado]
+    sem_al = [ln for ln in com if fmt.isna(ln.refs.get(perfil.AMZ, float("nan")))]
+    if "al" in t.op.refs and sem_al:
+        outras = [t.com_art(n) for n, tt in t.refs_vis if tt != perfil.AMZ]
+        itens.append(("Amazônia Legal sem valor", theme.INK,
+                      f"Em {len(sem_al)} dos {len(com)} indicadores, a Amazônia Legal fica sem valor. Em parte deles, o "
+                      "dado existe só por estado (como nas pesquisas da PNAD Contínua), e somar os estados incluiria o "
+                      "Maranhão inteiro, que só em parte está na região. Nos demais, o valor da região teria de ser "
+                      "recalculado a partir dos municípios, e a base não traz os componentes da conta ou a conta não "
+                      "reproduz os valores publicados. Nesses casos, "
+                      + (f"a comparação fica com {_e(lista(outras))}, e " if outras else "")
+                      + "o balanço conta o indicador como “sem classificação” em relação à Amazônia Legal. O painel "
+                        "informa o motivo na ficha de cada indicador."))
     linhas = [[_p(f'<font color="{c}"><b>{_e(r)}</b></font>', "celb"), _p(x, "pm")] for r, c, x in itens]
     caixa = Table([[_p("Como ler este relatório", "h2"), ""]] + linhas, colWidths=[78, LARG - 78])
     caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C("#F3EFDE")), ("SPAN", (0, 0), (1, 0)),
@@ -1053,7 +1088,7 @@ def _resumo(t: Territorio) -> list:
             sub = f"{ik.ano(ln.ano)} · " + " · ".join(refs)
         if ln.estado_inteiro:  # parte na Amazônia Legal pedida, mas o indicador só existe para o estado todo
             sub += " · estado inteiro"
-        cartoes.append([_p(_e(ik.label.upper()), "kl"), _p(_e(_fv(ik, ln.valor)), "kv"), _p(_e(sub), "ks")])
+        cartoes.append([_p(_e(ik.label.upper()), "kl"), _p(_valor_chave(ik, ln.valor), "kv"), _p(_e(sub), "ks")])
     if cartoes:
         n_col = 3
         cel = [Table([[x] for x in c], colWidths=[LARG / n_col - 14]) for c in cartoes]
@@ -1323,10 +1358,20 @@ def _categoria(ik) -> tuple[str, str]:
     return "Sem polaridade · leitura descritiva", theme.MUTED
 
 
+VEZES_MIN = 3  # a partir de 3 vezes o valor da referência, "8,4 vezes o valor" lê melhor que "736,7% acima"
+MIL_VEZES = 1000  # a partir daí, "mais de mil vezes o valor" (o número exato não acrescenta)
+
+
+def _quase_zero(ik, vr: float) -> bool:
+    """A referência só aparece com algum algarismo porque ganhou casas decimais (IPA 0,0001): é praticamente zero."""
+    return vr != 0 and not re.search(r"[1-9]", ik.fmt(vr))
+
+
 def _dif(ik, v: float, vr: float) -> tuple[str, float] | None:
-    """Texto da diferença de v para vr ("3,3 p.p. acima", "23,1% abaixo", "12 vezes o valor") e o sinal dela, para a
-    cor; None quando os dois aparecem iguais no relatório. A variação % fica de fora quando a base é quase nula: com o
-    valor 10 vezes maior (ou mais), vira "N vezes o valor"; com base zero, "sem registro"."""
+    """Texto da diferença de v para vr ("3,3 p.p. acima", "23,1% abaixo", "8,4 vezes o valor") e o sinal dela, para a
+    cor; None quando os dois aparecem iguais no relatório. A variação % fica de fora quando a base é pequena: com o
+    valor 3 vezes maior (ou mais), vira "N vezes o valor" (acima de mil, "mais de mil vezes o valor"); com base que só
+    não aparece como zero por causa das casas decimais, "quase zero"; com base zero, "com valor"."""
     if fmt.isna(v) or fmt.isna(vr) or _fv(ik, v) == _fv(ik, vr):
         return None
     d = ik.diff(v, vr)
@@ -1335,7 +1380,11 @@ def _dif(ik, v: float, vr: float) -> tuple[str, float] | None:
     if ik.delta == "pct":
         if vr == 0:
             return ("com valor, onde a referência registra zero", d if not fmt.isna(d) else 1)
-        if v > 0 and vr > 0 and v / vr >= 10:
+        if v > 0 and vr > 0 and _quase_zero(ik, vr):
+            return ("quase zero", 1)  # "21.064 vezes o valor (0,0001)" não informa: a referência é praticamente nula
+        if v > 0 and vr > 0 and v / vr >= MIL_VEZES:
+            return ("mais de mil vezes o valor", 1)  # "19.797 vezes o valor (1)" só impressiona, não informa
+        if v > 0 and vr > 0 and v / vr >= VEZES_MIN:
             return (f"{fmt.num(v / vr, 0 if v / vr >= 100 else 1)} vezes o valor", 1)
         if v > 0 and vr > 0 and vr / v >= 10:
             return (f"{_pct(v / vr * 100)} do valor", -1)
@@ -1399,19 +1448,28 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
         if zero and any(vr != 0 for _, vr in refs):  # sem "100% abaixo": o valor zero e o das referências
             frases.append("Registra zero, contra " + lista(f"{_e(_fv(ik, vr))} {_e(t.de(n))}" for n, vr in refs) + ".")
         else:
-            partes = []
+            partes, vezes, zeros = [], [], []
             for n, vr in refs:
                 dif = _dif(ik, ln.valor, vr)
                 if dif is None:
                     partes.append(f"igual {_e(t.ao(n))} ({_e(_fv(ik, vr))})")
                 elif dif[0].startswith("com valor"):  # a referência registra zero: sem % sobre base nula
                     partes.append(f"com valor, enquanto {_e(com_artigo(n))} registra zero")
+                elif dif[0] == "quase zero":
+                    zeros.append(f"{_e(com_artigo(n))} ({_e(_fv(ik, vr))})")
                 else:
                     txt, d = dif
-                    partes.append(f'<font color="{cor(ik.situacao(d))}"><b>{_e(txt)}</b></font> {_e(t.de(n))} '
-                                  f'({_e(_fv(ik, vr))})')
+                    item = (f'<font color="{cor(ik.situacao(d))}"><b>{_e(txt)}</b></font> {_e(t.de(n))} '
+                            f'({_e(_fv(ik, vr))})')
+                    (vezes if " vezes " in txt or txt.endswith(" do valor") else partes).append(item)
             if partes:
                 frases.append("Está " + lista(partes) + ".")
+            if vezes:  # "Equivale a 8,4 vezes o valor da Amazônia Legal", e não "Está 8,4 vezes o valor"
+                frases.append(("Também equivale a " if partes else "Equivale a ") + lista(vezes) + ".")
+            if zeros:
+                z = lista(zeros)
+                frases.append(f"{z[:1].upper() + z[1:]} {'registram' if len(zeros) > 1 else 'registra'} valor próximo "
+                              "de zero.")
     # Amazônia Legal pela soma dos estados (dado só estadual): o Maranhão entra inteiro, e isso precisa ficar dito
     usa_al = (ik.additive and ln.comp is not None and not zero) or (
         not ik.magnitude and not fmt.isna(ln.refs.get(perfil.AMZ, float("nan"))) and "al" in t.op.refs)
@@ -1443,7 +1501,7 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
             sit = cor(ik.situacao(1 if ln.valor > ln.valor0 else -1))
             frases.append(f'Desde {ln.ano0}, passou de {_e(_fv(ik, ln.valor0))} para <font color="{sit}"><b>'
                           f"{_e(_fv(ik, ln.valor))}</b></font>{corrente}.")
-        elif ik.delta == "pct" and ln.valor0 > 0 and ln.valor / ln.valor0 >= 10:  # base quase nula: em vezes
+        elif ik.delta == "pct" and ln.valor0 > 0 and ln.valor / ln.valor0 >= VEZES_MIN:  # base pequena: em vezes
             frases.append(f'Desde {ln.ano0}, <font color="{sit}"><b>multiplicou-se por '
                           f"{fmt.num(ln.valor / ln.valor0, 0 if ln.valor / ln.valor0 >= 100 else 1)}</b></font>"
                           f"{corrente}.")
@@ -1479,6 +1537,8 @@ def _leitura(t: Territorio, ln, ik, valores: dict) -> str:
             frases.append(f"Igual {_e(t.ao(n2))} ({_e(_fv(ik, v2))}).")
         elif dif[0].startswith("com valor"):
             frases.append(f"{_e(nome2[:1].upper() + nome2[1:])} registra zero.")
+        elif dif[0] == "quase zero":
+            frases.append(f"{_e(nome2[:1].upper() + nome2[1:])} registra valor próximo de zero ({_e(_fv(ik, v2))}).")
         elif v1 == 0:  # sem "100% abaixo": o valor do comparado
             frases.append(f"{_e(nome2[:1].upper() + nome2[1:])} registra {_e(_fv(ik, v2))}.")
         elif " vezes " in dif[0] or dif[0].endswith(" do valor"):
@@ -1549,8 +1609,7 @@ def _ficha(t: Territorio, ln) -> Flowable:
         elif ik.magnitude and t.refs_vis:
             corpo.append(_p("Leitura de magnitude: " + _e(lista(n for n, _ in t.refs_vis)) + " ficam fora dos gráficos e "
                             "da comparação, porque o valor delas não se compara diretamente com o de um "
-                            f"{'estado' if t.plvl == 'Estado' else 'território'} (ex.: rotas que cruzam territórios, "
-                            "participação no total do país).", "fu"))
+                            f"{'estado' if t.plvl == 'Estado' else 'território'}: {_motivo_magnitude(ik)}.", "fu"))
     elif "evolucao" in sec and not serie_ok and "texto" not in sec:
         corpo.append(_p("Só há um ano com dado para o território.", "fu"))
     caixa = Table([[x] for x in corpo], colWidths=[LARG])
@@ -1559,6 +1618,15 @@ def _ficha(t: Territorio, ln) -> Flowable:
                                ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                                ("TOPPADDING", (0, 0), (-1, 0), 9), ("BOTTOMPADDING", (0, -1), (-1, -1), 9)]))
     return KeepTogether([caixa, Spacer(1, 8)])
+
+
+def _motivo_magnitude(ik) -> str:
+    """Por que um indicador de leitura de magnitude (sem ser soma) não se compara com as referências."""
+    if ik.kind == "percentual":
+        return "é uma participação no total do país, que soma 100% no Brasil"
+    if "rota" in ik.unit.lower() or "hidrovia" in ik.unit.lower():
+        return "rotas e hidrovias ligam mais de um território e se contam em cada ponta"
+    return "é uma quantidade que cresce com o tamanho do território, não uma taxa"
 
 
 def _fora_al(t: Territorio) -> frozenset:
@@ -1634,6 +1702,9 @@ def _mapas_eixo(t: Territorio, eixo: str) -> list:
                                                _p(nota, "pm"), Spacer(1, 4), tg])]
 
 
+URL_PAINEL = "https://painel-sudam.streamlit.app/"
+
+
 def _fechamento(t: Territorio) -> list:
     """Fecho do relatório: é uma síntese; o conjunto completo está no painel."""
     de = {"Estado": "da parte do estado na Amazônia Legal" if t.parte else "do estado",
@@ -1641,7 +1712,9 @@ def _fechamento(t: Territorio) -> list:
     caixa = Table([[_p("Para consultar mais", "h2")],
                    [_p(f"Este relatório apresenta uma síntese dos principais indicadores e recortes territoriais {de}. "
                        "Para consultar o conjunto completo de indicadores, séries históricas, mapas e possibilidades de "
-                       "comparação, acesse o <b>Painel do Diagnóstico Quantitativo da Amazônia Legal</b>.", "p")]],
+                       "comparação, acesse o <b>Painel do Diagnóstico Quantitativo da Amazônia Legal</b>: "
+                       f'<link href="{URL_PAINEL}" color="{theme.INK}"><u>{URL_PAINEL.removeprefix("https://")}</u></link>.',
+                       "p")]],
                   colWidths=[LARG])
     caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C("#F3EFDE")), ("LEFTPADDING", (0, 0), (-1, -1), 10),
                                ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, 0), 2),

@@ -1527,6 +1527,7 @@ id = "IND-078"
 rotulo = "Gasto estadual em C&T"
 agregacao = "publicado"
 nota_agregacao = "o dado existe só por estado, e somar os estados incluiria o Maranhão inteiro, que só em parte é Amazônia Legal"
+casas = 2  # 0,85% × 0,84%: com uma casa, valores e diferenças não fecham ("0,9% × 0,8%, 0,01 p.p.")
 
 [[indicador]]
 id = "IND-161"
@@ -1620,6 +1621,7 @@ rotulo = "Participação nas exportações"
 agregacao = "soma_estados"
 nota_agregacao = "o dado existe só por estado: a Amazônia Legal é a soma dos nove estados, com o Maranhão inteiro"
 leitura = "magnitude"
+casas = 2  # participações abaixo de 1% são comuns nos estados: duas casas, como no IND-080
 
 [[indicador]]
 id = "IND-080"
@@ -1627,6 +1629,7 @@ rotulo = "Participação nas importações"
 agregacao = "soma_estados"
 nota_agregacao = "o dado existe só por estado: a Amazônia Legal é a soma dos nove estados, com o Maranhão inteiro"
 leitura = "magnitude"
+casas = 2  # 0,98% × 0,94%: com uma casa, valores e diferenças não fecham ("1,0% × 0,9%, 0,04 p.p.")
 
 [[indicador]]
 id = "IND-081"

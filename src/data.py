@@ -145,7 +145,8 @@ class Indicator:
 
     @property
     def diff_decimals(self) -> int:
-        return {"pp": 1, "pts": max(self.decimals, 1), "pct": 1}[self.delta]
+        # p.p. e pontos com as casas do próprio valor (0,85% → 0,83%: "−0,02 p.p.", não "0,0 p.p.")
+        return {"pp": max(self.decimals, 1), "pts": max(self.decimals, 1), "pct": 1}[self.delta]
 
     def diff(self, v, v0) -> float:
         """Diferença de v0 para v na medida do indicador; NaN sem dado (ou base zero, na variação %)."""
