@@ -1702,6 +1702,9 @@ def _mapas_eixo(t: Territorio, eixo: str) -> list:
                                                _p(nota, "pm"), Spacer(1, 4), tg])]
 
 
+URL_PAINEL = "https://painel-sudam.streamlit.app/"
+
+
 def _fechamento(t: Territorio) -> list:
     """Fecho do relatório: é uma síntese; o conjunto completo está no painel."""
     de = {"Estado": "da parte do estado na Amazônia Legal" if t.parte else "do estado",
@@ -1709,7 +1712,9 @@ def _fechamento(t: Territorio) -> list:
     caixa = Table([[_p("Para consultar mais", "h2")],
                    [_p(f"Este relatório apresenta uma síntese dos principais indicadores e recortes territoriais {de}. "
                        "Para consultar o conjunto completo de indicadores, séries históricas, mapas e possibilidades de "
-                       "comparação, acesse o <b>Painel do Diagnóstico Quantitativo da Amazônia Legal</b>.", "p")]],
+                       "comparação, acesse o <b>Painel do Diagnóstico Quantitativo da Amazônia Legal</b>: "
+                       f'<link href="{URL_PAINEL}" color="{theme.INK}"><u>{URL_PAINEL.removeprefix("https://")}</u></link>.',
+                       "p")]],
                   colWidths=[LARG])
     caixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C("#F3EFDE")), ("LEFTPADDING", (0, 0), (-1, -1), 10),
                                ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, 0), 2),
