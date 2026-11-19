@@ -2250,35 +2250,52 @@ with T["Comparações"]:
 
         # ---- 1. onde a Amazônia Legal está -------------------------------------------
         theme.title(f"1 · Onde a Amazônia Legal está: {charts.low(I.label)} em {YEAR}",
-                    f"Brasil, Amazônia Legal, Grandes Regiões e estados lado a lado; a cor diz o nível. Os estados seguem "
-                    f"os filtros ({escopo('Estado')}); Brasil, Amazônia Legal e regiões aparecem sempre.")
+                    f"À esquerda, Amazônia Legal, Brasil e Grandes Regiões; à direita, os estados ({escopo('Estado')}). "
+                    "As regiões aparecem sempre; os estados seguem os filtros.")
         if PARCIAL:
             st.caption(nota_al())
-        parts = []
-        for lv in ("Brasil", "Amazônia Legal", "Grande Região", "Estado"):
-            s = snap(lv, filt=False)
-            if lv == "Estado":
-                s = snap("Estado")
-            parts.append(s.assign(nivel=lv))
-        bm = pd.concat(parts)
+        reg_b = pd.concat([snap(lv, filt=False).assign(nivel=lv) for lv in ("Brasil", "Amazônia Legal", "Grande Região")])
+        est_b = snap("Estado").assign(nivel="Estado")
         logb = st.checkbox("Escala logarítmica", key=auto_padrao("w_bm_log", bool(I.log)),
-                           help="Deixa visíveis as barras pequenas ao lado das grandes (ex.: estados ao lado do Brasil).")
-        if bm.empty:
+                           help="Deixa visíveis as barras pequenas ao lado das grandes.")
+        if reg_b.empty and est_b.empty:
             st.warning("Sem dados no ano selecionado.")
         else:
-            plot(charts.benchmark(bm, I, logb), "bm")
-            v_al_b = bm[bm.nivel == "Amazônia Legal"].valor
-            est_b = bm[bm.nivel == "Estado"]
+            v_ref = dict(zip(reg_b.nivel, reg_b.valor))
+            v_al, v_br = v_ref.get("Amazônia Legal"), v_ref.get("Brasil")
+            # totais e contagens (magnitude): a escala da Amazônia Legal e do Brasil é outra, sem linha de referência
+            refs_b = [] if I.magnitude else [(n, v) for n, v in (("Amazônia Legal", v_al), ("Brasil", v_br))
+                                             if v is not None and not fmt.isna(v)]
+            n_bar = max(len(reg_b), len(est_b))
+            alt_b = max(300, 22 * n_bar + 80)  # mesma altura nos dois, para as barras ficarem do mesmo tamanho
+            cr, ce = st.columns(2)
+            with cr:
+                st.markdown('<div class="panel-sub"><b>Amazônia Legal, Brasil e Grandes Regiões</b></div>',
+                            unsafe_allow_html=True)
+                if reg_b.empty:
+                    st.info("Sem valor das regiões no ano selecionado.")
+                else:
+                    plot(charts.benchmark(reg_b, I, logb, height=alt_b), "bm_reg")
+            with ce:
+                st.markdown('<div class="panel-sub"><b>Estados</b></div>', unsafe_allow_html=True)
+                if est_b.empty:
+                    st.info("Nenhum estado com dado nos filtros e no ano selecionados.")
+                else:
+                    plot(charts.benchmark(est_b, I, logb, height=alt_b, refs=refs_b), "bm_est")
             leitura_b = ""
-            if len(v_al_b) and len(est_b):
-                acima = int((est_b.valor > v_al_b.iloc[0]).sum())
-                leitura_b = (f"Amazônia Legal: <b>{I.fmt_col(list(bm.valor))[list(bm.valor).index(v_al_b.iloc[0])]}</b>. "
-                             f"{acima} dos {len(est_b)} estados "
-                             f"mostrados ficam acima desse valor e {len(est_b) - acima}, abaixo.")
-            theme.como_ler("as barras vão do maior para o menor valor e a cor diz o nível (Brasil, Amazônia Legal, "
-                           "Grande Região ou estado). Compare cada estado com a barra da Amazônia Legal e com a do Brasil."
-                           + {1: " Neste indicador, maior é melhor.", -1: " Neste indicador, menor é melhor."}.get(
-                               I.polarity, ""), leitura_b)
+            if refs_b and v_al is not None and len(est_b):
+                acima = int((est_b.valor > v_al).sum())
+                leitura_b = (f"Amazônia Legal: <b>{I.fmt(v_al)}</b>. {acima} dos {len(est_b)} estados mostrados ficam "
+                             f"acima desse valor e {len(est_b) - acima}, abaixo.")
+            explica = ("as barras vão do maior para o menor valor. À esquerda, a cor diz o nível (Brasil, Amazônia Legal "
+                       "ou Grande Região). "
+                       + ("À direita, as linhas verticais marcam a Amazônia Legal e o Brasil: os estados cuja barra passa "
+                          "da linha ficam acima daquele valor." if refs_b else
+                          "Por ser um total, a Amazônia Legal e o Brasil não entram como linha no gráfico dos estados: "
+                          "a escala deles é muito maior.")
+                       + {1: " Neste indicador, maior é melhor.", -1: " Neste indicador, menor é melhor."}.get(
+                           0 if I.magnitude else I.polarity, ""))
+            theme.como_ler(explica, leitura_b)
         st.markdown("---")
 
         # ---- 2. dois territórios frente a frente ---------------------------------------
@@ -2799,18 +2816,18 @@ with T["Relatório"]:
                             if st.checkbox(n_, key=state(f"w_rel_ref_{tipo_ref.get(t_, 'acima')}", True)))
 
         # 3. indicadores
-        theme.title("3. Indicadores", "Por padrão entram todos os indicadores dos eixos escolhidos que existem para "
+        theme.title("3. Indicadores", "Por padrão entram todos os indicadores das dimensões escolhidas que existem para "
                                       f"{'estados' if rlvl == 'Estado' else 'municípios'}.")
         eixos_r = sorted({REG[k].axis for k in D["indicators"] if rlvl in D["meta"][k]["levels"]}, key=ordem_eixo)
-        sel_eixos = st.multiselect("Eixos temáticos", eixos_r, placeholder="Escolha ao menos um eixo",
+        sel_eixos = st.multiselect("Dimensões", eixos_r, placeholder="Escolha ao menos uma dimensão",
                                    key=state("w_rel_eixos", eixos_r, eixos_r))
-        modos_r = ["Todos dos eixos escolhidos", "Escolher um a um"]
+        modos_r = ["Todos das dimensões escolhidas", "Escolher um a um"]
         modo_r = st.radio("Indicadores", modos_r, horizontal=True, key=state("w_rel_modo", modos_r[0], modos_r))
         pool_i = [k for k in sorted(D["indicators"], key=lambda k: ordem_eixo(REG[k].axis))
                   if REG[k].axis in sel_eixos and rlvl in D["meta"][k]["levels"]]
         if modo_r == modos_r[1]:
             inds_r = st.multiselect("Escolha os indicadores", pool_i, placeholder="Nenhum indicador escolhido",
-                                    format_func=lambda k: f"{REG[k].label} · eixo {REG[k].axis.split('.', 1)[0]}",
+                                    format_func=lambda k: f"{REG[k].label} · dimensão {REG[k].axis.split('.', 1)[0]}",
                                     key=state("w_rel_inds", [], pool_i))
         else:
             inds_r = pool_i
@@ -2822,15 +2839,15 @@ with T["Relatório"]:
                          if cols_s[i % 3].checkbox(rot, key=state(f"w_rel_sec_{k}", ligada),
                                                    disabled=k == "mapas" and rlvl != "Estado"))
         if not set(relatorio.FICHA) & set(secoes_r) and "tabela" not in secoes_r:
-            st.warning("Sem texto, gráficos nem tabela, os capítulos dos eixos ficam só com o título.")
+            st.warning("Sem texto, gráficos nem tabela, os capítulos das dimensões ficam só com o título.")
 
         # 5. gerar e baixar
         por_eixo = [n for n in (sum(REG[k].axis == e for k in inds_r) for e in sel_eixos) if n]
         n_pag = relatorio.estimar_paginas(por_eixo, secoes_r, rlvl == "Estado")
         theme.title("5. Gerar o PDF", f"{len(inds_r)} indicador{'es' if len(inds_r) != 1 else ''} em {len(por_eixo)} "
-                                      f"eixo{'s' if len(por_eixo) != 1 else ''} · cerca de {n_pag} página"
+                                      f"{'dimensões' if len(por_eixo) != 1 else 'dimensão'} · cerca de {n_pag} página"
                                       f"{'s' if n_pag != 1 else ''}. Indicadores sem dado para o território ficam "
-                                      "listados ao fim de cada eixo.")
+                                      "listados ao fim de cada dimensão.")
         chave = (rtid, rparte, comp_tids, refs_on, tuple(inds_r), secoes_r, D["manifest"]["versao"])
         g1, g2, _ = st.columns([1, 1.6, 1.4], vertical_alignment="center")
         if g1.button("Gerar relatório", type="primary", icon=":material/description:", disabled=not inds_r,

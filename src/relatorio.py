@@ -63,14 +63,14 @@ MAPAS_EIXO = {
 MAPA_COBERTURA = .8
 # partes do relatório que a pessoa liga e desliga na aba Relatório: chave → (rótulo, ligada por padrão)
 SECOES = {
-    "resumo": ("Resumo: números-chave e balanço dos indicadores por eixo", True),
-    "destaques": ("Pontos fortes e pontos de atenção (no resumo e em cada eixo)", True),
+    "resumo": ("Resumo: números-chave e balanço dos indicadores por dimensão", True),
+    "destaques": ("Pontos fortes e pontos de atenção (no resumo e em cada dimensão)", True),
     "como_ler": ("Quadro \"Como ler este relatório\"", True),
     "texto": ("Texto de leitura de cada indicador", True),
     "evolucao": ("Gráfico da evolução de cada indicador", True),
     "comparacao": ("Gráfico de comparação de cada indicador", True),
-    "tabela": ("Tabela-resumo no início de cada eixo", False),
-    "mapas": ("Mapas dos municípios no fim de cada eixo (relatório de estado)", True),
+    "tabela": ("Tabela-resumo no início de cada dimensão", False),
+    "mapas": ("Mapas dos municípios no fim de cada dimensão (relatório de estado)", True),
     "fontes": ("Fontes dos indicadores", True),
 }
 ANOS_DESTAQUE = 5  # pontos fortes e de atenção só com dado dos últimos 5 anos (fora: séries encerradas, Censo 2010)
@@ -123,8 +123,10 @@ def com_artigo_uf(nome: str, uf: str | None) -> str:
     return f"{art} {nome}" if art else nome
 
 
-def _extenso(n: int) -> str:
-    """'um' a 'dez' por extenso (contagens de eixos no texto); acima disso, o algarismo."""
+def _extenso(n: int, feminino: bool = False) -> str:
+    """'um' a 'dez' por extenso (contagens de dimensões no texto); acima disso, o algarismo."""
+    if feminino and n in (1, 2):
+        return {1: "uma", 2: "duas"}[n]
     return ("zero um dois três quatro cinco seis sete oito nove dez".split()[n] if 0 <= n <= 10 else str(n))
 
 
@@ -830,7 +832,7 @@ class Documento(BaseDocTemplate):
             c.drawRightString(MX + larg, yy, "Página")
             yy -= 4
             itens = [("Resumo", self.sumario.get("resumo"))]
-            itens += [(f"Eixo {s.split(':', 1)[1].split('. ', 1)[0]} · {s.split('. ', 1)[-1]}", pg)
+            itens += [(f"Dimensão {s.split(':', 1)[1].split('. ', 1)[0]} · {s.split('. ', 1)[-1]}", pg)
                       for s, pg in self.sumario.items() if s.startswith("eixo:")]
             itens += [("Fontes dos indicadores", self.sumario.get("fontes"))]
             for nome, pg in itens:
@@ -1011,7 +1013,7 @@ def _como_ler(t: Territorio) -> list:
     ]
     if t.plvl == "Estado" and "mapas" in t.op.secoes:
         itens.append(("Mapas", theme.INK,
-                      f"No fim de cada eixo, até dois mapas mostram como indicadores centrais do tema se distribuem "
+                      f"No fim de cada dimensão, até dois mapas mostram como indicadores centrais do tema se distribuem "
                       f"entre os municípios {t.de_nome}: taxas e médias que o Diagnóstico Quantitativo da Amazônia Legal "
                       f"mapeia por município, no ano mais recente com dado para ao menos {MAPA_COBERTURA:.0%} dos "
                       "municípios. Os demais indicadores municipais podem ser mapeados no painel."))
@@ -1053,8 +1055,8 @@ def _resumo(t: Territorio) -> list:
     # os nove eixos são do Diagnóstico Quantitativo da Amazônia Legal, não do PRDA (cujos eixos são outros)
     n_total = len({REG[k].axis for k in D["indicators"]})
     n_eix = len(t.eixos)
-    eixos_txt = (f"nos {_extenso(n_total)} eixos temáticos" if n_eix == n_total
-                 else f"em {_extenso(n_eix)} dos {_extenso(n_total)} eixos temáticos")
+    eixos_txt = (f"nas {_extenso(n_total, True)} dimensões" if n_eix == n_total
+                 else f"em {_extenso(n_eix, True)} das {_extenso(n_total, True)} dimensões")
     alvo = t.alvo
     texto = (f"Este relatório reúne <b>{len(com)} indicador{'es' if len(com) != 1 else ''}</b> com dados disponíveis "
              f"para <b>{_e(alvo)}</b>, organizados {eixos_txt} do Diagnóstico Quantitativo da Amazônia Legal. "
@@ -1107,7 +1109,7 @@ def _resumo(t: Territorio) -> list:
 
     # balanço por eixo: melhor | pior | sem classificação de desempenho, para a Amazônia Legal e para o Brasil
     sem = _p("Sem classif.", "cabr")
-    cab1 = [_p("Eixo temático", "cab"), _p("Indic. com dado", "cabr"),
+    cab1 = [_p("Dimensão", "cab"), _p("Indic. com dado", "cabr"),
             _p(f"Em relação {_e(_ao(t.comp_nome))}", "cab"), "", "", "",
             _p("Em relação ao Brasil", "cab"), "", "", ""]
     cab2 = ["", "", "", _p("Melhor", "cabr"), _p("Pior", "cabr"), sem, "", _p("Melhor", "cabr"), _p("Pior", "cabr"), sem]
@@ -1140,8 +1142,8 @@ def _resumo(t: Territorio) -> list:
     quem = ("da parte do estado na Amazônia Legal" if t.parte and t.plvl == "Estado"
             else {"Estado": "do estado", "Município": "do município"}.get(t.plvl, "do território"))
     refs_bal = [t.com_art(n) for n in dict.fromkeys([t.comp_nome, "Brasil"]) if n]
-    out += [_p("Balanço dos indicadores por eixo", "h2"),
-            _p(f"Para cada eixo, os indicadores são classificados, quando aplicável, conforme a situação {quem} em "
+    out += [_p("Balanço dos indicadores por dimensão", "h2"),
+            _p(f"Para cada dimensão, os indicadores são classificados, quando aplicável, conforme a situação {quem} em "
                "relação a cada referência: <b>melhor</b>, <b>pior</b> ou <b>sem classificação de desempenho</b>. Esta "
                "última categoria reúne indicadores de magnitude ou sem polaridade definida, além daqueles para os "
                "quais não há valor comparável da referência ou cujo valor é igual ao dela. Todos os indicadores "
@@ -1228,8 +1230,8 @@ def _pontos_eixo(t: Territorio, linhas) -> list:
     fortes, fracos, desde = _pontos(t, linhas, 3)
     onde = _faixas(t)[0]
     if not fortes and not fracos:
-        return [_p(f"Nenhum indicador deste eixo está {onde}, com dado de {desde} em diante.", "pm"), Spacer(1, 4)]
-    return [KeepTogether([_tabela_pontos(t, fortes, fracos, "fn", " do eixo"),
+        return [_p(f"Nenhum indicador desta dimensão está {onde}, com dado de {desde} em diante.", "pm"), Spacer(1, 4)]
+    return [KeepTogether([_tabela_pontos(t, fortes, fracos, "fn", " da dimensão"),
                           _p(f"Até três de cada lado: indicadores com polaridade definida {onde}, com dado de {desde} em "
                              "diante; mesmo critério dos destaques do resumo.", "pm")]), Spacer(1, 6)]
 
@@ -1255,7 +1257,7 @@ def _eixo(t: Territorio, eixo: str) -> list:
     letra = "#FFFFFF" if theme.text_on(cor) == "#FFFFFF" else theme.INK
     n = _num_eixo(eixo)
     titulo = eixo.split(". ", 1)[-1]
-    faixa = Table([[_p(f'<font color="{letra}" size="8"><b>EIXO {n}</b></font>', "p")],
+    faixa = Table([[_p(f'<font color="{letra}" size="8"><b>DIMENSÃO {n}</b></font>', "p")],
                    [_p(f'<font color="{letra}" size="15"><b>{_e(titulo)}</b></font>', "h1")]], colWidths=[LARG])
     faixa.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), C(cor)), ("LEFTPADDING", (0, 0), (-1, -1), 12),
                                ("TOPPADDING", (0, 0), (-1, 0), 9), ("BOTTOMPADDING", (0, -1), (-1, -1), 10),
@@ -1277,7 +1279,7 @@ def _eixo(t: Territorio, eixo: str) -> list:
         return f'<font color="{cor}"><b>{k}</b></font> apresenta{"m" if k != 1 else ""} situação {sit}'
     texto2 = (f"Entre os indicadores com polaridade e referência comparável para {ref}, "
               f"{qtd(m, 'melhor', theme.MELHOR)} e {qtd(pi, 'pior', theme.PIOR)}." if m or pi else
-              f"Nenhum indicador deste eixo tem classificação de desempenho em relação {_e(_ao(t.comp_nome))}.")
+              f"Nenhum indicador desta dimensão tem classificação de desempenho em relação {_e(_ao(t.comp_nome))}.")
     out += [_p(texto1, "p")] + ([Spacer(1, 2), _p(texto2, "p")] if t.comp_nome else []) + [Spacer(1, 4)]
     if "destaques" in t.op.secoes:
         out += _pontos_eixo(t, com + nulos)

@@ -435,22 +435,58 @@ def hbar(df: pd.DataFrame, ind: Indicator, n: int = 10, highlight: str | None = 
     return fig
 
 
-def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int | None = None) -> go.Figure:
-    """df: label, nivel, valor — barras horizontais coloridas por granularidade."""
+ORDEM_NIVEL = {"Brasil": 1, "Amazônia Legal": 2, "Grande Região": 3, "Estado": 4}  # ordem das legendas
+
+
+def benchmark(df: pd.DataFrame, ind: Indicator, log: bool = False, height: int | None = None,
+              refs: list[tuple[str, float]] | None = None) -> go.Figure:
+    """df: label, nivel, valor — barras horizontais coloridas por granularidade. refs: (nível, valor) desenhados como
+    linhas verticais de referência atrás das barras (ex.: Amazônia Legal e Brasil no gráfico dos estados)."""
     d = df.sort_values("valor")
     d = d.assign(_t=ind.fmt_col(d.valor))  # rótulos na mesma escala em todas as barras
+    niveis = list(dict.fromkeys(d.nivel))
     fig = go.Figure()
     for nivel, g in d.groupby("nivel", sort=False):
         fig.add_trace(go.Bar(
             x=g.valor, y=g.label, orientation="h", name=nivel, marker=dict(color=LEVEL_COLOR.get(nivel, MUTED),
                                                                           cornerradius=3),
-            text=g._t, textposition="outside", cliponaxis=False,
+            text=g._t, textposition="outside", cliponaxis=False, showlegend=len(niveis) > 1,
+            legendrank=ORDEM_NIVEL.get(nivel, 9),
             hovertemplate="%{y} · " + nivel + "<br><b>%{text}</b><extra></extra>"))
-    fig.update_layout(height=height or max(360, 22 * len(d) + 80), barmode="overlay",
-                      margin=dict(l=0, r=70, t=34, b=6),
-                      legend=dict(orientation="h", x=0, y=1, yanchor="bottom", title_text="Nível:", traceorder="reversed"))
+    # linhas de referência: sólidas, atrás das barras (os números das barras ficam legíveis) e com o nome escrito no
+    # topo, na cor do nível; dois nomes próximos vão em alturas diferentes para não se sobreporem
+    vals = [float(v) for v in d.valor if not fmt.isna(v)]
+    pos = lambda v: math.log10(v) if log else v  # noqa: E731 — num eixo log, anotações usam o log10 (formas não)
+    refs_ok = [(n, float(v)) for n, v in refs or [] if v is not None and not fmt.isna(v) and (v > 0 or not log)]
+    if refs_ok and vals:
+        todos = vals + [v for _, v in refs_ok]
+        lo = pos(min(v for v in todos if v > 0)) if log else min(0.0, min(todos))
+        hi = pos(max(todos))
+        larg = (hi - lo) or 1.0
+        # pontos invisíveis no valor de cada referência, para a escala do eixo incluir a linha
+        fig.add_trace(go.Scatter(x=[v for _, v in refs_ok], y=[d.label.iloc[-1]] * len(refs_ok), mode="markers",
+                                 marker=dict(opacity=0), showlegend=False, hoverinfo="skip"))
+        ordem = sorted(refs_ok, key=lambda r: r[1])
+        linha_ant = None
+        for nome, v in ordem:
+            cor = LEVEL_COLOR.get(nome, MUTED)
+            fig.add_shape(type="line", xref="x", yref="paper", x0=v, x1=v, y0=0, y1=1, layer="below",
+                          line=dict(color=cor, width=2))
+            perto = linha_ant is not None and (pos(v) - linha_ant[0]) / larg < 0.3 and linha_ant[1] == 0
+            nivel_txt = 1 if perto else 0
+            fig.add_annotation(x=pos(v), xref="x", y=1, yref="paper", yanchor="bottom", yshift=2 + 17 * nivel_txt,
+                               text=f"<b>{nome}</b> {ind.fmt(v)}", showarrow=False, font=dict(size=11, color=cor),
+                               xanchor="center", bgcolor="rgba(0,0,0,0)")
+            linha_ant = (pos(v), nivel_txt)
+    n_linhas_txt = 2 if refs_ok and len(refs_ok) > 1 else 1 if refs_ok else 0
+    topo = 34 if len(niveis) > 1 else 6 + 18 * n_linhas_txt
+    fig.update_layout(height=height or max(300, 22 * len(d) + topo + 46), barmode="overlay",
+                      margin=dict(l=0, r=70, t=topo, b=6),
+                      legend=dict(orientation="h", x=0, y=1, yanchor="bottom", traceorder="normal",
+                                  title_text="Nível:" if len(niveis) > 1 else ""))
     fig.update_xaxes(type="log" if log else "linear", visible=False)
-    fig.update_yaxes(categoryorder="array", categoryarray=list(d.label), tickfont=dict(size=11))
+    fig.update_layout(yaxis=dict(categoryorder="array", categoryarray=list(d.label), tickfont=dict(size=11),
+                                 automargin=True))
     return fig
 
 
