@@ -185,12 +185,12 @@ with st.sidebar:
     if "ind" in show:
         grupo(1, "O que medir", "O indicador e o ano mostrados em todos os gráficos desta aba.")
     eixos = sorted({REG[k].axis for k in D["indicators"]})
-    k = state("w_eixo", "Todos os eixos", ["Todos os eixos", *eixos])
-    eixo = (st.selectbox("Eixo temático", ["Todos os eixos", *eixos], key=k,
+    k = state("w_eixo", "Todas as dimensões", ["Todas as dimensões", *eixos])
+    eixo = (st.selectbox("Dimensão", ["Todas as dimensões", *eixos], key=k,
                          help="Só encurta a lista de indicadores abaixo; não filtra os gráficos.")
             if "ind" in show else st.session_state[k])
-    # em "Todos os eixos" a lista segue a ordem dos eixos (1 a 9), mantendo a ordem da configuração dentro de cada um
-    pool = sorted((k for k in D["indicators"] if eixo == "Todos os eixos" or REG[k].axis == eixo),
+    # em "Todas as dimensões" a lista segue a ordem dos eixos (1 a 9), mantendo a ordem da configuração dentro de cada um
+    pool = sorted((k for k in D["indicators"] if eixo == "Todas as dimensões" or REG[k].axis == eixo),
                   key=lambda k: REG[k].axis)
     k = state("w_ind", pool[0], pool)
     IND = (st.selectbox("Indicador", pool, format_func=lambda k: REG[k].label, key=k,
@@ -455,22 +455,22 @@ def grid(keys: list[str], n: int = 4):
         yield from zip(st.columns(n), keys[i:i + n])
 
 
-def escolhe_eixo(key: str, rotulo: str = "Eixo temático", todos: bool = False, container=st) -> str:
+def escolhe_eixo(key: str, rotulo: str = "Dimensão", todos: bool = False, container=st) -> str:
     """Seletor de eixo para as seções que listam vários indicadores (com mais de 200 indicadores, mostrar todos de
     uma vez fica lento e longo demais). Começa no eixo do indicador escolhido na barra lateral."""
-    ops = (["Todos os eixos"] if todos else []) + eixos
+    ops = (["Todas as dimensões"] if todos else []) + eixos
     # acompanha o indicador da barra lateral: quando ele muda, o seletor volta para o eixo dele
     marca = f"_ind_de_{key}"
     if st.session_state.get(marca) != IND:
         st.session_state[key] = REG[IND].axis
         st.session_state[marca] = IND
     return container.selectbox(rotulo, ops, key=state(key, REG[IND].axis, ops),
-                               format_func=lambda e: e if e == "Todos os eixos" else
+                               format_func=lambda e: e if e == "Todas as dimensões" else
                                f"{e} ({sum(REG[k].axis == e for k in D['indicators'])})")
 
 
 def do_eixo(eixo_nome: str) -> list[str]:
-    return [k for k in D["indicators"] if eixo_nome == "Todos os eixos" or REG[k].axis == eixo_nome]
+    return [k for k in D["indicators"] if eixo_nome == "Todas as dimensões" or REG[k].axis == eixo_nome]
 
 
 def extremos_txt(df: pd.DataFrame, ik=None, nome: str = "") -> str:
@@ -990,9 +990,9 @@ with T["Visão Geral"]:
                     plot(charts.hbar(st_df, I, 15, height=360), "ov_states")
 
         st.markdown("---")
-        theme.title("Indicadores na Amazônia Legal, por eixo temático",
-                    "Clique em um eixo para ver o valor de cada indicador no último ano com dado e a evolução desde o "
-                    "primeiro ano. O eixo do indicador escolhido já vem aberto e o cartão dele tem borda; com três anos ou "
+        theme.title("Indicadores na Amazônia Legal, por dimensão",
+                    "Clique em uma dimensão para ver o valor de cada indicador no último ano com dado e a evolução desde o "
+                    "primeiro ano. A dimensão do indicador escolhido já vem aberta e o cartão dele tem borda; com três anos ou "
                     "mais com dado o cartão mostra a linha, com dois mostra duas barras.", fixo=True)
         for n, eixo_nome in enumerate(eixos):
             ks = do_eixo(eixo_nome)
@@ -1297,12 +1297,12 @@ with T["Perfil do Território"]:
 
         with S["Resumo"]:
             if S["Resumo"].open:
-                theme.title(f"{sel}: todos os indicadores {ANO_TXT}, por eixo temático",
-                            "Clique em um eixo para abrir os indicadores dele: os cartões mostram o valor, "
+                theme.title(f"{sel}: todos os indicadores {ANO_TXT}, por dimensão",
+                            "Clique em uma dimensão para abrir os indicadores dela: os cartões mostram o valor, "
                             + (f"a posição entre os {rank_grp[plvl]} no mesmo ano (1º = melhor situação; '=' indica "
                                "empate) " if plvl in rank_grp else "")
                             + "e a variação desde o primeiro ano com dado (verde = melhora, vermelho = piora); a tabela "
-                              "logo abaixo compara com as referências. O eixo do indicador escolhido já vem aberto e o "
+                              "logo abaixo compara com as referências. A dimensão do indicador escolhido já vem aberta e o "
                               "cartão dele tem borda.")
                 comp_nome = None
                 for n, eixo_nome in enumerate(eixos):
@@ -2092,7 +2092,7 @@ with T["Séries Temporais"]:
             c_t, c_b = st.columns([2, 1], vertical_alignment="bottom", gap="medium")
             alvo = c_t.selectbox("Ver todos os indicadores de", opts_t, format_func=nomes.get,
                                  key=state("w_ts_perfil", AMZ if AMZ in opts_t else opts_t[0], opts_t),
-                                 help="Abre o Perfil do Território com os indicadores de todos os eixos, a posição entre os "
+                                 help="Abre o Perfil do Território com os indicadores de todas as dimensões, a posição entre os "
                                       "pares e a evolução do território escolhido.")
             c_b.button("Abrir no Perfil do Território →", on_click=abrir_por_tid, args=(alvo, "Séries Temporais"),
                        key="ts_abrir_perfil", width="stretch")
@@ -2245,7 +2245,7 @@ with T["Comparações"]:
                     'detalhada. <b>1</b> onde a Amazônia Legal está entre Brasil, regiões e estados · <b>2</b> dois '
                     'territórios frente a frente · <b>3</b> como os municípios de cada estado diferem entre si · '
                     '<b>4</b> um grupo de municípios (ex.: municípios da faixa de fronteira) frente aos demais · <b>5</b> quais '
-                    'indicadores de um eixo andam juntos · <b>6</b> um par de indicadores em detalhe.</div>',
+                    'indicadores de uma dimensão andam juntos · <b>6</b> um par de indicadores em detalhe.</div>',
                     unsafe_allow_html=True)
 
         # ---- 1. onde a Amazônia Legal está -------------------------------------------
@@ -2301,7 +2301,7 @@ with T["Comparações"]:
         # ---- 2. dois territórios frente a frente ---------------------------------------
         theme.title("2 · Dois territórios, frente a frente",
                     "Escolha A e B, de qualquer nível (não seguem os filtros de território), e compare todos os "
-                    "indicadores de um eixo. "
+                    "indicadores de uma dimensão. "
                     + ("Cada indicador no seu ano mais recente (coluna Ano)." if RECENTE else f"Valores de {YEAR}."),
                     fixo=True)
         fa, fb = st.columns(2)
@@ -2314,7 +2314,7 @@ with T["Comparações"]:
                 lab = st.selectbox(f"Território {name}", opts,
                                    key=state(f"w_ff_t{name}", defu if defu in opts else opts[0], opts))
                 picks.append((lab, tt[tt.label == lab].tid.iloc[0]))
-        eixo_ff = escolhe_eixo("w_ff_eixo", "Indicadores do eixo", todos=True)
+        eixo_ff = escolhe_eixo("w_ff_eixo", "Indicadores da dimensão", todos=True)
         rows, cores_ff = [], []
         for k in do_eixo(eixo_ff):
             ik = REG[k]
@@ -2341,7 +2341,7 @@ with T["Comparações"]:
         n_pio = sum(c.startswith(f"color:{theme.PIOR}") for c in cores_ff)
         theme.como_ler("para totais e taxas, A × B diz quantas vezes A é maior que B (2,00× = o dobro); para proporções "
                        "e índices, a diferença entre os dois. Verde quando A está em situação melhor e vermelho quando pior.",
-                       f"Nos indicadores comparáveis deste eixo, <b>{picks[0][0]}</b> está melhor em <b>{n_mel}</b> e "
+                       f"Nos indicadores comparáveis desta dimensão, <b>{picks[0][0]}</b> está melhor em <b>{n_mel}</b> e "
                        f"pior em <b>{n_pio}</b> em relação a <b>{picks[1][0]}</b>." if n_mel + n_pio else "")
         # medida do gráfico (índice ou valor) e rótulos nos pontos, como na Visão Geral
         f_med, f_rot = st.columns([1.6, 1], vertical_alignment="center")
@@ -2415,7 +2415,7 @@ with T["Comparações"]:
         # ---- 4. um grupo de municípios frente aos demais ---------------------------------
         theme.title("4 · Um grupo de municípios frente aos demais",
                     "Compara os municípios de um grupo (municípios da faixa de fronteira, sedes de região imediata, tipologia PNDR, "
-                    "porte…) com os demais municípios do recorte, em todos os indicadores de um eixo. Territórios "
+                    "porte…) com os demais municípios do recorte, em todos os indicadores de uma dimensão. Territórios "
                     "seguem os filtros; cada indicador "
                     + ("no seu ano mais recente." if RECENTE else f"no ano mais recente até {YEAR}."))
         carac = D["carac"]
@@ -2432,7 +2432,7 @@ with T["Comparações"]:
             st.info("A base não traz a caracterização dos municípios para formar os grupos.")
         else:
             g1, g2, g3 = st.columns(3)
-            eixo_g = escolhe_eixo("w_gr_eixo", "Indicadores do eixo", container=g1)
+            eixo_g = escolhe_eixo("w_gr_eixo", "Indicadores da dimensão", container=g1)
             nome_g = g2.selectbox("Grupo de municípios", list(grupos_cmp),
                                   key=state("w_gr_nome", next(iter(grupos_cmp)), list(grupos_cmp)),
                                   help="Municípios da faixa de fronteira: municípios com área total ou parcial a até 150 km da "
@@ -2478,7 +2478,7 @@ with T["Comparações"]:
                     res.append({"k": k, "ano": ys[-1], "como": como, "a": a, "b": b, "chance": chance * 100,
                                 "sentido": sentido})
                 if not res:
-                    st.info("Nenhum indicador deste eixo tem dado municipal suficiente para comparar os dois grupos.")
+                    st.info("Nenhum indicador desta dimensão tem dado municipal suficiente para comparar os dois grupos.")
                 else:
                     # diferenças consistentes primeiro (maiores, depois menores), das mais fortes às mais fracas
                     res.sort(key=lambda r: ({1: 0, -1: 1, 0: 2}[r["sentido"]], -abs(r["chance"] - 50)))
@@ -2544,18 +2544,18 @@ with T["Comparações"]:
         st.markdown("---")
 
         # ---- 5. quais indicadores do eixo andam juntos (matriz de correlação) -------------
-        theme.title("5 · Quais indicadores do eixo andam juntos?",
-                    "Correlação de Spearman entre os indicadores de um eixo, calculada com os municípios do recorte: "
+        theme.title("5 · Quais indicadores da dimensão andam juntos?",
+                    "Correlação de Spearman entre os indicadores de uma dimensão, calculada com os municípios do recorte: "
                     "mostra de uma vez os pares que sobem juntos, os que andam em sentidos opostos e os sem relação. "
                     "Territórios seguem os filtros; cada indicador entra no seu ano mais recente, informado na nota "
                     "abaixo da matriz.")
-        eixo_m = escolhe_eixo("w_cm_eixo", "Indicadores do eixo", container=st.columns([2, 1])[0])
+        eixo_m = escolhe_eixo("w_cm_eixo", "Indicadores da dimensão", container=st.columns([2, 1])[0])
         Dc = base_municipal(do_eixo(eixo_m))
         anos_c = anos_municipais(Dc)
         cand = [k for k in do_eixo(eixo_m) if anos_c.get(k)]
         univ_c = universo_mun(Dc, anos_c) if D["pop_col"] else pd.Index([])
         if len(cand) < 2 or not D["pop_col"]:
-            st.info("Este eixo tem menos de dois indicadores com dado municipal.")
+            st.info("Esta dimensão tem menos de dois indicadores com dado municipal.")
         elif len(univ_c) < MIN_PAR:
             st.info(f"A matriz compara municípios e precisa de pelo menos {MIN_PAR} no recorte para calcular cada "
                     f"correlação; com os filtros atuais, há só {escopo('Município', len(univ_c))}. Amplie "
@@ -2603,7 +2603,7 @@ with T["Comparações"]:
                 help=f"Até {MAX_MATRIZ} indicadores. Ficam de fora os que têm dado em menos de "
                      f"{fmt.num(COBERTURA_MATRIZ * 100, 0)}% dos municípios do recorte. População e área começam "
                      "fora: são a base da densidade e dos valores por habitante. Também começam fora os indicadores "
-                     "que, divididos pela população, repetem outro do eixo (correlação de 0,95 ou mais).")
+                     "que, divididos pela população, repetem outro da dimensão (correlação de 0,95 ou mais).")
             for k, linha in info_c.items():
                 if k in sel:
                     linha["Situação"] = "na matriz"
@@ -2907,9 +2907,9 @@ with T["Sobre o Painel"]:
         with s2:
             st.markdown("### Disponibilidade dos dados")
             # a base só guarda células com valor: a cobertura é o nº de municípios com dado ÷ total de municípios
-            eixo_sb = escolhe_eixo("w_sb_eixo", "Eixo mostrado na disponibilidade e nas fichas", todos=True)
+            eixo_sb = escolhe_eixo("w_sb_eixo", "Dimensão mostrada na disponibilidade e nas fichas", todos=True)
             ks = do_eixo(eixo_sb)
-            if eixo_sb != "Todos os eixos":
+            if eixo_sb != "Todas as dimensões":
                 st.caption("Indicadores com dado só por estado aparecem em branco: a cobertura é contada nos municípios.")
             cov = (L[(L.nivel == "Município") & L.ind.isin(ks)]
                    .groupby(["ind", "ano"], observed=True).size().div(D["n_mun"]).mul(100).unstack("ano")
@@ -2942,7 +2942,7 @@ with T["Sobre o Painel"]:
                     st.markdown(f"*Recorte mostrado no painel:* **{m['category']}** (a ficha {m['ref']} reúne outras "
                                 "categorias na planilha).")
                 st.markdown(
-                    f"- **Eixo:** {m['axis']}\n- **Tema:** {m['theme']} · {m['subtheme']}\n"
+                    f"- **Dimensão:** {m['axis']}\n- **Tema:** {m['theme']} · {m['subtheme']}\n"
                     f"- **Fonte:** {m['source']} ([{m['table']}]({m['link']}))\n"
                     + (f"- **Fórmula:** {m['formula']}\n" if m.get("formula") else "") +
                     f"- **Periodicidade / série:** {m['periodicity']} · {m['series']}\n"
@@ -2965,7 +2965,7 @@ if BOTAO_PADRAO is not None:
     BOTAO_PADRAO.button("Voltar ao padrão", on_click=limpar_filtros, key="limpar_filtros", disabled=not fora,
                         icon=":material/restart_alt:", width="stretch",
                         help=("Volta os filtros da barra lateral e as opções desta aba (níveis, escalas, ordem, "
-                              "territórios, medidas…) ao modo inicial. O indicador e o eixo escolhidos ficam."
+                              "territórios, medidas…) ao modo inicial. O indicador e a dimensão escolhidos ficam."
                               + (f" Há {len(fora)} ajuste(s) fora do padrão agora." if fora else " Nada foi alterado.")))
 
 theme.footer()

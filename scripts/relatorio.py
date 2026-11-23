@@ -43,7 +43,7 @@ def main():
     ap.add_argument("-o", "--saida")
     ap.add_argument("--parte", action="store_true", help="estado só em parte na Amazônia Legal: usa a parcela na região")
     ap.add_argument("--comparar", default=None, help="um território do mesmo tipo para comparar (ex.: outra UF)")
-    ap.add_argument("--eixos", nargs="*", type=int, default=[], help="números dos eixos (padrão: todos)")
+    ap.add_argument("--eixos", nargs="*", type=int, default=[], help="números das dimensões (padrão: todas)")
     ap.add_argument("--tabela", action="store_true", help="inclui a tabela-resumo no início de cada eixo")
     a = ap.parse_args()
     D = data.load()
