@@ -88,6 +88,7 @@ class Indicator:
     magnitude: bool = False  # leitura de magnitude, sem desempenho: os totais e as contagens/participações marcadas com
     #                          `leitura = "magnitude"` (rotas, participação no total do país), que não se comparam
     #                          com as referências como uma taxa
+    sparse: bool = False     # a fonte só lista quem tem registro (`vazio_zero`): a maioria dos municípios vale zero
 
     def ano(self, y) -> str:
         """Ano como exibido: o número, ou o rótulo do ano parcial ("set./2026")."""
@@ -185,7 +186,8 @@ def make_indicator(f: dict) -> Indicator:
     return Indicator(f["id"], d["label"], d["unit"], d["format"], d["decimals"], d["scale"], d["additive"],
                      d["log"], d["polarity"], f["axis"], d["icon"], f.get("aggregationApplied", ""),
                      tuple(sorted((int(a), t) for a, t in d.get("yearLabels", {}).items())),
-                     d.get("noChange", ""), d.get("caveat", ""), bool(d.get("magnitude", d["additive"])))
+                     d.get("noChange", ""), d.get("caveat", ""), bool(d.get("magnitude", d["additive"])),
+                     bool(d.get("sparse", False)))
 
 
 # --------------------------------------------------------------------------- #

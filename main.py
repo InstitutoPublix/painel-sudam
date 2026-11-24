@@ -949,7 +949,7 @@ with T["Visão Geral"]:
                         st.info("O indicador tem um ano só: não há mudança para mostrar.")
                     else:
                         st.info("Este indicador não tem dado por estado: a série é só do Brasil.")
-                elif len(muni) > 10 and muni.uf.nunique() > 1:
+                elif len(muni) > 10 and muni.uf.nunique() > 1 and not (I.sparse and not I.additive):
                     medida_uf = charts.tipico_por_uf(muni, I)
                     theme.title({"mediana": f"{I.label}: município típico de cada UF",
                                  "media": f"{I.label}: % dos municípios de cada UF",
@@ -988,6 +988,10 @@ with T["Visão Geral"]:
                                 f"{YEAR} · " + (f"15 maiores entre os {escopo('Estado', len(st_df))}" if len(st_df) > 15
                                                 else escopo("Estado", len(st_df))))
                     plot(charts.hbar(st_df, I, 15, height=360), "ov_states")
+                    if I.sparse and not I.additive and len(muni) > 10:
+                        st.caption("Comparação pelo valor de cada estado: a fonte só registra os municípios com ocorrência, "
+                                   "e na maioria deles o valor é zero, então o \"município típico\" de cada UF seria "
+                                   "zero e não diferenciaria os estados.")
 
         st.markdown("---")
         theme.title("Indicadores na Amazônia Legal, por dimensão",

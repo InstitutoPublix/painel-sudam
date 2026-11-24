@@ -58,6 +58,8 @@
 #   descartar    valores sabidamente errados na planilha, que saem antes de qualquer agregação; lista de tabelas com
 #                `anos` e `motivo` (obrigatórios) e, para restringir, `nivel` ("Município", "Estado", "Grande Região" ou
 #                "Brasil"), `uf` e `cod`. O motivo aparece na ficha do indicador (Sobre o Painel)
+#   vazio_zero   true quando a fonte só lista os territórios com registro (ex.: casos de malária): nos anos com dado,
+#                município e estado sem valor na planilha valem zero (entram nas medianas, nos mapas e na Amazônia Legal)
 #   agregacao = "soma_estados"  a Amazônia Legal é a soma dos estados dela (quando o dado municipal é parcial)
 #   agregacao = "taxa_censo"    taxa de crescimento 2010–2022 da Amazônia Legal, recalculada com a população dos Censos
 
@@ -1792,6 +1794,7 @@ categoria = "casos autóctones"
 unidade = "Nº de casos"
 agregacao = "soma"
 cobertura_minima = 0
+vazio_zero = true
 nota_agregacao = "soma dos municípios; município sem caso fica vazio na planilha e conta como zero"
 
 [[indicador]]
@@ -1804,7 +1807,8 @@ agregacao = "razao_totais"
 numerador = "IND-197-casos"
 peso = "IND-001"
 fator = 1000
-nota_agregacao = "casos dos municípios ÷ população dos municípios × 1.000, como manda a ficha"
+vazio_zero = true
+nota_agregacao = "casos dos municípios ÷ população dos municípios × 1.000, como manda a ficha; município sem caso tem IPA zero"
 
 [[indicador]]
 id = "IND-198"

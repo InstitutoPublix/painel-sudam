@@ -199,6 +199,9 @@ def display_spec(item: dict, ficha: dict, rule: str) -> dict:
         "yearLabels": {str(a): str(t) for a, t in item.get("rotulo_ano", {}).items()},
         "noChange": item.get("sem_variacao", ""),
         "caveat": item.get("ressalva", ""),
+        # a fonte só lista quem tem registro (`vazio_zero`): a maioria dos municípios vale zero e o "município típico"
+        # de cada UF não diz nada; a comparação entre UFs usa o valor de cada estado
+        "sparse": bool(item.get("vazio_zero")),
         # leitura de magnitude: contagens e participações que não se comparam com as referências como taxas (ex.: rotas
         # do estado × rotas da região; participação do estado × Brasil = 100%); sem desempenho, como os totais
         "magnitude": somavel or item.get("leitura") == "magnitude",
@@ -666,6 +669,17 @@ def main():
     est["uf"] = est.cod.map(code2uf)
     est["al"] = est.uf.isin(al_ufs)
     est["regiao"] = (est.cod // 10).map(REGIONS)
+    # `vazio_zero`: a fonte só lista os territórios com registro (ex.: casos de malária), então, nos anos em que o
+    # indicador tem dado, município e estado sem valor valem zero. Vem antes do `descartar`, que continua apagando o que
+    # é sabidamente errado (um valor descartado não vira zero)
+    for it in items:
+        i = it["chave"]
+        if not it.get("vazio_zero") or i not in rules:
+            continue
+        for df in (mun, est):
+            if i in df:
+                anos = df.loc[df[i].notna(), "ano"].unique()
+                df.loc[df.ano.isin(anos) & df[i].isna(), i] = 0.0
     # valores sabidamente errados na planilha (`descartar`): saem antes de qualquer agregação, e o motivo vai para a ficha
     niveis = {"Município": mun, "Estado": est, "Grande Região": reg, "Brasil": bra}
     for it in items:
